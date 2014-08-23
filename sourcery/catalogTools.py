@@ -172,7 +172,7 @@ def addSDSSRedshifts(catalog, cacheDir = "SDSSQueryResults"):
                         zDict['decDeg']=float(bits[2])
                     except:
                         if len(lines) > 1 and lines[1].find('"ERROR: Maximum 60 queries allowed per minute. Rejected query: SELECT') != -1:
-                            raise Exception, "Exceeded 60 queries/min on SDSS server. Take a breather and rerun nemo (previous queries cached)."
+                            raise Exception, "Exceeded 60 queries/min on SDSS server. Take a breather and rerun (previous queries cached)."
                         else:
                             print "Hmm. Not able to parse SDSS redshifts"
                             IPython.embed()

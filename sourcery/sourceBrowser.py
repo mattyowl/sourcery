@@ -48,7 +48,11 @@ class SourceBrowser(object):
         # Parse config file
         self.parseConfig(configFileName)
         
-        self.skyviewPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"skyview.jar"
+        if 'skyviewPath' in self.configDict.keys():
+            self.skyviewPath=self.configDict['skyviewPath']
+        else:
+            # Default - if we have run the sourcery_fetch_skyview script
+            self.skyviewPath=os.environ['HOME']+os.path.sep+".sourcery"+os.path.sep+"skyview.jar"
 
         # Parse catalog
         self.tab=atpy.Table(self.configDict['catalogFileName'])

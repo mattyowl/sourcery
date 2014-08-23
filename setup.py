@@ -16,7 +16,7 @@ setup(name='sourcery',
       long_description="""Web-based astronomical source list browser and manager.""",
       packages=['sourcery'],
       package_data={'sourcery': ['data/*']},
-      scripts=['bin/sourcery_build_cache', 'bin/sourcery_test'],
+      scripts=['bin/sourcery_build_cache', 'bin/sourcery_test', 'bin/sourcery_fetch_skyview'],
       #cmdclass={'build_ext': build_ext},
       #ext_modules=[Extension("nemoCython", ["nemo/nemoCython.pyx"])]
 )
