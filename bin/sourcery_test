@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+
+"""
+
+    Copyright 2014 Matt Hilton (matt.hilton@mykolab.com)
+    
+    This file is part of Sourcery.
+
+    Sourcery is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    sourcery is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sourcery.  If not, see <http://www.gnu.org/licenses/>.
+
+"""
+
+import os
+import sys
+import numpy
+import urllib
+#os.environ['MPLCONFIGDIR'] = "/home/matty/matplotlib"
+import matplotlib
+import matplotlib.cbook
+matplotlib.use("Agg")
+import pylab
+import cherrypy
+from sourcery.sourceBrowser import SourceBrowser
+import atexit
+
+cherrypy.config.update({'environment': 'embedded', 'request.show_tracebacks': True,
+                        'tools.sessions.on': True,
+                        'tools.sessions.name': 'sourcery_id',
+                        'tools.sessions.clean_thread': True,
+                        'log.error_file': 'error.log',
+                       })
+
+if cherrypy.__version__.startswith('3.0') and cherrypy.engine.state == 0:
+    cherrypy.engine.start(blocking=False)
+    atexit.register(cherrypy.engine.stop)
+
+if len(sys.argv) < 2:
+    print "Run: % sourcery_test <sourcery.config>"
+else:
+    configFileName=sys.argv[1].replace("\n", "")
+    print "Point your browser at http://localhost:8080"
+    cherrypy.quickstart(SourceBrowser(configFileName, preprocess = False))
+    
