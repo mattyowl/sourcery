@@ -100,7 +100,8 @@ def addSDSSRedshifts(catalog, cacheDir = "SDSSQueryResults"):
     
     print ">>> Adding spec zs from SDSS ..."
     #url = 'http://cas.sdss.org/astrodr7/en/tools/search/x_sql.asp'
-    url = 'http://skyserver.sdss3.org/dr10/en/tools/search/x_sql.aspx'
+    #url = 'http://skyserver.sdss3.org/dr10/en/tools/search/x_sql.aspx'
+    url = 'http://skyserver.sdss.org/dr12/en/tools/search/x_sql.aspx'
 
     if os.path.exists(cacheDir) == False:
         os.makedirs(cacheDir)

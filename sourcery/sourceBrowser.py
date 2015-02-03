@@ -106,11 +106,11 @@ class SourceBrowser(object):
         if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
             label="SDSS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR8 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR10 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR8 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
         for label in self.configDict['skyviewLabels']:
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR10 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
+            self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
        
         # Pre-processing? 
         # We can run this on the webserver by going to localhost:8080/preprocess
