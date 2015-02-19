@@ -26,7 +26,7 @@ import urllib
 import urllib2
 from astLib import *
 import pyfits
-import numpy
+import numpy as np
 import pylab
 import catalogTools
 import sourcery
@@ -37,6 +37,8 @@ from PIL import Image
 import copy
 import StringIO
 import tempfile
+import pymongo
+from bson.son import SON
 import cherrypy
 import IPython
  
@@ -76,17 +78,80 @@ class SourceBrowser(object):
         if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
             self.tab.add_column('NED_name', ['_______________']*len(self.tab))
             self.tab['NED_name']=None
-            self.tab.add_column('NED_z', [numpy.nan]*len(self.tab))
-            self.tab.add_column('NED_distArcmin', [numpy.nan]*len(self.tab))
-            self.tab.add_column('NED_RADeg', [numpy.nan]*len(self.tab))
-            self.tab.add_column('NED_decDeg', [numpy.nan]*len(self.tab))
+            self.tab.add_column('NED_z', [np.nan]*len(self.tab))
+            self.tab.add_column('NED_distArcmin', [np.nan]*len(self.tab))
+            self.tab.add_column('NED_RADeg', [np.nan]*len(self.tab))
+            self.tab.add_column('NED_decDeg', [np.nan]*len(self.tab))
             self.tableDisplayColumns=self.tableDisplayColumns+["NED_name", "NED_z"]
             self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["NED Name", "NED z"]
             self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s", "%.3f"]
             self.sourceDisplayColumns=self.sourceDisplayColumns+["NED_name", "NED_z", "NED_RADeg", "NED_decDeg", "NED_distArcmin"]
             #self.sourceDisplayColumnLabels=self.sourceDisplayColumnLabels+["NED Name", "NED z", "NED R.A. (degrees)", "NED Dec. (degrees)", "Distance to NED object (arcmin)"]
             #self.sourceDisplayColumnFormats=self.sourceDisplayColumnFormats+["%s", "%.3f", "%.6f", "%.6f", "%.1f"]
-
+            
+        # Support for tagging, classification etc. of candidates
+        # We have three things here:
+        #   tags: these work as flag columns - eventually, users can add any tag, we can then search for objects matching that tag
+        #   classification: what kind of object is in the catalog? List of types defined in config file
+        #   fields: these are editable, used to, e.g., assign a redshift and source
+        # We create empty entries in the MongoDB and corresponding database columns if we cannot find an existing entry
+        # First though, add the relevant columns to the atpy table
+        if 'classifications' in self.configDict.keys():
+            maxLen=0
+            for c in self.configDict['classifications']:
+                if len(c) > maxLen:
+                    maxLen=len(c)
+            self.tab.add_column('classification', np.zeros(len(self.tab), dtype = 'S%d' % (maxLen)))
+            self.sourceDisplayColumns=self.sourceDisplayColumns+["classification"]
+            self.tableDisplayColumns=self.tableDisplayColumns+["classification"]
+            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["Class"]
+            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
+        if 'tags' in self.configDict.keys():
+            for t in self.configDict['tags']:
+                self.tab.add_column(t, np.zeros(len(self.tab), dtype = bool))
+            self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['tags']
+        if 'fields' in self.configDict.keys():
+            formatsList=[]
+            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
+                if t == 'number':
+                    self.tab.add_column(f, np.zeros(len(self.tab), dtype = float))
+                    formatsList.append('%.3f')
+                elif t == 'text':
+                    self.tab.add_column(f, np.zeros(len(self.tab), dtype = 'S15'))
+                    formatsList.append('%s')
+            self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['fields']
+            self.tableDisplayColumns=self.tableDisplayColumns+self.configDict['fields']
+            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+self.configDict['fields']
+            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+formatsList
+            
+        # MongoDB set up
+        self.dbName=self.configDict['MongoDBName']
+        self.client=pymongo.MongoClient('localhost', 27017)
+        self.db=self.client[self.dbName]
+        self.collection=self.db['tagsCollection']
+        self.collection.ensure_index([('loc', pymongo.GEOSPHERE)])
+        for i in range(len(self.tab)):
+            row=self.tab[i]
+            # This query fetches everything within max distance sorted min distance first
+            # We use MongoDB legacy coordinates, because then we get results in radians rather than metres
+            # So we need to also store coords in radians
+            matches=self.collection.find({'loc': SON({'$nearSphere': [np.radians(row['RADeg']), np.radians(row['decDeg'])], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+            if matches.count() == 0:
+                newPost={'loc': {'type': 'Point', 'coordinates': [np.radians(row['RADeg']), np.radians(row['decDeg'])]}}
+                self.collection.insert(newPost)
+            else:
+                mongoDict=matches.next()
+                if 'classification' in mongoDict.keys():
+                    row['classification']=mongoDict['classification']
+                if 'tags' in self.configDict.keys():
+                    for t in self.configDict['tags']:
+                        if t in mongoDict.keys():
+                            row[t]=mongoDict[t]
+                if 'fields' in self.configDict.keys():
+                    for f in self.configDict['fields']:
+                        if f in mongoDict.keys():
+                            row[f]=mongoDict[f]
+        
         # Set up storage dirs
         self.cacheDir=self.configDict['cacheDir']
         self.skyCacheDir=self.configDict['skyviewCacheDir']
@@ -108,9 +173,10 @@ class SourceBrowser(object):
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR8 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
-        for label in self.configDict['skyviewLabels']:
-            self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
+        if 'skyviewLabels' in self.configDict.keys():
+            for label in self.configDict['skyviewLabels']:
+                self.imageLabels.append(label)
+                self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
        
         # Pre-processing? 
         # We can run this on the webserver by going to localhost:8080/preprocess
@@ -173,9 +239,14 @@ class SourceBrowser(object):
                 elif value[0] == "'" or value[0] == '"':
                     value=str(value.replace("'", "").replace('"', ""))
                 self.configDict[key]=value
-        # Ugly, ugly hack
-        self.configDict['plotSizeArcmin']=float(self.configDict['plotSizeArcmin'])
-        self.configDict['plotSizePix']=1200.0   # Same as SDSS 
+                
+        # Not sure of a better way to force things which look like numbers to be floats, not strings
+        for key in self.configDict.keys():
+            if type(self.configDict[key]) == str:
+                try:
+                    self.configDict[key]=float(self.configDict[key])
+                except:
+                    continue
         
     
     def fetchNEDInfo(self, obj, retryFails = False):
@@ -242,10 +313,10 @@ class SourceBrowser(object):
             obj['NED_decDeg']=clusterMatch['NED_decDeg']
         else:
             obj['NED_name']=None 
-            obj['NED_z']=numpy.nan
-            obj['NED_distArcmin']=numpy.nan
-            obj['NED_RADeg']=numpy.nan
-            obj['NED_decDeg']=numpy.nan
+            obj['NED_z']=np.nan
+            obj['NED_distArcmin']=np.nan
+            obj['NED_RADeg']=np.nan
+            obj['NED_decDeg']=np.nan
             
         
     def fetchSDSSRedshifts(self, name, RADeg, decDeg):
@@ -377,10 +448,10 @@ class SourceBrowser(object):
             return None
         
         im=Image.open(inJPGPath)
-        data=numpy.array(im)
+        data=np.array(im)
         try:
-            data=numpy.flipud(data)
-            data=numpy.fliplr(data)
+            data=np.flipud(data)
+            data=np.fliplr(data)
         except:
             #"... something odd about image (1d?) - aborting ..."
             return None
@@ -524,30 +595,30 @@ class SourceBrowser(object):
             R=RImg[0].data
             G=GImg[0].data
             B=BImg[0].data
-            imData=numpy.array([RImg[0].data.transpose(), GImg[0].data.transpose(), BImg[0].data.transpose()])
+            imData=np.array([RImg[0].data.transpose(), GImg[0].data.transpose(), BImg[0].data.transpose()])
             imData=imData.transpose()
             for i in range(imData.shape[2]):
                 channel=imData[:, :, i]
                 
-                std=numpy.std(channel)
-                med=numpy.median(channel)
+                std=np.std(channel)
+                med=np.median(channel)
                 minLevel=med-lowSigmaCut*std
                 
                 # This is better
-                freq, binEdges=numpy.histogram(channel, bins = (channel.shape[0]*channel.shape[1])/100.0)
+                freq, binEdges=np.histogram(channel, bins = (channel.shape[0]*channel.shape[1])/100.0)
                 binCentres=binEdges[:-1]+(binEdges[1]-binEdges[0])/2.0
                 minLevel=binCentres[freq.tolist().index(freq.max())]
                 
-                lowMask=numpy.less(channel, minLevel)
+                lowMask=np.less(channel, minLevel)
                 channel=channel-(minLevel)
                 channel[lowMask]=0
                 maxLevel=med+highSigmaCut*std
                 if maxLevel > channel.max():
                     maxLevel=channel.max()
-                highMask=numpy.greater(channel, maxLevel)
+                highMask=np.greater(channel, maxLevel)
                 channel=channel/maxLevel+0.001
                 channel[highMask]=1.0
-                channel=numpy.log10(channel)
+                channel=np.log10(channel)
                 channel=channel-channel.min()
                 channel=channel/channel.max()
                 imData[:, :, i]=channel
@@ -769,10 +840,13 @@ class SourceBrowser(object):
                     nedName=obj[key]
                     nedLinkURL="http://ned.ipac.caltech.edu/cgi-bin/objsearch?objname=%s&extend=no&hconst=73&omegam=0.27&omegav=0.73&corr_z=1&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=pre_text&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (nedName.replace("+", "%2B").replace(" ", "+"))
                     rowString=rowString.replace(htmlKey, "<a href=%s>%s</a>" % (nedLinkURL, nedName))
-                elif key == "NED_z" and numpy.isnan(obj['NED_z']) == True:
+                elif key == "NED_z" and np.isnan(obj['NED_z']) == True:
                     rowString=rowString.replace(htmlKey, "-")
                 else:
-                    rowString=rowString.replace(htmlKey, fmt % (obj[key]))
+                    try:
+                        rowString=rowString.replace(htmlKey, fmt % (obj[key]))
+                    except:
+                        raise Exception, "IndexError: check .config file tableDisplayColumns are actually in the .fits table"
                            
             tableData=tableData+rowString
             
@@ -872,9 +946,9 @@ class SourceBrowser(object):
                 viewTab=viewTab.where(viewTab['RADeg'] > RAMin)
                 viewTab=viewTab.where(viewTab['RADeg'] < RAMax)
             else:
-                mask1=numpy.less(viewTab['RADeg'],  RAMax)
-                mask2=numpy.greater(viewTab['RADeg']-360.0, RAMin) 
-                viewTab=viewTab.where(numpy.logical_or(mask1, mask2))
+                mask1=np.less(viewTab['RADeg'],  RAMax)
+                mask2=np.greater(viewTab['RADeg']-360.0, RAMin) 
+                viewTab=viewTab.where(np.logical_or(mask1, mask2))
             viewTab=viewTab.where(viewTab['decDeg'] > decMin)
             viewTab=viewTab.where(viewTab['decDeg'] < decMax)
             # Other constraints
@@ -925,13 +999,13 @@ class SourceBrowser(object):
                 value=bits[1].lstrip().rstrip()
                 # All greater/less only make sense with numbers anyway, fail gracelessly if not floats at present
                 if op == '>':
-                    newTab=newTab.where(numpy.greater(newTab[key], float(value)))
+                    newTab=newTab.where(np.greater(newTab[key], float(value)))
                 elif op == '>=':
-                    newTab=newTab.where(numpy.greater_equal(newTab[key], float(value)))
+                    newTab=newTab.where(np.greater_equal(newTab[key], float(value)))
                 elif op == '<':
-                    newTab=newTab.where(numpy.less(newTab[key], float(value)))
+                    newTab=newTab.where(np.less(newTab[key], float(value)))
                 elif op == '<=':
-                    newTab=newTab.where(numpy.less_equal(newTab[key], float(value)))
+                    newTab=newTab.where(np.less_equal(newTab[key], float(value)))
                 elif op == '=':
                     if newTab[key].dtype.name.find("string") != -1:
                         # Strip out "' if put there by the user
@@ -1040,6 +1114,46 @@ class SourceBrowser(object):
         
         return html   
 
+    @cherrypy.expose
+    def updateMongoDB(self, name, returnURL, **kwargs):
+        """Update info on source in MongoDB and the viewed atpy table.
+        
+        """
+        
+        if not cherrypy.session.loaded: cherrypy.session.load()
+        if 'viewTab' not in cherrypy.session:
+            cherrypy.session['viewTab']=copy.deepcopy(self.tab)
+        viewTab=cherrypy.session.get('viewTab')
+        
+        objTabIndex=np.where(viewTab['name'] == name)[0][0]
+        obj=viewTab[objTabIndex]
+        
+        matches=self.collection.find({'loc': SON({'$nearSphere': [np.radians(obj['RADeg']), np.radians(obj['decDeg'])], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+        mongoDict=matches.next()
+        print mongoDict
+        
+        post={}
+        for key in kwargs.keys():
+            if key in self.configDict['fields']:
+                if self.configDict['fieldTypes'][self.configDict['fields'].index(key)] == 'number':
+                    post[key]=float(kwargs[key])
+                    obj[key]=float(kwargs[key])
+                else:
+                    post[key]=kwargs[key]
+                    obj[key]=kwargs[key]
+            else:
+                post[key]=kwargs[key]
+                obj[key]=kwargs[key]
+        print post
+        print kwargs
+        self.collection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
+        
+        cherrypy.session['viewTab']=viewTab
+        
+        # NOTE: this will fail if we don't have SDSS or in fact any of default options met
+        # also it would reset zoom level if changed
+        return self.displaySourcePage(name, clipSizeArcmin = self.configDict['plotSizeArcmin'])
+        
     
     @cherrypy.expose
     def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False"):
@@ -1084,7 +1198,10 @@ class SourceBrowser(object):
             <td align=center><a href="$IMAGE_PATH"><img src="$IMAGE_PATH" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"></a>
             </td>
         </tr>
+
         <tr><td align=center>$PLOT_CONTROLS</td></tr>
+
+        <tr><td align=center>$TAG_CONTROLS</td></tr>
 
         <tr>
             <td align=center>$NED_MATCHES_TABLE</td>
@@ -1113,7 +1230,7 @@ class SourceBrowser(object):
         # Taken this out from above the caption line
         #<tr><td align=center><b>$SIZE_ARC_MIN' x $SIZE_ARC_MIN'</b></td></tr>
 
-        objTabIndex=numpy.where(viewTab['name'] == name)[0][0]
+        objTabIndex=np.where(viewTab['name'] == name)[0][0]
         obj=viewTab[objTabIndex]
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
@@ -1131,11 +1248,11 @@ class SourceBrowser(object):
         <fieldset style="width:$PLOT_DISPLAY_WIDTH_PIXpx">
         <legend><b>Image Controls</b></legend>
         <input name="name" value="$OBJECT_NAME" type="hidden">
-        <p>Survey: $IMAGE_TYPES</p>      
-        <p>Show:
+        <p><b>Survey:</b> $IMAGE_TYPES</p>      
+        <p><b>Show:</b>
         <input type="checkbox" onChange="this.form.submit();" name="plotSourcePos" value="True"$CHECKED_SOURCEPOS>Source position
         <input type="checkbox" onChange="this.form.submit();" name="plotNEDObjects" value="True"$CHECKED_NED>NED objects
-        <input type="checkbox" onChange="this.form.submit();" name="plotSDSSObjects" value="True"$CHECKED_SDSS>SDSSDR10 objects
+        <input type="checkbox" onChange="this.form.submit();" name="plotSDSSObjects" value="True"$CHECKED_SDSS>SDSSDR12 objects
         </p>
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
         <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
@@ -1178,15 +1295,53 @@ class SourceBrowser(object):
         if imageType == 'SDSS':
             self.fetchSDSSDR8Image(obj)
         else:
-            skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
-            self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], self.configDict['skyviewSurveyStrings'][skyviewIndex], imageType)
+            if 'skyviewLabels' in self.configDict.keys():
+                skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
+                self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], self.configDict['skyviewSurveyStrings'][skyviewIndex], imageType)
         if clipSizeArcmin == None:
             imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, plotNEDObjects, plotSDSSObjects, plotSourcePos)
         else:
             imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&clipSizeArcmin=%.3f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, float(clipSizeArcmin), plotNEDObjects, plotSDSSObjects, plotSourcePos)
-            
+        
+        # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
+        if 'enableMongoDB' in self.configDict.keys() and self.configDict['enableMongoDB'] == True:
+            tagFormCode="""
+            <form method="post" action="updateMongoDB">    
+            <input name="name" value="$OBJECT_NAME" type="hidden">
+            <input name="returnURL" value=$RETURN_URL" type="hidden">
+            <fieldset style="width:$PLOT_DISPLAY_WIDTH_PIXpx">
+            <legend><b>Editing Controls</b></legend>
+            <p><b>Classification:</b>
+            $CLASSIFICATION_CONTROLS
+            </p>
+            <p><b>Fields:</b>
+            $FIELD_CONTROLS
+            </p>
+            <input type="submit" class="f" value="Update">
+            </fieldset>
+            </form>
+            """
+            tagFormCode=tagFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
+            tagFormCode=tagFormCode.replace("$OBJECT_NAME", name)
+            tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
+            if 'fields' in self.configDict.keys():
+                fieldsCode=""
+                for f in self.configDict['fields']:
+                    fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (f, f)
+                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s"/>\n' % (str(obj[f]), f)
+            tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', fieldsCode)
+            classificationsCode=""
+            for c in self.configDict['classifications']:
+                if c == obj['classification']:
+                    classificationsCode=classificationsCode+'<input type="radio" name="classification" value="%s" checked>%s\n' % (c, c)
+                else:
+                    classificationsCode=classificationsCode+'<input type="radio" onChange="this.form.submit();" name="classification" value="%s">%s\n' % (c, c)
+            tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", classificationsCode)
+        
+        # Put it all together...
         html=templatePage
         html=html.replace("$PLOT_CONTROLS", plotFormCode)
+        html=html.replace("$TAG_CONTROLS", tagFormCode)
         html=html.replace("$SOURCE_NAME", name)
         html=html.replace("$IMAGE_PATH", imagePath)        
         html=html.replace("$SIZE_ARC_MIN", "%.1f" % (self.configDict['plotSizeArcmin']))
@@ -1356,6 +1511,7 @@ class SourceBrowser(object):
             self.fetchSDSSRedshifts(obj['name'], obj['RADeg'], obj['decDeg'])
             if self.configDict['addSDSSImage'] == True:
                 self.fetchSDSSDR8Image(obj)
-            for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
-                self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label) 
+            if 'skyviewLabels' in self.configDict.keys():
+                for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
+                    self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label) 
         
