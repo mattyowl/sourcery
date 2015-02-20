@@ -96,20 +96,10 @@ class SourceBrowser(object):
         #   fields: these are editable, used to, e.g., assign a redshift and source
         # We create empty entries in the MongoDB and corresponding database columns if we cannot find an existing entry
         # First though, add the relevant columns to the atpy table
-        if 'classifications' in self.configDict.keys():
-            maxLen=0
-            for c in self.configDict['classifications']:
-                if len(c) > maxLen:
-                    maxLen=len(c)
-            self.tab.add_column('classification', np.zeros(len(self.tab), dtype = 'S%d' % (maxLen)))
-            self.sourceDisplayColumns=self.sourceDisplayColumns+["classification"]
-            self.tableDisplayColumns=self.tableDisplayColumns+["classification"]
-            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["Class"]
-            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
-        if 'tags' in self.configDict.keys():
-            for t in self.configDict['tags']:
-                self.tab.add_column(t, np.zeros(len(self.tab), dtype = bool))
-            self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['tags']
+        #if 'tags' in self.configDict.keys():
+            #for t in self.configDict['tags']:
+                #self.tab.add_column(t, np.zeros(len(self.tab), dtype = bool))
+            #self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['tags']
         if 'fields' in self.configDict.keys():
             formatsList=[]
             for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
@@ -123,6 +113,16 @@ class SourceBrowser(object):
             self.tableDisplayColumns=self.tableDisplayColumns+self.configDict['fields']
             self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+self.configDict['fields']
             self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+formatsList
+        if 'classifications' in self.configDict.keys():
+            maxLen=0
+            for c in self.configDict['classifications']:
+                if len(c) > maxLen:
+                    maxLen=len(c)
+            self.tab.add_column('classification', np.zeros(len(self.tab), dtype = 'S%d' % (maxLen)))
+            self.sourceDisplayColumns=self.sourceDisplayColumns+["classification"]
+            self.tableDisplayColumns=self.tableDisplayColumns+["classification"]
+            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["classification"]
+            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
             
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
@@ -143,10 +143,10 @@ class SourceBrowser(object):
                 mongoDict=matches.next()
                 if 'classification' in mongoDict.keys():
                     row['classification']=mongoDict['classification']
-                if 'tags' in self.configDict.keys():
-                    for t in self.configDict['tags']:
-                        if t in mongoDict.keys():
-                            row[t]=mongoDict[t]
+                #if 'tags' in self.configDict.keys():
+                    #for t in self.configDict['tags']:
+                        #if t in mongoDict.keys():
+                            #row[t]=mongoDict[t]
                 if 'fields' in self.configDict.keys():
                     for f in self.configDict['fields']:
                         if f in mongoDict.keys():
@@ -171,7 +171,7 @@ class SourceBrowser(object):
         if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
             label="SDSS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR8 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
         if 'skyviewLabels' in self.configDict.keys():
             for label in self.configDict['skyviewLabels']:
@@ -392,8 +392,8 @@ class SourceBrowser(object):
         return SDSSRedshifts
                  
 
-    def fetchSDSSDR8Image(self, obj, refetch = False):
-        """Fetches the SDSS DR8 .jpg for the given image size using the casjobs webservice.
+    def fetchSDSSImage(self, obj, refetch = False):
+        """Fetches the SDSS .jpg for the given image size using the casjobs webservice.
         
         makeSDSSPlots loads these jpegs in, and use matplotlib to make them into plots with
         coord axes etc.
@@ -413,12 +413,13 @@ class SourceBrowser(object):
         SDSSWidth=1200.0
         SDSSScale=(self.configDict['plotSizeArcmin']*60.0)/SDSSWidth # 0.396127
         if os.path.exists(outFileName) == False or refetch == True:
+            urlString="http://skyservice.pha.jhu.edu/DR10/ImgCutout/getjpeg.aspx?ra="+str(RADeg)+"&dec="+str(decDeg)
+            urlString=urlString+"&scale="+str(SDSSScale)+"&width="+str(int(SDSSWidth))+"&height="+str(int(SDSSWidth))
             try:
-                urlString="http://skyservice.pha.jhu.edu/DR8/ImgCutout/getjpeg.aspx?ra="+str(RADeg)+"&dec="+str(decDeg)
-                urlString=urlString+"&scale="+str(SDSSScale)+"&width="+str(int(SDSSWidth))+"&height="+str(int(SDSSWidth))
                 urllib.urlretrieve(urlString, filename = outFileName)
             except:
-                print "... WARNING: couldn't get SDSS DR8 image ..."
+                print "... WARNING: couldn't get SDSS image ..."
+                print urlString
                 outFileName=None
         
     
@@ -672,6 +673,12 @@ class SourceBrowser(object):
                     float: right;
             }
             </style>
+            <style>
+            .tablefont, .tablefont TD, .tablefont TH {
+                font-family:sans-serif;
+                font-size:small;
+            }
+            </style>
             <title>Source Browser</title>
         </head>
         <body style="font-family: sans-serif; vertical align: top; justify: full;">
@@ -719,7 +726,7 @@ class SourceBrowser(object):
         </div>
         </form>
                 
-        <table frame=border cellspacing=0 cols=6 rules=all border=2 width=100% align=center>
+        <table frame=border cellspacing=0 cols=6 rules=all border=2 width=100% align=center class=tablefont>
         <tbody>
             <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
                     text-align: center; vertical-align: middle; font-size: 110%;">"""
@@ -727,7 +734,9 @@ class SourceBrowser(object):
             templatePage=templatePage+"\n           <td><b>%s</b></td>" % (key)
         templatePage=templatePage+"""
             </tr>
+            <font size="1">
             $TABLE_DATA
+            </font>
         </tbody>
         </table>
 
@@ -1156,7 +1165,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False"):
+    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "True"):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -1245,14 +1254,14 @@ class SourceBrowser(object):
         </script>
 
         <form method="get" action="displaySourcePage">        
-        <fieldset style="width:$PLOT_DISPLAY_WIDTH_PIXpx">
+        <fieldset style="width:80%">
         <legend><b>Image Controls</b></legend>
         <input name="name" value="$OBJECT_NAME" type="hidden">
         <p><b>Survey:</b> $IMAGE_TYPES</p>      
         <p><b>Show:</b>
         <input type="checkbox" onChange="this.form.submit();" name="plotSourcePos" value="True"$CHECKED_SOURCEPOS>Source position
         <input type="checkbox" onChange="this.form.submit();" name="plotNEDObjects" value="True"$CHECKED_NED>NED objects
-        <input type="checkbox" onChange="this.form.submit();" name="plotSDSSObjects" value="True"$CHECKED_SDSS>SDSSDR12 objects
+        <input type="checkbox" onChange="this.form.submit();" name="plotSDSSObjects" value="True"$CHECKED_SDSS>SDSS DR12 objects
         </p>
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
         <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
@@ -1293,7 +1302,7 @@ class SourceBrowser(object):
         
         # Directly serving .jpg image
         if imageType == 'SDSS':
-            self.fetchSDSSDR8Image(obj)
+            self.fetchSDSSImage(obj)
         else:
             if 'skyviewLabels' in self.configDict.keys():
                 skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
@@ -1309,7 +1318,7 @@ class SourceBrowser(object):
             <form method="post" action="updateMongoDB">    
             <input name="name" value="$OBJECT_NAME" type="hidden">
             <input name="returnURL" value=$RETURN_URL" type="hidden">
-            <fieldset style="width:$PLOT_DISPLAY_WIDTH_PIXpx">
+            <fieldset style="width:80%">
             <legend><b>Editing Controls</b></legend>
             <p><b>Classification:</b>
             $CLASSIFICATION_CONTROLS
@@ -1366,7 +1375,7 @@ class SourceBrowser(object):
             color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
             <a href=$PREV_LINK><b><<</b></a></td>
             """ 
-            prevLinkCode=prevLinkCode.replace("$PREV_LINK", "displaySourcePage?name=%s&imageType=%sclipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(prevObj['name']), self.sourceNameToURL(imageType), float(clipSizeArcmin), plotNEDObjects, plotSDSSObjects, plotSourcePos))
+            prevLinkCode=prevLinkCode.replace("$PREV_LINK", "displaySourcePage?name=%s&imageType=%sclipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(prevObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
         else:
             prevLinkCode=""
         if nextObjIndex != None:
@@ -1375,7 +1384,7 @@ class SourceBrowser(object):
             color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
             <a href=$NEXT_LINK><b>>></b></a></td>
             """
-            nextLinkCode=nextLinkCode.replace("$NEXT_LINK", "displaySourcePage?name=%s&imageType=%s&clipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(nextObj['name']), self.sourceNameToURL(imageType), float(clipSizeArcmin), plotNEDObjects, plotSDSSObjects, plotSourcePos))
+            nextLinkCode=nextLinkCode.replace("$NEXT_LINK", "displaySourcePage?name=%s&imageType=%s&clipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(nextObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
         else:
             nextLinkCode=""
         html=html.replace("$PREV_LINK_CODE", prevLinkCode)
@@ -1510,7 +1519,7 @@ class SourceBrowser(object):
             self.fetchNEDInfo(obj)
             self.fetchSDSSRedshifts(obj['name'], obj['RADeg'], obj['decDeg'])
             if self.configDict['addSDSSImage'] == True:
-                self.fetchSDSSDR8Image(obj)
+                self.fetchSDSSImage(obj)
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label) 
