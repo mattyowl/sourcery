@@ -130,27 +130,28 @@ class SourceBrowser(object):
         self.db=self.client[self.dbName]
         self.collection=self.db['tagsCollection']
         self.collection.ensure_index([('loc', pymongo.GEOSPHERE)])
-        for i in range(len(self.tab)):
-            row=self.tab[i]
-            # This query fetches everything within max distance sorted min distance first
-            # We use MongoDB legacy coordinates, because then we get results in radians rather than metres
-            # So we need to also store coords in radians
-            matches=self.collection.find({'loc': SON({'$nearSphere': [np.radians(row['RADeg']), np.radians(row['decDeg'])], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
-            if matches.count() == 0:
-                newPost={'loc': {'type': 'Point', 'coordinates': [np.radians(row['RADeg']), np.radians(row['decDeg'])]}}
-                self.collection.insert(newPost)
-            else:
-                mongoDict=matches.next()
-                if 'classification' in mongoDict.keys():
-                    row['classification']=mongoDict['classification']
-                #if 'tags' in self.configDict.keys():
-                    #for t in self.configDict['tags']:
-                        #if t in mongoDict.keys():
-                            #row[t]=mongoDict[t]
-                if 'fields' in self.configDict.keys():
-                    for f in self.configDict['fields']:
-                        if f in mongoDict.keys():
-                            row[f]=mongoDict[f]
+        self.matchTabToMongoDB(self.tab)
+        #for i in range(len(self.tab)):
+            #row=self.tab[i]
+            ## This query fetches everything within max distance sorted min distance first
+            ## We use MongoDB legacy coordinates, because then we get results in radians rather than metres
+            ## So we need to also store coords in radians
+            #matches=self.collection.find({'loc': SON({'$nearSphere': [np.radians(row['RADeg']), np.radians(row['decDeg'])], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+            #if matches.count() == 0:
+                #newPost={'loc': {'type': 'Point', 'coordinates': [np.radians(row['RADeg']), np.radians(row['decDeg'])]}}
+                #self.collection.insert(newPost)
+            #else:
+                #mongoDict=matches.next()
+                #if 'classification' in mongoDict.keys():
+                    #row['classification']=mongoDict['classification']
+                ##if 'tags' in self.configDict.keys():
+                    ##for t in self.configDict['tags']:
+                        ##if t in mongoDict.keys():
+                            ##row[t]=mongoDict[t]
+                #if 'fields' in self.configDict.keys():
+                    #for f in self.configDict['fields']:
+                        #if f in mongoDict.keys():
+                            #row[f]=mongoDict[f]
         
         # Set up storage dirs
         self.cacheDir=self.configDict['cacheDir']
@@ -186,7 +187,34 @@ class SourceBrowser(object):
 
         # This sets size of table view - view is controlled with session variables
         self.tableViewRows=40
+    
+    
+    def matchTabToMongoDB(self, tab):
+        """Performs the matching between MongoDB and atpy table.
         
+        """
+        for i in range(len(tab)):
+            row=tab[i]
+            # This query fetches everything within max distance sorted min distance first
+            # We use MongoDB legacy coordinates, because then we get results in radians rather than metres
+            # So we need to also store coords in radians
+            matches=self.collection.find({'loc': SON({'$nearSphere': [np.radians(row['RADeg']), np.radians(row['decDeg'])], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+            if matches.count() == 0:
+                newPost={'loc': {'type': 'Point', 'coordinates': [np.radians(row['RADeg']), np.radians(row['decDeg'])]}}
+                self.collection.insert(newPost)
+            else:
+                mongoDict=matches.next()
+                if 'classification' in mongoDict.keys():
+                    row['classification']=mongoDict['classification']
+                #if 'tags' in self.configDict.keys():
+                    #for t in self.configDict['tags']:
+                        #if t in mongoDict.keys():
+                            #row[t]=mongoDict[t]
+                if 'fields' in self.configDict.keys():
+                    for f in self.configDict['fields']:
+                        if f in mongoDict.keys():
+                            row[f]=mongoDict[f]
+                            
     
     def parseConfig(self, configFileName):
         """Parse config file, unpacking parameters into the SourceBrowser object.
@@ -660,6 +688,7 @@ class SourceBrowser(object):
         if 'queryOtherConstraints' not in cherrypy.session:
             cherrypy.session['queryOtherConstraints']=""
         viewTab=cherrypy.session.get('viewTab')
+        self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
         queryRADeg=cherrypy.session.get('queryRADeg')
         queryDecDeg=cherrypy.session.get('queryDecDeg')
         querySearchBoxArcmin=cherrypy.session.get('querySearchBoxArcmin')
@@ -898,6 +927,7 @@ class SourceBrowser(object):
         if 'viewTab' not in cherrypy.session:
             cherrypy.session['viewTab']=copy.deepcopy(self.tab)
         viewTab=cherrypy.session.get('viewTab')
+        self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
         
         tmpFileName=tempfile.mktemp()
         if fileFormat == 'cat':
@@ -967,6 +997,7 @@ class SourceBrowser(object):
                     return result   # Error message
                 else:
                     viewTab=result
+            self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
             cherrypy.session['viewTopRow']=0
             cherrypy.session['viewTab']=viewTab
         
@@ -1060,6 +1091,7 @@ class SourceBrowser(object):
         if 'viewTab' not in cherrypy.session:
             cherrypy.session['viewTab']=copy.deepcopy(self.tab)
         viewTab=cherrypy.session.get('viewTab')
+        self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
                 
         templatePage="""<html>
         <head>
@@ -1133,6 +1165,7 @@ class SourceBrowser(object):
         if 'viewTab' not in cherrypy.session:
             cherrypy.session['viewTab']=copy.deepcopy(self.tab)
         viewTab=cherrypy.session.get('viewTab')
+        #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
         
         objTabIndex=np.where(viewTab['name'] == name)[0][0]
         obj=viewTab[objTabIndex]
