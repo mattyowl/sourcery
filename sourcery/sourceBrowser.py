@@ -107,7 +107,7 @@ class SourceBrowser(object):
                     self.tab.add_column(f, np.zeros(len(self.tab), dtype = float))
                     formatsList.append('%.3f')
                 elif t == 'text':
-                    self.tab.add_column(f, np.zeros(len(self.tab), dtype = 'S15'))
+                    self.tab.add_column(f, np.zeros(len(self.tab), dtype = 'S1000'))
                     formatsList.append('%s')
             self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['fields']
             self.tableDisplayColumns=self.tableDisplayColumns+self.configDict['fields']
