@@ -76,19 +76,23 @@ class SourceBrowser(object):
         
         # Add NED match columns - we will fill on the fly...
         if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
-            self.tab.add_column('NED_name', ['_______________']*len(self.tab))
+            self.tab.add_column('NED_name', ['_______________________']*len(self.tab))
             self.tab['NED_name']=None
             self.tab.add_column('NED_z', [np.nan]*len(self.tab))
             self.tab.add_column('NED_distArcmin', [np.nan]*len(self.tab))
             self.tab.add_column('NED_RADeg', [np.nan]*len(self.tab))
             self.tab.add_column('NED_decDeg', [np.nan]*len(self.tab))
-            self.tableDisplayColumns=self.tableDisplayColumns+["NED_name", "NED_z"]
-            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["NED Name", "NED z"]
-            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s", "%.3f"]
+            self.tableDisplayColumns=self.tableDisplayColumns+["NED_name"]
+            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["NED"]
+            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
             self.sourceDisplayColumns=self.sourceDisplayColumns+["NED_name", "NED_z", "NED_RADeg", "NED_decDeg", "NED_distArcmin"]
             #self.sourceDisplayColumnLabels=self.sourceDisplayColumnLabels+["NED Name", "NED z", "NED R.A. (degrees)", "NED Dec. (degrees)", "Distance to NED object (arcmin)"]
             #self.sourceDisplayColumnFormats=self.sourceDisplayColumnFormats+["%s", "%.3f", "%.6f", "%.6f", "%.1f"]
             
+        # Add other cross match columns and cross match now...
+        # NOTE: This could go into pre-processing, i.e., we can cache a different atpy table somewhere with this in?
+        self.addCrossMatchTabs()
+        
         # Support for tagging, classification etc. of candidates
         # We have three things here:
         #   tags: these work as flag columns - eventually, users can add any tag, we can then search for objects matching that tag
@@ -309,7 +313,8 @@ class SourceBrowser(object):
 
 
     def findNEDMatch(self, obj):
-        """Checks if there is a NED match for obj. Uses a 2.5' matching radius.
+        """Checks if there is a NED match for obj. Uses matching radius specified in config file by
+        crossMatchRadiusArcmin.
         
         """
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
@@ -317,7 +322,7 @@ class SourceBrowser(object):
             
         # Flag matches against clusters - choose nearest one
         rMin=10000
-        crossMatchRadiusDeg=2.5/60.0
+        crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
         clusterMatch={}
         if len(nedObjs['RAs']) > 0:
             for i in range(len(nedObjs['RAs'])):
@@ -352,7 +357,45 @@ class SourceBrowser(object):
             obj['NED_RADeg']=np.nan
             obj['NED_decDeg']=np.nan
             
+            
+    def addCrossMatchTabs(self):
+        """Cross matches external catalog crossMatchTab to self.tab, adding matches in place.
+        If there is a column called 'redshift', we include that
         
+        """
+        if 'crossMatchCatalogFileNames' in self.configDict.keys():
+            for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
+                xTab=atpy.Table(f)
+                self.tab.add_column('%s_name' % (label), ['__________________________']*len(self.tab))
+                self.tab['%s_name' % (label)]=None
+                self.tab.add_column('%s_z' % (label), [np.nan]*len(self.tab))
+                self.tab.add_column('%s_distArcmin' % (label), [np.nan]*len(self.tab))
+                self.tab.add_column('%s_RADeg' % (label), [np.nan]*len(self.tab))
+                self.tab.add_column('%s_decDeg' % (label), [np.nan]*len(self.tab))
+                self.tableDisplayColumns=self.tableDisplayColumns+["%s_name" % (label)]
+                self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["%s" % (label)]
+                self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
+                self.sourceDisplayColumns=self.sourceDisplayColumns+["%s_name" % (label), "%s_z" % (label), "%s_RADeg" % (label), "%s_decDeg" % (label), "%s_distArcmin" % (label)]
+
+                # Flag matches against clusters - choose nearest one
+                zKeys=['z', 'redshift', 'Z', 'REDSHIFT']
+                nameKeys=['name', 'id', 'NAME', 'ID']
+                crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
+                for row in self.tab:
+                    r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
+                    if r.min() < crossMatchRadiusDeg:
+                        xMatch=xTab.where(r == r.min())[0]
+                        for zKey in zKeys:
+                            if zKey in xTab.keys():
+                                row['%s_z' % (label)]=float(xMatch[zKey])
+                        for nameKey in nameKeys:
+                            if nameKey in xTab.keys():
+                                row['%s_name' % (label)]=str(xMatch[nameKey])
+                        row['%s_RADeg' % (label)]=float(xMatch['RADeg'])
+                        row['%s_decDeg' % (label)]=float(xMatch['decDeg'])
+                        row['%s_distArcmin' % (label)]=r.min()*60.0
+            
+            
     def fetchSDSSRedshifts(self, name, RADeg, decDeg):
         """Queries SDSS for redshifts. 
         
@@ -807,8 +850,8 @@ class SourceBrowser(object):
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
         # Meta data
-        READMEComment="""Matches to other catalogs (e.g. NED) listed on this page are within 2.5' radius of the 
-        candidate position."""
+        READMEComment="""Matches to other catalogs (e.g. NED) listed on this page are within %.1f' radius of the 
+        candidate position.""" % (self.configDict['crossMatchRadiusArcmin'])
         if 'catalogComments' not in self.configDict.keys():
             commentsString=READMEComment
         else:
