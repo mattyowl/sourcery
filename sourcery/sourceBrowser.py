@@ -198,9 +198,15 @@ class SourceBrowser(object):
             # This query fetches everything within max distance sorted min distance first
             # We use MongoDB legacy coordinates, because then we get results in radians rather than metres
             # So we need to also store coords in radians
-            matches=self.collection.find({'loc': SON({'$nearSphere': [np.radians(row['RADeg']), np.radians(row['decDeg'])], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+            # Bizarrely, legacy coordinates are given as degrees (lon, lat) but max distance has to be in radians...
+            # Also, we need to keep lon between -180, +180 deg
+            if row['RADeg'] > 180:
+                lon=360.0-row['RADeg']
+            else:
+                lon=row['RADeg']
+            matches=self.collection.find({'loc': SON({'$nearSphere': [lon, row['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
             if matches.count() == 0:
-                newPost={'loc': {'type': 'Point', 'coordinates': [np.radians(row['RADeg']), np.radians(row['decDeg'])]}}
+                newPost={'loc': {'type': 'Point', 'coordinates': [lon, row['decDeg']]}}
                 self.collection.insert(newPost)
             else:
                 mongoDict=matches.next()
@@ -1170,7 +1176,13 @@ class SourceBrowser(object):
         objTabIndex=np.where(viewTab['name'] == name)[0][0]
         obj=viewTab[objTabIndex]
         
-        matches=self.collection.find({'loc': SON({'$nearSphere': [np.radians(obj['RADeg']), np.radians(obj['decDeg'])], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+        # Bizarrely, legacy coordinates are given as degrees (lon, lat) but max distance has to be in radians...
+        # Also, need lon between -180, +180
+        if obj['RADeg'] > 180:
+            lon=360.0-obj['RADeg']
+        else:
+            lon=obj['RADeg']
+        matches=self.collection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
         mongoDict=matches.next()
         print mongoDict
         
