@@ -1211,7 +1211,8 @@ class SourceBrowser(object):
         if 'viewTab' not in cherrypy.session:
             cherrypy.session['viewTab']=copy.deepcopy(self.tab)
         viewTab=cherrypy.session.get('viewTab')
-        
+        self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
+
         name=self.URLToSourceName(name)
         
         templatePage="""<html>
