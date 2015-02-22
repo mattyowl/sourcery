@@ -1095,6 +1095,7 @@ class SourceBrowser(object):
             cherrypy.session['viewTab']=viewTab
         
         if queryReset:
+            self.matchTabToMongoDB(self.tab)
             cherrypy.session['queryRADeg']="0:360"
             cherrypy.session['queryDecDeg']="-90:90"
             cherrypy.session['querySearchBoxArcmin']=""
