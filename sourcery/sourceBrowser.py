@@ -135,27 +135,6 @@ class SourceBrowser(object):
         self.collection=self.db['tagsCollection']
         self.collection.ensure_index([('loc', pymongo.GEOSPHERE)])
         self.matchTabToMongoDB(self.tab)
-        #for i in range(len(self.tab)):
-            #row=self.tab[i]
-            ## This query fetches everything within max distance sorted min distance first
-            ## We use MongoDB legacy coordinates, because then we get results in radians rather than metres
-            ## So we need to also store coords in radians
-            #matches=self.collection.find({'loc': SON({'$nearSphere': [np.radians(row['RADeg']), np.radians(row['decDeg'])], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
-            #if matches.count() == 0:
-                #newPost={'loc': {'type': 'Point', 'coordinates': [np.radians(row['RADeg']), np.radians(row['decDeg'])]}}
-                #self.collection.insert(newPost)
-            #else:
-                #mongoDict=matches.next()
-                #if 'classification' in mongoDict.keys():
-                    #row['classification']=mongoDict['classification']
-                ##if 'tags' in self.configDict.keys():
-                    ##for t in self.configDict['tags']:
-                        ##if t in mongoDict.keys():
-                            ##row[t]=mongoDict[t]
-                #if 'fields' in self.configDict.keys():
-                    #for f in self.configDict['fields']:
-                        #if f in mongoDict.keys():
-                            #row[f]=mongoDict[f]
         
         # Set up storage dirs
         self.cacheDir=self.configDict['cacheDir']
@@ -177,6 +156,11 @@ class SourceBrowser(object):
             label="SDSS"
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+        # CFHTLS colour .jpgs
+        if "addCFHTLSImage" in self.configDict.keys() and self.configDict['addCFHTLSImage'] == True:
+            label="CFHTLS"
+            self.imageLabels.append(label)
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) CFHT Legacy Survey image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
         if 'skyviewLabels' in self.configDict.keys():
             for label in self.configDict['skyviewLabels']:
@@ -498,11 +482,46 @@ class SourceBrowser(object):
                 print "... WARNING: couldn't get SDSS image ..."
                 print urlString
                 outFileName=None
-        
     
+    
+    def fetchCFHTLSImage(self, obj, refetch = False):
+        """Retrieves coloir .jpg from CFHT legacy survey.
+        
+        """
+
+        cfhtCacheDir=self.cacheDir+os.path.sep+"CFHTLS"
+        if os.path.exists(cfhtCacheDir) == False:
+            os.makedirs(cfhtCacheDir)
+        
+        name=obj['name']
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']
+                
+        outFileName=cfhtCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        
+        url="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/community/CFHTLS-SG/cgi/cutcfhtls.pl?ra=$RA&dec=$DEC&size=$SIZE_ARCMIN&units=arcminutes&wide=true&deep=true&preview=colour"
+        url=url.replace("$RA", str(RADeg))
+        url=url.replace("$DEC", str(decDeg))
+        url=url.replace("$SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))
+        print url
+        if os.path.exists(outFileName) == False or refetch == True:
+            response=urllib2.urlopen(url)
+            lines=response.read()
+            lines=lines.split("\n")
+            for line in lines:
+                if line.find("cutout preview") != -1:
+                    break
+            imageURL="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/"+line[line.find("src=")+4:].split('"')[1]
+            try:
+                urllib.urlretrieve(imageURL, outFileName)
+            except:
+                noDataPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
+                os.system("cp %s %s" % (noDataPath, outFileName))
+                
+                
     @cherrypy.expose
     def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False", clipSizeArcmin = None):
-        """Makes plot of SDSS image with coordinate axes and NED, SDSS objects overlaid.
+        """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
         
@@ -1253,7 +1272,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "True"):
+    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False"):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -1392,6 +1411,8 @@ class SourceBrowser(object):
         # Directly serving .jpg image
         if imageType == 'SDSS':
             self.fetchSDSSImage(obj)
+        elif imageType == 'CFHTLS':
+            self.fetchCFHTLSImage(obj)
         else:
             if 'skyviewLabels' in self.configDict.keys():
                 skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
@@ -1609,6 +1630,8 @@ class SourceBrowser(object):
             self.fetchSDSSRedshifts(obj['name'], obj['RADeg'], obj['decDeg'])
             if self.configDict['addSDSSImage'] == True:
                 self.fetchSDSSImage(obj)
+            if self.configDict['addCFHTLSImage'] == True:
+                self.fetchCFHTLSImage(obj)
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label) 
