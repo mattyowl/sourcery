@@ -508,13 +508,22 @@ class SourceBrowser(object):
             response=urllib2.urlopen(url)
             lines=response.read()
             lines=lines.split("\n")
+            foundCutoutInfo=False
             for line in lines:
                 if line.find("cutout preview") != -1:
+                    foundCutoutInfo=True
                     break
-            imageURL="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/"+line[line.find("src=")+4:].split('"')[1]
-            try:
-                urllib.urlretrieve(imageURL, outFileName)
-            except:
+            # This happens if outside of footprint
+            if line == '<img src="/community/CFHTLS-SG/cgi/CFHTLScolcut.pl?field=&amp;section=" alt="cutout preview">':
+                foundCutoutInfo=False
+            if foundCutoutInfo == True:
+                imageURL="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/"+line[line.find("src=")+4:].split('"')[1]
+                try:
+                    urllib.urlretrieve(imageURL, outFileName)
+                except:
+                    noDataPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
+                    os.system("cp %s %s" % (noDataPath, outFileName))
+            else:
                 noDataPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
                 os.system("cp %s %s" % (noDataPath, outFileName))
                 
