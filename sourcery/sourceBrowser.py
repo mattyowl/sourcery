@@ -1427,7 +1427,7 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", "")
-        if plotSourcePos == "True":
+        if plotXMatch == "True":
             plotFormCode=plotFormCode.replace("$CHECKED_XMATCH", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_XMATCH", "")
