@@ -520,7 +520,7 @@ class SourceBrowser(object):
                 
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False", clipSizeArcmin = None):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False", plotXMatch = "False", clipSizeArcmin = None):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -628,7 +628,23 @@ class SourceBrowser(object):
                 if len(sdssRAs) > 0:
                     p.addPlotObjects(sdssRAs, sdssDecs, 'sdssObjects', objLabels = sdssLabels,
                                     size = sizeDeg/40.0*3600.0, symbol = 'box', color = "red")
-                                    
+                              
+        if plotXMatch == "True":
+            obj=self.tab.where(self.tab['name'] == name)
+            xMatchRAs=[]
+            xMatchDecs=[]
+            xMatchLabels=[]
+            for label in self.configDict['crossMatchCatalogLabels']:
+                RAKey='%s_RADeg' % (label)
+                decKey='%s_decDeg' % (label)
+                if RAKey in obj.keys() and decKey in obj.keys():
+                    xMatchRAs.append(obj[RAKey])
+                    xMatchDecs.append(obj[decKey])
+                    xMatchLabels.append(label)
+            if len(xMatchRAs) > 0:
+                p.addPlotObjects(xMatchRAs, xMatchDecs, 'xMatchObjects', objLabels = xMatchLabels,
+                                 size = sizeDeg/40.0*3600.0, symbol = "diamond", color = 'cyan')
+            
         #if contourImg != None:
             #p.addContourOverlay(contourImg[0].data, contourWCS, 'actContour', levels = contourLevels, width = 2,     
                                     #color = 'yellow', highAccuracy = False)
@@ -1272,7 +1288,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False"):
+    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False", plotXMatch = "False"):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -1370,6 +1386,7 @@ class SourceBrowser(object):
         <input type="checkbox" onChange="this.form.submit();" name="plotSourcePos" value="True"$CHECKED_SOURCEPOS>Source position
         <input type="checkbox" onChange="this.form.submit();" name="plotNEDObjects" value="True"$CHECKED_NED>NED objects
         <input type="checkbox" onChange="this.form.submit();" name="plotSDSSObjects" value="True"$CHECKED_SDSS>SDSS DR12 objects
+        <input type="checkbox" onChange="this.form.submit();" name="plotXMatch" value="True"$CHECKED_XMATCH>Cross match objects
         </p>
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
         <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
@@ -1401,6 +1418,10 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", "")
+        if plotSourcePos == "True":
+            plotFormCode=plotFormCode.replace("$CHECKED_XMATCH", " checked")
+        else:
+            plotFormCode=plotFormCode.replace("$CHECKED_XMATCH", "")
             
         plotFormCode=plotFormCode.replace("$MAX_SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))        
         if clipSizeArcmin == None:
@@ -1418,9 +1439,9 @@ class SourceBrowser(object):
                 skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
                 self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], self.configDict['skyviewSurveyStrings'][skyviewIndex], imageType)
         if clipSizeArcmin == None:
-            imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, plotNEDObjects, plotSDSSObjects, plotSourcePos)
+            imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s&plotXMatch=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, plotNEDObjects, plotSDSSObjects, plotSourcePos, plotXMatch)
         else:
-            imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&clipSizeArcmin=%.3f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, float(clipSizeArcmin), plotNEDObjects, plotSDSSObjects, plotSourcePos)
+            imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&clipSizeArcmin=%.3f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s&plotXMatch=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, float(clipSizeArcmin), plotNEDObjects, plotSDSSObjects, plotSourcePos, plotXMatch)
         
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
         if 'enableMongoDB' in self.configDict.keys() and self.configDict['enableMongoDB'] == True:
