@@ -24,6 +24,7 @@ import atpy
 import operator
 import urllib
 import urllib2
+import glob
 from astLib import *
 import pyfits
 import numpy as np
@@ -56,6 +57,9 @@ class SourceBrowser(object):
             # Default - if we have run the sourcery_fetch_skyview script
             self.skyviewPath=os.environ['HOME']+os.path.sep+".sourcery"+os.path.sep+"skyview.jar"
 
+        # Below will be enabled if we have exactly one image in an imageDir
+        self.mapPageEnabled=False
+        
         # Parse catalog
         self.tab=atpy.Table(self.configDict['catalogFileName'])
         self.tab.sort(["RADeg", "decDeg"])
@@ -167,7 +171,8 @@ class SourceBrowser(object):
                 self.imageLabels.append(label)
                 self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
        
-        # Pre-processing? 
+        # Pre-processing
+        # NOTE: this includes generating .jpgs from user-specified, probably proprietary, image dirs
         # We can run this on the webserver by going to localhost:8080/preprocess
         # We might want to prevent that and force it to run manually only...
         if preprocess == True:
@@ -238,20 +243,34 @@ class SourceBrowser(object):
                         delim='"'
                     elif items[0] == "'":
                         delim="'"
-                    delimIndices=[]
-                    for i in range(len(items)):
-                        if items[i] == delim:
-                            delimIndices.append(i)
-                    extractedItems=[]
-                    for i in range(len(delimIndices)-1):
-                        extractedItems.append(items[delimIndices[i]:delimIndices[i+1]+1])                   
-                    validItems=[]
-                    for b in extractedItems:
-                        if b[0] == delim and b[-1] == delim:
-                            candidateItem=b.replace(delim, "").lstrip().rstrip()
-                            if candidateItem != ',':
-                                validItems.append(candidateItem)
-                    value=validItems
+                    else:
+                        delim=""
+                    if delim != "":
+                        delimIndices=[]
+                        for i in range(len(items)):
+                            if items[i] == delim:
+                                delimIndices.append(i)
+                        extractedItems=[]
+                        for i in range(len(delimIndices)-1):
+                            extractedItems.append(items[delimIndices[i]:delimIndices[i+1]+1])                   
+                        validItems=[]
+                        for b in extractedItems:
+                            if b[0] == delim and b[-1] == delim:
+                                candidateItem=b.replace(delim, "").lstrip().rstrip()
+                                if candidateItem != ',':
+                                    validItems.append(candidateItem)
+                        value=validItems
+                    else:
+                        # In this case, a list of numbers or True, False
+                        value=[]
+                        extractedItems=items.split(",")
+                        for b in extractedItems:
+                            if b.lstrip().rstrip() == 'True':
+                                value.append(True)
+                            elif b.lstrip().rstrip() == 'False':
+                                value.append(False)
+                            else:
+                                value.append(float(b))
                 elif value[0] == '(':
                     items=value.replace("(", "").replace(")", "").split(",")
                     lst=[]
@@ -1652,11 +1671,15 @@ class SourceBrowser(object):
     
     @cherrypy.expose
     def preprocess(self):
-        """This re-runs pre-processing steps (e.g., NED matching, SDSS image fetching etc.)
+        """This re-runs pre-processing steps (e.g., NED matching, SDSS image fetching etc.).
+        
+        If the use specified their own imageDirs, then the .jpg images from these are constructed here
         
         """
+        self.makeImageDirJPEGs()
+            
         for obj in self.tab:
-            print ">>> Fetching data to cache for object %s" % (obj['name'])
+            print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
             self.fetchSDSSRedshifts(obj['name'], obj['RADeg'], obj['decDeg'])
             if self.configDict['addSDSSImage'] == True:
@@ -1665,5 +1688,53 @@ class SourceBrowser(object):
                 self.fetchCFHTLSImage(obj)
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
-                    self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label) 
+                    self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
+
+
+    def makeImageDirJPEGs(self):
+        """Actual makes .jpg images from .fits images in given directories. We figure out which image to use
+        from spinning through the headers. 
+        
+        For XCS, there may be more than one image... will need to think how to handle that. For now we will 
+        take the first match.
+        
+        If there is only one image in a directory (like an ACT map say), and all objects fall in it, we will
+        flag to make a clickable map page.
+        
+        """
+        print ">>> Making imageDir .jpgs ..."
+        for imageDir, label, colourMap, sizePix in zip(self.configDict['imageDirs'], 
+                                                       self.configDict['imageDirsLabels'],
+                                                       self.configDict['imageDirsColourMaps'],
+                                                       self.configDict['imageDirsSizesPix']):
+            
+            outDir=self.configDict['cacheDir']+os.path.sep+label
+            if os.path.exists(outDir) == False:
+                os.makedirs(outDir)
+            
+            imgList=glob.glob(imageDir+os.path.sep+"*.fits")
+            imgList=imgList+glob.glob(imageDir+os.path.sep+"*.fits.gz")
+            
+            # If only one image, set flag so that we will enable map web page
+            # This needs to go somewhere else...
+            if len(imgList) == 1:
+                self.mapPageEnabled=True
+            else:
+                self.mapPageEnabled=False
+            
+            IPython.embed()
+            sys.exit()
+            for imgFileName in imgList:
+                wcs=astWCS.WCS(imgFileName)
+                for obj in self.tab:
+                    IPython.embed()
+                    sys.exit()
+        IPython.embed()
+        sys.exit()
+        
+        
+        
+        
+        
+        
         
