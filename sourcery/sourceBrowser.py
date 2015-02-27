@@ -155,6 +155,10 @@ class SourceBrowser(object):
         # We will generate images dynamically... here we set up info like labels and captions
         self.imageLabels=[]      # labels at top of each source page that allow us to select image to view
         self.imageCaptions=[]    # caption that goes under image shown on the source pages
+        if "imageDirsLabels" in self.configDict.keys():
+            for label in self.configDict['imageDirsLabels']:
+                self.imageLabels.append(label)
+                self.imageCaptions.append("I don't think we're using this any more")
         # SDSS colour .jpgs
         if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
             label="SDSS"
@@ -1427,7 +1431,7 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
         plotFormCode=plotFormCode.replace("$OBJECT_NAME", name)
         
-        imageTypesCode=""
+        imageTypesCode=""            
         for label in self.imageLabels:
             if label == imageType:
                 imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s" checked>%s\n' % (label, label)
@@ -1703,15 +1707,20 @@ class SourceBrowser(object):
         
         """
         print ">>> Making imageDir .jpgs ..."
-        for imageDir, label, colourMap, sizePix in zip(self.configDict['imageDirs'], 
-                                                       self.configDict['imageDirsLabels'],
-                                                       self.configDict['imageDirsColourMaps'],
-                                                       self.configDict['imageDirsSizesPix']):
+        for imageDir, label, colourMap, sizePix, smoothingArcsec in zip(self.configDict['imageDirs'], 
+                                                                        self.configDict['imageDirsLabels'],
+                                                                        self.configDict['imageDirsColourMaps'],
+                                                                        self.configDict['imageDirsSizesPix'],
+                                                                        self.configDict['imageDirsSmoothingArcsec']):
             
+            if smoothingArcsec == 0.0:
+                smoothingArcsec=None
+            
+            # NOTE: Need to worry at some point about labels with spaces...
             outDir=self.configDict['cacheDir']+os.path.sep+label
             if os.path.exists(outDir) == False:
                 os.makedirs(outDir)
-            
+                            
             imgList=glob.glob(imageDir+os.path.sep+"*.fits")
             imgList=imgList+glob.glob(imageDir+os.path.sep+"*.fits.gz")
             
@@ -1722,17 +1731,35 @@ class SourceBrowser(object):
             else:
                 self.mapPageEnabled=False
             
-            IPython.embed()
-            sys.exit()
             for imgFileName in imgList:
                 wcs=astWCS.WCS(imgFileName)
+                data=None
                 for obj in self.tab:
-                    IPython.embed()
-                    sys.exit()
-        IPython.embed()
-        sys.exit()
-        
-        
+                    outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
+                    if os.path.exists(outFileName) == False:
+                        if wcs.coordsAreInImage(obj['RADeg'], obj['decDeg']) == True:
+                            if data == None:
+                                img=pyfits.open(imgFileName)
+                                data=img[0].data
+                            clip=catalogTools.clipSmoothedTanResampledImage(obj, data, wcs, 
+                                                                            self.configDict['plotSizeArcmin']/60.0, 
+                                                                            smoothingArcsec, 
+                                                                            outFileName = None, 
+                                                                            sizePix = sizePix)
+                            # Try to pick sensible cut levels
+                            # Min-Max scaling
+                            # Should probably stick with this, but also add log option for optical
+                            cuts=[clip['data'].min(), clip['data'].max()]
+                            
+                            dpi=96.0
+                            f=pylab.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
+                            pylab.axes([0, 0, 1, 1])
+                            cutImageDict=astImages.intensityCutImage(clip['data'], cuts)
+                            pylab.imshow(cutImageDict['image'], interpolation = "bilinear", origin = 'lower', 
+                                        cmap = colourMap, norm = cutImageDict['norm'])
+                            pylab.savefig(outFileName, dpi = dpi)
+                            pylab.close()
+
         
         
         

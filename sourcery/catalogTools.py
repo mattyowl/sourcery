@@ -20,6 +20,7 @@
 """
 
 from astLib import *
+from scipy import ndimage
 import numpy
 import operator
 import os
@@ -29,10 +30,84 @@ import sys
 import time
 import atpy
 import datetime
+import IPython
 
 #-------------------------------------------------------------------------------------------------------------
 XMATCH_RADIUS_DEG=1.4/60.0  # catalog matching radius, for sim comparisons
 
+#-------------------------------------------------------------------------------------------------------------
+def clipSmoothedTanResampledImage(obj, mapData, mapWCS, sizeDeg, gaussSmoothArcSecRadius, 
+                                  outFileName = None, sizePix = 200):
+    """Clips a tan resampled, (optionally smoothed) section around an object in an image, writes it out
+    to outFileName, and returns a dictionary containing the clipped map data and WCS. 
+        
+    """
+    
+    RADeg=obj['RADeg']
+    decDeg=obj['decDeg']
+    
+    # This solves for the RA, dec coords we need to clip to get exactly the right dimensions and dodge
+    # the cea projection shenanigans
+    tolerance=1e-8  # in degrees on sky
+    targetHalfSizeSkyDeg=(sizeDeg*1.1)/2.0  # slightly bigger, trim down afterwards
+    funcCalls=["astCoords.calcAngSepDeg(RADeg, decDeg, guess, decDeg)",
+               "astCoords.calcAngSepDeg(RADeg, decDeg, guess, decDeg)",
+               "astCoords.calcAngSepDeg(RADeg, decDeg, RADeg, guess)",
+               "astCoords.calcAngSepDeg(RADeg, decDeg, RADeg, guess)"]
+    coords=[RADeg, RADeg, decDeg, decDeg]
+    signs=[1.0, -1.0, 1.0, -1.0]
+    results=[]
+    for f, c, sign in zip(funcCalls, coords, signs):
+        # Initial guess range
+        maxGuess=sign*targetHalfSizeSkyDeg*2.0
+        minGuess=sign*targetHalfSizeSkyDeg/10.0
+        guessStep=(maxGuess-minGuess)/10.0
+        guesses=numpy.arange(minGuess+c, maxGuess+c, guessStep)
+        for i in range(60):
+            minSizeDiff=1e6
+            bestGuess=None
+            for guess in guesses:
+                sizeDiff=abs(eval(f)-targetHalfSizeSkyDeg)
+                if sizeDiff < minSizeDiff:
+                    minSizeDiff=sizeDiff
+                    bestGuess=guess
+            if minSizeDiff < tolerance:
+                break
+            else:
+                guessRange=abs((maxGuess-minGuess))
+                maxGuess=bestGuess+guessRange/4.0
+                minGuess=bestGuess-guessRange/4.0
+                guessStep=(maxGuess-minGuess)/10.0
+                guesses=numpy.arange(minGuess, maxGuess, guessStep)
+        results.append(bestGuess)
+    RAMax=results[0]
+    RAMin=results[1]
+    decMax=results[2]
+    decMin=results[3]
+
+    # To tan proj, scale, smooth, save
+    # We'll make these 1% bigger than 12 arcmin actually to see if we can get rid of annoying edge effect
+    # in contour plots
+    tanClip=astImages.clipUsingRADecCoords(mapData, mapWCS, RAMin, RAMax, decMin, decMax)
+    try:
+        tanClip=astImages.resampleToTanProjection(tanClip['data'], tanClip['wcs'], outputPixDimensions = [sizePix, sizePix])
+    except:
+        print "Hmm - tan reprojection failed"
+        IPython.embed()
+        sys.exit()
+    #tanClip=astImages.clipImageSectionWCS(tanClip['data'], tanClip['wcs'], RADeg, decDeg, sizeDeg*1.01)
+    dataClip=tanClip['data']
+    scaleFactor=float(sizePix)/float(tanClip['data'].shape[1])
+    tanClip=astImages.scaleImage(tanClip['data'], tanClip['wcs'], scaleFactor)
+    if gaussSmoothArcSecRadius != None:
+        radPix=(gaussSmoothArcSecRadius/3600.0)/tanClip['wcs'].getPixelSizeDeg()
+        tanClip['data']=ndimage.gaussian_filter(tanClip['data'], radPix)                        
+    
+    if outFileName != None:
+        astImages.saveFITS(outFileName, tanClip['data'], tanClip['wcs']) 
+    
+    return tanClip
+        
 #-------------------------------------------------------------------------------------------------------------
 def tab2DS9(tab, outFileName, color = "cyan"):
     """Writes atpy Table into a ds9 region file.
