@@ -66,7 +66,8 @@ class SourceBrowser(object):
         
         # In case we don't have a 'name' column, we relabel a given column
         if 'nameColumn' in self.configDict.keys() and self.configDict['nameColumn'] != "":
-            self.tab.rename_column(self.configDict['nameColumn'], 'name')
+            if 'name' not in self.tab.keys():
+                self.tab.rename_column(self.configDict['nameColumn'], 'name')
                     
         # Column to display info
         # Table pages
@@ -103,7 +104,7 @@ class SourceBrowser(object):
         #   classification: what kind of object is in the catalog? List of types defined in config file
         #   fields: these are editable, used to, e.g., assign a redshift and source
         # We create empty entries in the MongoDB and corresponding database columns if we cannot find an existing entry
-        # First though, add the relevant columns to the atpy table
+        # We will only add/populate columns of atpy table when writing output
         #if 'tags' in self.configDict.keys():
             #for t in self.configDict['tags']:
                 #self.tab.add_column(t, np.zeros(len(self.tab), dtype = bool))
@@ -112,10 +113,10 @@ class SourceBrowser(object):
             formatsList=[]
             for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
                 if t == 'number':
-                    self.tab.add_column(f, np.zeros(len(self.tab), dtype = float))
+                    #self.tab.add_column(f, np.zeros(len(self.tab), dtype = float))
                     formatsList.append('%.3f')
                 elif t == 'text':
-                    self.tab.add_column(f, np.zeros(len(self.tab), dtype = 'S1000'))
+                    #self.tab.add_column(f, np.zeros(len(self.tab), dtype = 'S1000'))
                     formatsList.append('%s')
             self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['fields']
             self.tableDisplayColumns=self.tableDisplayColumns+self.configDict['fields']
@@ -126,7 +127,7 @@ class SourceBrowser(object):
             for c in self.configDict['classifications']:
                 if len(c) > maxLen:
                     maxLen=len(c)
-            self.tab.add_column('classification', np.zeros(len(self.tab), dtype = 'S%d' % (maxLen)))
+            #self.tab.add_column('classification', np.zeros(len(self.tab), dtype = 'S%d' % (maxLen)))
             self.sourceDisplayColumns=self.sourceDisplayColumns+["classification"]
             self.tableDisplayColumns=self.tableDisplayColumns+["classification"]
             self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["classification"]
@@ -138,7 +139,7 @@ class SourceBrowser(object):
         self.db=self.client[self.dbName]
         self.collection=self.db['tagsCollection']
         self.collection.ensure_index([('loc', pymongo.GEOSPHERE)])
-        self.matchTabToMongoDB(self.tab)
+        #self.matchTabToMongoDB(self.tab)
         
         # Set up storage dirs
         self.cacheDir=self.configDict['cacheDir']
@@ -184,10 +185,41 @@ class SourceBrowser(object):
 
         # This sets size of table view - view is controlled with session variables
         self.tableViewRows=40
+
+    def findMongoDBMatch(self, obj):
+        """Find match in MongoDB to obj row from tab. If we don't find one, return a dictionary with blank
+        values where fields would be.
+        
+        """
+        
+        if obj['RADeg'] > 180:
+            lon=360.0-obj['RADeg']
+        else:
+            lon=obj['RADeg']
+        matches=self.collection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+        if matches.count() == 0:
+            newPost={'loc': {'type': 'Point', 'coordinates': [lon, obj['decDeg']]}}
+            self.collection.insert(newPost)
+        else:
+            mongoDict=matches.next()
+        
+        # Check we don't have a blank entry in terms of fields we expect
+        if 'classifications' in self.configDict.keys() and 'classification' not in mongoDict.keys():
+            mongoDict['classification']=""
+        if 'fields' in self.configDict.keys():
+            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
+                if f not in mongoDict.keys():
+                    if t == 'number':
+                        mongoDict[f]=0.0
+                    elif t == 'text':
+                        mongoDict[f]=""
+    
+        return mongoDict
     
     
     def matchTabToMongoDB(self, tab):
-        """Performs the matching between MongoDB and atpy table.
+        """Performs the matching between MongoDB and atpy table. Do this only when about to provide table
+        for download.
         
         """
         for i in range(len(tab)):
@@ -804,7 +836,7 @@ class SourceBrowser(object):
         if 'queryOtherConstraints' not in cherrypy.session:
             cherrypy.session['queryOtherConstraints']=""
         viewTab=cherrypy.session.get('viewTab')
-        self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
+        #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
         queryRADeg=cherrypy.session.get('queryRADeg')
         queryDecDeg=cherrypy.session.get('queryDecDeg')
         querySearchBoxArcmin=cherrypy.session.get('querySearchBoxArcmin')
@@ -959,6 +991,9 @@ class SourceBrowser(object):
             self.fetchNEDInfo(obj)
             self.findNEDMatch(obj)
 
+            # On the fly MongoDB matching
+            mongoDict=self.findMongoDBMatch(obj)
+                
             # Highlighting of rows - obviously, order matters here!
             bckColor="white"
             #if 'observed 2009B' in obj.keys() and obj['observed 2009B'] == True:
@@ -982,8 +1017,17 @@ class SourceBrowser(object):
             rowString=rowString+"</tr>\n"
             
             # Insert values - note name is special
-            # Need to work out how to handle the clusterMatch column with Toby's stuff
             for key, fmt in zip(self.tableDisplayColumns, self.tableDisplayColumnFormats):
+                if key in self.tab.keys():
+                    value=obj[key]
+                elif key in mongoDict.keys():
+                    value=mongoDict[key]
+                else:
+                    # No entry in MongoDB yet
+                    if fmt != "%s":
+                        value=0.0
+                    else:
+                        value=""
                 htmlKey="$"+string.upper(key)+"_KEY"
                 if key == "name":
                     #linksDir="dummy"
@@ -998,7 +1042,7 @@ class SourceBrowser(object):
                     rowString=rowString.replace(htmlKey, "-")
                 else:
                     try:
-                        rowString=rowString.replace(htmlKey, fmt % (obj[key]))
+                        rowString=rowString.replace(htmlKey, fmt % (value))
                     except:
                         raise Exception, "IndexError: check .config file tableDisplayColumns are actually in the .fits table"
                            
@@ -1043,7 +1087,22 @@ class SourceBrowser(object):
         if 'viewTab' not in cherrypy.session:
             cherrypy.session['viewTab']=copy.deepcopy(self.tab)
         viewTab=cherrypy.session.get('viewTab')
-        self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
+        
+        # Add extra columns from MongoDB
+        if 'fields' in self.configDict.keys():
+            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
+                if t == 'number':
+                    viewTab.add_column(f, np.zeros(len(viewTab), dtype = float))
+                elif t == 'text':
+                    viewTab.add_column(f, np.zeros(len(viewTab), dtype = 'S1000'))
+        if 'classifications' in self.configDict.keys():
+            maxLen=0
+            for c in self.configDict['classifications']:
+                if len(c) > maxLen:
+                    maxLen=len(c)
+            viewTab.add_column('classification', np.zeros(len(viewTab), dtype = 'S%d' % (maxLen)))
+            
+        self.matchTabToMongoDB(viewTab)
         
         tmpFileName=tempfile.mktemp()
         if fileFormat == 'cat':
@@ -1113,12 +1172,12 @@ class SourceBrowser(object):
                     return result   # Error message
                 else:
                     viewTab=result
-            self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
+            #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
             cherrypy.session['viewTopRow']=0
             cherrypy.session['viewTab']=viewTab
         
         if queryReset:
-            self.matchTabToMongoDB(self.tab)
+            #self.matchTabToMongoDB(self.tab)
             cherrypy.session['queryRADeg']="0:360"
             cherrypy.session['queryDecDeg']="-90:90"
             cherrypy.session['querySearchBoxArcmin']=""
@@ -1208,7 +1267,7 @@ class SourceBrowser(object):
         if 'viewTab' not in cherrypy.session:
             cherrypy.session['viewTab']=copy.deepcopy(self.tab)
         viewTab=cherrypy.session.get('viewTab')
-        self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
+        #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
                 
         templatePage="""<html>
         <head>
@@ -1260,12 +1319,24 @@ class SourceBrowser(object):
         bckColor="white"
         tableData=""
         excludeKeys=['RADeg', 'decDeg'] # because we handle differently
+        keysList=list(viewTab.keys())
+        typeNamesList=[]
         for key in viewTab.keys():
-            # Row for each column in table
             a=viewTab[key]
+            typeNamesList.append(a.dtype.name)
+        # Add MongoDB object properties        
+        if 'classifications' in self.configDict.keys():
+            keysList.append('classification')
+            typeNamesList.append("text")
+        if 'fields' in self.configDict.keys():
+            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
+                keysList.append(f)
+                typeNamesList.append(t)
+        for key, typeName in zip(keysList, typeNamesList):
+            # Row for each column in table
             rowString="<tr>\n"                
             rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center width=10%><b>"+key+"</b></td>\n"
-            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center width=10%>"+a.dtype.str+" ("+a.dtype.name+")"+"</td>\n"
+            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center width=10%>"+typeName+"</td>\n"
             rowString=rowString+"</tr>\n"                           
             tableData=tableData+rowString
         html=html.replace("$TABLE_DATA", tableData)
@@ -1274,7 +1345,7 @@ class SourceBrowser(object):
 
     @cherrypy.expose
     def updateMongoDB(self, name, returnURL, **kwargs):
-        """Update info on source in MongoDB and the viewed atpy table.
+        """Update info on source in MongoDB.
         
         """
         
@@ -1295,22 +1366,16 @@ class SourceBrowser(object):
             lon=obj['RADeg']
         matches=self.collection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
         mongoDict=matches.next()
-        print mongoDict
         
         post={}
         for key in kwargs.keys():
             if key in self.configDict['fields']:
                 if self.configDict['fieldTypes'][self.configDict['fields'].index(key)] == 'number':
                     post[key]=float(kwargs[key])
-                    obj[key]=float(kwargs[key])
                 else:
                     post[key]=kwargs[key]
-                    obj[key]=kwargs[key]
             else:
                 post[key]=kwargs[key]
-                obj[key]=kwargs[key]
-        print post
-        print kwargs
         self.collection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
         cherrypy.session['viewTab']=viewTab
@@ -1334,7 +1399,7 @@ class SourceBrowser(object):
         if 'viewTab' not in cherrypy.session:
             cherrypy.session['viewTab']=copy.deepcopy(self.tab)
         viewTab=cherrypy.session.get('viewTab')
-        self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
+        #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
 
         name=self.URLToSourceName(name)
         
@@ -1398,6 +1463,8 @@ class SourceBrowser(object):
 
         objTabIndex=np.where(viewTab['name'] == name)[0][0]
         obj=viewTab[objTabIndex]
+
+        mongoDict=self.findMongoDBMatch(obj)
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
         plotFormCode="""
@@ -1501,11 +1568,11 @@ class SourceBrowser(object):
                 fieldsCode=""
                 for f in self.configDict['fields']:
                     fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (f, f)
-                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s"/>\n' % (str(obj[f]), f)
+                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s"/>\n' % (str(mongoDict[f]), f)
             tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', fieldsCode)
             classificationsCode=""
             for c in self.configDict['classifications']:
-                if c == obj['classification']:
+                if c == mongoDict['classification']:
                     classificationsCode=classificationsCode+'<input type="radio" name="classification" value="%s" checked>%s\n' % (c, c)
                 else:
                     classificationsCode=classificationsCode+'<input type="radio" onChange="this.form.submit();" name="classification" value="%s">%s\n' % (c, c)
