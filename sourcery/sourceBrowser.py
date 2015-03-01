@@ -40,6 +40,8 @@ import StringIO
 import tempfile
 import pymongo
 from bson.son import SON
+import pyximport; pyximport.install()
+import sourceryCython
 import cherrypy
 import IPython
  
@@ -1774,11 +1776,12 @@ class SourceBrowser(object):
         
         """
         print ">>> Making imageDir .jpgs ..."
-        for imageDir, label, colourMap, sizePix, smoothingArcsec in zip(self.configDict['imageDirs'], 
+        for imageDir, label, colourMap, sizePix, smoothingArcsec, minMaxRadiusArcmin in zip(self.configDict['imageDirs'], 
                                                                         self.configDict['imageDirsLabels'],
                                                                         self.configDict['imageDirsColourMaps'],
                                                                         self.configDict['imageDirsSizesPix'],
-                                                                        self.configDict['imageDirsSmoothingArcsec']):
+                                                                        self.configDict['imageDirsSmoothingArcsec'],
+                                                                        self.configDict['imageDirsMinMaxRadiusArcmin']):
             
             if smoothingArcsec == 0.0:
                 smoothingArcsec=None
@@ -1804,19 +1807,31 @@ class SourceBrowser(object):
                 for obj in self.tab:
                     outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
                     if os.path.exists(outFileName) == False:
-                        if wcs.coordsAreInImage(obj['RADeg'], obj['decDeg']) == True:
+                        RAMin, RAMax, decMin, decMax=wcs.getImageMinMaxWCSCoords()
+                        if obj['RADeg'] > RAMin and obj['RADeg'] < RAMax and obj['decDeg'] > decMin and obj['decDeg'] < decMax:
                             if data == None:
                                 img=pyfits.open(imgFileName)
                                 data=img[0].data
-                            clip=catalogTools.clipSmoothedTanResampledImage(obj, data, wcs, 
+                            try:
+                                clip=catalogTools.clipSmoothedTanResampledImage(obj, data, wcs, 
                                                                             self.configDict['plotSizeArcmin']/60.0, 
                                                                             smoothingArcsec, 
                                                                             outFileName = None, 
                                                                             sizePix = sizePix)
+                            except:
+                                continue    # in this case, the object probably wasn't quite in the image?
+                            
                             # Try to pick sensible cut levels
                             # Min-Max scaling
                             # Should probably stick with this, but also add log option for optical
+                            rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
+                            minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
                             cuts=[clip['data'].min(), clip['data'].max()]
+                            
+                            # This should guard against picking up edges of images, if source position is not actually visible
+                            # (e.g., XMM images)
+                            if cuts[0] == 0 and cuts[1] == 0:
+                                continue
                             
                             dpi=96.0
                             f=pylab.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)

@@ -4,6 +4,7 @@ import os
 import glob
 from distutils.core import setup
 from distutils.extension import Extension
+from Cython.Distutils import build_ext
 import popen2
 
 setup(name='sourcery',
@@ -17,6 +18,6 @@ setup(name='sourcery',
       packages=['sourcery'],
       package_data={'sourcery': ['data/*']},
       scripts=['bin/sourcery_build_cache', 'bin/sourcery_test', 'bin/sourcery_fetch_skyview'],
-      #cmdclass={'build_ext': build_ext},
-      #ext_modules=[Extension("nemoCython", ["nemo/nemoCython.pyx"])]
+      cmdclass={'build_ext': build_ext},
+      ext_modules=[Extension("sourceryCython", ["sourcery/sourceryCython.pyx"])]
 )
