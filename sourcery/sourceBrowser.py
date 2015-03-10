@@ -505,7 +505,8 @@ class SourceBrowser(object):
                             print "Probably asking for too many queries from SDSS... waiting then trying again."
                             time.sleep(60)
                             os.remove(outFileName)
-                            self.fetchSDSSRedshifts(name, RADeg, decDeg)
+                            SDSSRedshifts=self.fetchSDSSRedshifts(name, RADeg, decDeg)
+                            break
                     zDict['rMag']=float(bits[3])
                     zDict['specObjID']=bits[4]
                     zDict['z']=float(bits[5])
