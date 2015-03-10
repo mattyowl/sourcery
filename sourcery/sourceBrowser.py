@@ -202,6 +202,7 @@ class SourceBrowser(object):
         if matches.count() == 0:
             newPost={'loc': {'type': 'Point', 'coordinates': [lon, obj['decDeg']]}}
             self.collection.insert(newPost)
+            mongoDict={}
         else:
             mongoDict=matches.next()
         
@@ -441,36 +442,44 @@ class SourceBrowser(object):
         """Queries SDSS for redshifts. 
         
         """
-        url='http://skyserver.sdss3.org/dr10/en/tools/search/x_sql.aspx'
-        outFileName=self.sdssRedshiftsDir+os.path.sep+"%s.csv" % (name.replace(" ", "_"))
-        if os.path.exists(outFileName) == False:
-            sql="""SELECT
-            p.objid,p.ra,p.dec,p.r,
-            s.specobjid,s.z, 
-            dbo.fSpecZWarningN(s.zWarning) as warning,
-            s.plate, s.mjd, s.fiberid
-            FROM PhotoObj AS p
-            JOIN SpecObj AS s ON s.bestobjid = p.objid
-            WHERE 
-            p.ra < %.6f+0.1 and p.ra > %.6f-0.1
-            AND p.dec < %.6f+0.1 and p.dec > %.6f-0.1
-            """ % (RADeg, RADeg, decDeg, decDeg)
-            # Filter SQL so that it'll work
-            fsql = ''
-            for line in sql.split('\n'):
-                fsql += line.split('--')[0] + ' ' + os.linesep;
-            params=urllib.urlencode({'cmd': fsql, 'format': "csv"})
-            response=urllib2.urlopen(url+'?%s' % (params))
-            lines=response.read()
-            lines=lines.split("\n")
-            outFile=file(outFileName, "w")
-            for line in lines:
-                outFile.write(line+"\n")
-            outFile.close()        
+        if decDeg > -20:
+            url='http://skyserver.sdss3.org/dr10/en/tools/search/x_sql.aspx'
+            outFileName=self.sdssRedshiftsDir+os.path.sep+"%s.csv" % (name.replace(" ", "_"))
+            if os.path.exists(outFileName) == False:
+                sql="""SELECT
+                p.objid,p.ra,p.dec,p.r,
+                s.specobjid,s.z, 
+                dbo.fSpecZWarningN(s.zWarning) as warning,
+                s.plate, s.mjd, s.fiberid
+                FROM PhotoObj AS p
+                JOIN SpecObj AS s ON s.bestobjid = p.objid
+                WHERE 
+                p.ra < %.6f+0.1 and p.ra > %.6f-0.1
+                AND p.dec < %.6f+0.1 and p.dec > %.6f-0.1
+                """ % (RADeg, RADeg, decDeg, decDeg)
+                # Filter SQL so that it'll work
+                fsql = ''
+                for line in sql.split('\n'):
+                    fsql += line.split('--')[0] + ' ' + os.linesep;
+                params=urllib.urlencode({'cmd': fsql, 'format': "csv"})
+                try:
+                    response=urllib2.urlopen(url+'?%s' % (params))
+                except:
+                    print "What's going on now?"
+                    IPython.embed()
+                    sys.exit()
+                lines=response.read()
+                lines=lines.split("\n")
+                outFile=file(outFileName, "w")
+                for line in lines:
+                    outFile.write(line+"\n")
+                outFile.close()        
+            else:
+                inFile=file(outFileName, "r")
+                lines=inFile.readlines()
+                inFile.close()
         else:
-            inFile=file(outFileName, "r")
-            lines=inFile.readlines()
-            inFile.close()
+            return []
             
         # Parse .csv into catalog
         SDSSRedshifts=[]
@@ -493,9 +502,10 @@ class SourceBrowser(object):
                         if len(lines) > 1 and lines[1].find('"ERROR: Maximum 60 queries allowed per minute. Rejected query: SELECT') != -1:
                             raise Exception, "Exceeded 60 queries/min on SDSS server. Take a breather and rerun nemo (previous queries cached)."
                         else:
-                            print "Hmm. Not able to parse SDSS redshifts"
-                            IPython.embed()
-                            sys.exit()
+                            print "Probably asking for too many queries from SDSS... waiting then trying again."
+                            time.sleep(60)
+                            os.remove(outFileName)
+                            self.fetchSDSSRedshifts(name, RADeg, decDeg)
                     zDict['rMag']=float(bits[3])
                     zDict['specObjID']=bits[4]
                     zDict['z']=float(bits[5])
@@ -1819,6 +1829,10 @@ class SourceBrowser(object):
                                                                             outFileName = None, 
                                                                             sizePix = sizePix)
                             except:
+                                print "WARNING: Some other reason why clip failed - check out later"
+                                clip=None
+                                
+                            if clip == None:
                                 continue    # in this case, the object probably wasn't quite in the image?
                             
                             # Try to pick sensible cut levels

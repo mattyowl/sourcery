@@ -85,16 +85,19 @@ def clipSmoothedTanResampledImage(obj, mapData, mapWCS, sizeDeg, gaussSmoothArcS
     decMax=results[2]
     decMin=results[3]
 
-    # To tan proj, scale, smooth, save
+    # To Tan proj, scale, smooth, save
     # We'll make these 1% bigger than 12 arcmin actually to see if we can get rid of annoying edge effect
     # in contour plots
+    # NOTE: This has problems if crossing RA = 0, get RAMin spanning 0.4 deg to 359 deg say
+    # Doesn't help if use other clipping routines either!
     tanClip=astImages.clipUsingRADecCoords(mapData, mapWCS, RAMin, RAMax, decMin, decMax)
+    
     try:
         tanClip=astImages.resampleToTanProjection(tanClip['data'], tanClip['wcs'], outputPixDimensions = [sizePix, sizePix])
     except:
-        print "Hmm - tan reprojection failed"
-        IPython.embed()
-        sys.exit()
+        print "WARNING: image needs clipping over 0h RA? Fix later"
+        return None
+    
     #tanClip=astImages.clipImageSectionWCS(tanClip['data'], tanClip['wcs'], RADeg, decDeg, sizeDeg*1.01)
     dataClip=tanClip['data']
     scaleFactor=float(sizePix)/float(tanClip['data'].shape[1])
@@ -219,7 +222,7 @@ def addSDSSRedshifts(catalog, cacheDir = "SDSSQueryResults"):
             outFile.close()
             
             consecutiveQueryCount=consecutiveQueryCount+1
-            if consecutiveQueryCount > 50:
+            if consecutiveQueryCount > 30:
                 print "... sleeping to give SDSS server a break ..."
                 time.sleep(60)
                 consecutiveQueryCount=0
