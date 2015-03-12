@@ -414,6 +414,7 @@ class SourceBrowser(object):
                 self.tab.add_column('%s_distArcmin' % (label), [np.nan]*len(self.tab))
                 self.tab.add_column('%s_RADeg' % (label), [np.nan]*len(self.tab))
                 self.tab.add_column('%s_decDeg' % (label), [np.nan]*len(self.tab))
+                self.tab.add_column('%s_match' % (label), np.zeros(len(self.tab)))
                 self.tableDisplayColumns=self.tableDisplayColumns+["%s_name" % (label)]
                 self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["%s" % (label)]
                 self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
@@ -436,6 +437,7 @@ class SourceBrowser(object):
                         row['%s_RADeg' % (label)]=float(xMatch['RADeg'])
                         row['%s_decDeg' % (label)]=float(xMatch['decDeg'])
                         row['%s_distArcmin' % (label)]=r.min()*60.0
+                        row['%s_match' % (label)]=1
             
             
     def fetchSDSSRedshifts(self, name, RADeg, decDeg):
@@ -1104,16 +1106,17 @@ class SourceBrowser(object):
         # Add extra columns from MongoDB
         if 'fields' in self.configDict.keys():
             for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
-                if t == 'number':
+                if t == 'number' and f not in viewTab.keys():
                     viewTab.add_column(f, np.zeros(len(viewTab), dtype = float))
-                elif t == 'text':
+                elif t == 'text' and f not in viewTab.keys():
                     viewTab.add_column(f, np.zeros(len(viewTab), dtype = 'S1000'))
         if 'classifications' in self.configDict.keys():
             maxLen=0
             for c in self.configDict['classifications']:
                 if len(c) > maxLen:
                     maxLen=len(c)
-            viewTab.add_column('classification', np.zeros(len(viewTab), dtype = 'S%d' % (maxLen)))
+            if 'classification' not in viewTab.keys():
+                viewTab.add_column('classification', np.zeros(len(viewTab), dtype = 'S%d' % (maxLen)))
             
         self.matchTabToMongoDB(viewTab)
         
@@ -1157,6 +1160,23 @@ class SourceBrowser(object):
             cherrypy.session['querySearchBoxArcmin']=querySearchBoxArcmin
             cherrypy.session['queryOtherConstraints']=queryOtherConstraints
             viewTab=cherrypy.session.get('viewTab')
+            
+            # Add extra columns from MongoDB
+            if 'fields' in self.configDict.keys():
+                for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
+                    if t == 'number' and f not in viewTab.keys():
+                        viewTab.add_column(f, np.zeros(len(viewTab), dtype = float))
+                    elif t == 'text' and f not in viewTab.keys():
+                        viewTab.add_column(f, np.zeros(len(viewTab), dtype = 'S1000'))
+            if 'classifications' in self.configDict.keys():
+                maxLen=0
+                for c in self.configDict['classifications']:
+                    if len(c) > maxLen:
+                        maxLen=len(c)
+                if 'classification' not in viewTab.keys():
+                    viewTab.add_column('classification', np.zeros(len(viewTab), dtype = 'S%d' % (maxLen)))
+            self.matchTabToMongoDB(viewTab)
+            
             if ":" not in queryRADeg and ":" not in queryDecDeg:
                 queryRADeg=float(queryRADeg)
                 queryDecDeg=float(queryDecDeg)
