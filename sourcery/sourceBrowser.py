@@ -1295,10 +1295,8 @@ class SourceBrowser(object):
         if not cherrypy.session.loaded: cherrypy.session.load()
             
         # Store results of query in another collection (empty it first if documents are in it)
-        if cherrypy.session.id not in self.db.collection_names():
-            self.db.create_collection(cherrypy.session.id)
         self.db.collection[cherrypy.session.id].remove({})
-            
+        
         # Build query document piece by piece...
         queryDict={}
         
@@ -1372,31 +1370,23 @@ class SourceBrowser(object):
             del queryDict[k]
                 
         # Execute query
-        queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')
+        queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))
 
         # Search on tags
         tagsConstraints=False
         if len(tagsQueryDict.keys()) > 0:
             tagsConstraints=True
-            
-            ## If we didn't have any field in tagsCollection to search on, we're done...
-            #queryDictList=queryPosts
-        #else:
-            ## ...otherwise we need to do some cross matching
-            ##tagPosts=self.tagsCollection.find(tagsQueryDict)
-            #queryDictList=[]
         
         for q in queryPosts:
             qDict=q
             objTagsQueryDict=tagsQueryDict.copy()
-            objTagsQueryDict['loc']=SON({'$nearSphere': q['loc'], 
+            objTagsQueryDict['loc']=SON({'$nearSphere': q['loc']['coordinates'], 
                                             '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})
             matches=self.tagsCollection.find(objTagsQueryDict).limit(1)
             foundMatch=False
             if matches.count() > 0:
                 foundMatch=True
                 tagsDict=matches.next()
-                qDict=q
                 for key in tagsDict:
                     qDict[key]=tagsDict[key]
             if tagsConstraints == True:
@@ -1404,57 +1394,6 @@ class SourceBrowser(object):
                     self.db.collection[cherrypy.session.id].insert(qDict)
             else:
                 self.db.collection[cherrypy.session.id].insert(qDict)
-
-
-    def applyOtherConstraints(self, tab, queryStr):
-        """Returns a table with queryStr constraints applied, or returns an error message.
-        
-        """
-
-        # Firstly, do nothing if the queryStr is empty
-        if len(queryStr) == 0:
-            return tab
-        
-        # Order matters for matching operators below (for... break)
-        operators=['>=', '<=', '<', '>', '=']
-        
-        # Maybe we will only support 'and'
-        constraints=queryStr.split(" and ")
-        newTab=copy.deepcopy(tab)
-        for c in constraints:
-            foundOp=False
-            for op in operators:
-                if c.find(op) != -1:
-                    foundOp=True
-                    break
-            if foundOp == True:
-                bits=c.split(op)
-                key=bits[0].lstrip().rstrip()
-                value=bits[1].lstrip().rstrip()
-                # All greater/less only make sense with numbers anyway, fail gracelessly if not floats at present
-                if op == '>':
-                    newTab=newTab.where(np.greater(newTab[key], float(value)))
-                elif op == '>=':
-                    newTab=newTab.where(np.greater_equal(newTab[key], float(value)))
-                elif op == '<':
-                    newTab=newTab.where(np.less(newTab[key], float(value)))
-                elif op == '<=':
-                    newTab=newTab.where(np.less_equal(newTab[key], float(value)))
-                elif op == '=':
-                    if newTab[key].dtype.name.find("string") != -1:
-                        # Strip out "' if put there by the user
-                        value=str(value.replace("'", "").replace('"', ''))
-                    else:
-                        value=float(value)
-                    newTab=newTab.where(newTab[key] == value)
-            else:
-                return "Error: unrecognised operator in constraint '%s'" % (c)
-        
-        if newTab != None:
-            return newTab
-        else:
-            # Or we should return error?
-            return tab
     
     
     @cherrypy.expose
@@ -1474,6 +1413,7 @@ class SourceBrowser(object):
                 viewTopRow=0
             cherrypy.session['viewTopRow']=viewTopRow
         return self.index()        
+    
     
     @cherrypy.expose
     def displayConstraintsHelp(self):
