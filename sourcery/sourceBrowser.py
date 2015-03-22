@@ -1979,7 +1979,8 @@ class SourceBrowser(object):
         """
         self.makeImageDirJPEGs()
             
-        for obj in self.tab:
+        for obj in self.sourceCollection.find().sort('decDeg').sort('RADeg'):
+
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
             self.fetchSDSSRedshifts(obj['name'], obj['RADeg'], obj['decDeg'])
@@ -2029,14 +2030,17 @@ class SourceBrowser(object):
             else:
                 self.mapPageEnabled=False
             
+            objList=list(self.sourceCollection.find().sort('decDeg').sort('RADeg'))
+
             for imgFileName in imgList:
                 wcs=astWCS.WCS(imgFileName)
                 data=None
-                for obj in self.tab:
+                for obj in objList:
                     outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
                     if os.path.exists(outFileName) == False:
-                        RAMin, RAMax, decMin, decMax=wcs.getImageMinMaxWCSCoords()
-                        if obj['RADeg'] > RAMin and obj['RADeg'] < RAMax and obj['decDeg'] > decMin and obj['decDeg'] < decMax:
+                        # coordsAreInImage doesn't seem to work for XCS, but RAMin, RAMax etc. doesn't for ACT
+                        # Fix this later...
+                        if wcs.coordsAreInImage(obj['RADeg'], obj['decDeg']):
                             if data == None:
                                 img=pyfits.open(imgFileName)
                                 data=img[0].data
@@ -2049,7 +2053,7 @@ class SourceBrowser(object):
                             except:
                                 print "WARNING: Some other reason why clip failed - check out later"
                                 clip=None
-                                
+                             
                             if clip == None:
                                 continue    # in this case, the object probably wasn't quite in the image?
                             
@@ -2069,7 +2073,7 @@ class SourceBrowser(object):
                             f=pylab.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
                             pylab.axes([0, 0, 1, 1])
                             cutImageDict=astImages.intensityCutImage(clip['data'], cuts)
-                            pylab.imshow(cutImageDict['image'], interpolation = "bilinear", origin = 'lower', 
+                            pylab.imshow(cutImageDict['image'], interpolation = None, origin = 'lower', 
                                         cmap = colourMap, norm = cutImageDict['norm'])
                             pylab.savefig(outFileName, dpi = dpi)
                             pylab.close()
