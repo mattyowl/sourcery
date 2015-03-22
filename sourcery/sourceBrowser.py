@@ -48,7 +48,7 @@ import IPython
 #-------------------------------------------------------------------------------------------------------------
 class SourceBrowser(object):
     
-    def __init__(self, configFileName, preprocess = False):
+    def __init__(self, configFileName, preprocess = False, buildDatabase = False):
         
         # Parse config file
         self.parseConfig(configFileName)
@@ -61,45 +61,39 @@ class SourceBrowser(object):
 
         # Below will be enabled if we have exactly one image in an imageDir
         self.mapPageEnabled=False
-        
-        # Parse catalog
-        self.tab=atpy.Table(self.configDict['catalogFileName'])
-        self.tab.sort(["RADeg", "decDeg"])
-        
-        # In case we don't have a 'name' column, we relabel a given column
-        if 'nameColumn' in self.configDict.keys() and self.configDict['nameColumn'] != "":
-            if 'name' not in self.tab.keys():
-                self.tab.rename_column(self.configDict['nameColumn'], 'name')
-                    
+
+        # Set up storage dirs
+        self.cacheDir=self.configDict['cacheDir']
+        self.skyCacheDir=self.configDict['skyviewCacheDir']
+        if os.path.exists(self.cacheDir) == False:
+            os.makedirs(self.cacheDir)
+        self.nedDir=self.cacheDir+os.path.sep+"NED"
+        if os.path.exists(self.nedDir) == False:
+            os.makedirs(self.nedDir)
+        self.sdssRedshiftsDir=self.cacheDir+os.path.sep+"SDSSRedshifts"
+        if os.path.exists(self.sdssRedshiftsDir) == False:
+            os.makedirs(self.sdssRedshiftsDir)
+            
+        # MongoDB set up
+        self.dbName=self.configDict['MongoDBName']
+        self.client=pymongo.MongoClient('localhost', 27017)
+        self.db=self.client[self.dbName]
+        self.sourceCollection=self.db['sourceCollection']
+        self.sourceCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
+        self.fieldTypesCollection=self.db['fieldTypes']
+        if buildDatabase == True:
+            self.buildDatabase()
+        self.tagsCollection=self.db['tagsCollection']
+        self.tagsCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
+
         # Column to display info
         # Table pages
         self.tableDisplayColumns=['name', 'RADeg', 'decDeg']+self.configDict['tableDisplayColumns']
         self.tableDisplayColumnLabels=['Name', 'R.A. (degrees)', 'Dec. (degrees)']+self.configDict['tableDisplayColumns']
         self.tableDisplayColumnFormats=['%s', '%.6f', '%.6f']+self.configDict['tableDisplayColumnFormats']
         # Source pages
-        self.sourceDisplayColumns=list(self.tab.keys())
-        #self.sourceDisplayColumnLabels=['Name', 'R.A. (degrees)', 'Dec. (degrees)']+self.configDict['sourceDisplayColumnLabels']
-        #self.sourceDisplayColumnFormats=['%s', '%.6f', '%.6f']+self.configDict['sourceDisplayColumnFormats']
-        
-        # Add NED match columns - we will fill on the fly...
-        if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
-            self.tab.add_column('NED_name', ['_______________________']*len(self.tab))
-            self.tab['NED_name']=None
-            self.tab.add_column('NED_z', [np.nan]*len(self.tab))
-            self.tab.add_column('NED_distArcmin', [np.nan]*len(self.tab))
-            self.tab.add_column('NED_RADeg', [np.nan]*len(self.tab))
-            self.tab.add_column('NED_decDeg', [np.nan]*len(self.tab))
-            self.tableDisplayColumns=self.tableDisplayColumns+["NED_name"]
-            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["NED"]
-            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
-            self.sourceDisplayColumns=self.sourceDisplayColumns+["NED_name", "NED_z", "NED_RADeg", "NED_decDeg", "NED_distArcmin"]
-            #self.sourceDisplayColumnLabels=self.sourceDisplayColumnLabels+["NED Name", "NED z", "NED R.A. (degrees)", "NED Dec. (degrees)", "Distance to NED object (arcmin)"]
-            #self.sourceDisplayColumnFormats=self.sourceDisplayColumnFormats+["%s", "%.3f", "%.6f", "%.6f", "%.1f"]
-            
-        # Add other cross match columns and cross match now...
-        # NOTE: This could go into pre-processing, i.e., we can cache a different atpy table somewhere with this in?
-        self.addCrossMatchTabs()
-        
+        self.sourceDisplayColumns=[]
+
         # Support for tagging, classification etc. of candidates
         # We have three things here:
         #   tags: these work as flag columns - eventually, users can add any tag, we can then search for objects matching that tag
@@ -115,46 +109,19 @@ class SourceBrowser(object):
             formatsList=[]
             for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
                 if t == 'number':
-                    #self.tab.add_column(f, np.zeros(len(self.tab), dtype = float))
                     formatsList.append('%.3f')
                 elif t == 'text':
-                    #self.tab.add_column(f, np.zeros(len(self.tab), dtype = 'S1000'))
                     formatsList.append('%s')
             self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['fields']
             self.tableDisplayColumns=self.tableDisplayColumns+self.configDict['fields']
             self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+self.configDict['fields']
             self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+formatsList
         if 'classifications' in self.configDict.keys():
-            maxLen=0
-            for c in self.configDict['classifications']:
-                if len(c) > maxLen:
-                    maxLen=len(c)
-            #self.tab.add_column('classification', np.zeros(len(self.tab), dtype = 'S%d' % (maxLen)))
             self.sourceDisplayColumns=self.sourceDisplayColumns+["classification"]
             self.tableDisplayColumns=self.tableDisplayColumns+["classification"]
             self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["classification"]
             self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
-            
-        # MongoDB set up
-        self.dbName=self.configDict['MongoDBName']
-        self.client=pymongo.MongoClient('localhost', 27017)
-        self.db=self.client[self.dbName]
-        self.collection=self.db['tagsCollection']
-        self.collection.ensure_index([('loc', pymongo.GEOSPHERE)])
-        #self.matchTabToMongoDB(self.tab)
-        
-        # Set up storage dirs
-        self.cacheDir=self.configDict['cacheDir']
-        self.skyCacheDir=self.configDict['skyviewCacheDir']
-        if os.path.exists(self.cacheDir) == False:
-            os.makedirs(self.cacheDir)
-        self.nedDir=self.cacheDir+os.path.sep+"NED"
-        if os.path.exists(self.nedDir) == False:
-            os.makedirs(self.nedDir)
-        self.sdssRedshiftsDir=self.cacheDir+os.path.sep+"SDSSRedshifts"
-        if os.path.exists(self.sdssRedshiftsDir) == False:
-            os.makedirs(self.sdssRedshiftsDir)
-            
+                               
         # We will generate images dynamically... here we set up info like labels and captions
         self.imageLabels=[]      # labels at top of each source page that allow us to select image to view
         self.imageCaptions=[]    # caption that goes under image shown on the source pages
@@ -188,7 +155,8 @@ class SourceBrowser(object):
         # This sets size of table view - view is controlled with session variables
         self.tableViewRows=40
 
-    def findMongoDBMatch(self, obj):
+
+    def matchTags(self, obj):
         """Find match in MongoDB to obj row from tab. If we don't find one, return a dictionary with blank
         values where fields would be.
         
@@ -198,7 +166,7 @@ class SourceBrowser(object):
             lon=360.0-obj['RADeg']
         else:
             lon=obj['RADeg']
-        matches=self.collection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+        matches=self.tagsCollection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
         if matches.count() == 0:
             newPost={'loc': {'type': 'Point', 'coordinates': [lon, obj['decDeg']]}}
             self.collection.insert(newPost)
@@ -252,8 +220,154 @@ class SourceBrowser(object):
                     for f in self.configDict['fields']:
                         if f in mongoDict.keys():
                             row[f]=mongoDict[f]
+
+
+    def buildDatabase(self):
+        """Import .fits table into MongoDB database as sourceCollection. Delete any pre-existing catalog
+        there. Do all the cross matching at this stage also.
+        
+        We also store a list of fields and types in a collection, so that we can (a) use this for the 
+        constraints help page; (b) keep fields in a sensible order (assuming input catalogs are in sensible 
+        order)
+        
+        """
+        
+        # Delete any pre-existing entries
+        self.db.drop_collection('sourceCollection')
+        self.db.drop_collection('fieldTypes')
+        
+        # Table set up
+        tab=atpy.Table(self.configDict['catalogFileName'])
+        tab.sort(["RADeg", "decDeg"])
+        
+        # In case we don't have a 'name' column, we relabel a given column
+        if 'nameColumn' in self.configDict.keys() and self.configDict['nameColumn'] != "":
+            if 'name' not in tab.keys():
+                tab.rename_column(self.configDict['nameColumn'], 'name')
+
+        # Only load tables once for cross matching
+        xTabsDict={}
+        if 'crossMatchCatalogFileNames' in self.configDict.keys():
+            for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
+                xTabsDict[label]=atpy.Table(f)
+        crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
+                
+        # Import each object into MongoDB, cross matching as we go...
+        idCount=0
+        fieldTypesList=[]   # Used for making sensible column order later
+        fieldTypesDict={}   # Used for tracking types for help page
+        for row in tab:
+            # Need an id number for table display
+            idCount=idCount+1
+            newPost={'index': idCount}
+            newPost['name']=row['name']
+            newPost['RADeg']=row['RADeg']
+            newPost['decDeg']=row['decDeg']
+            
+            # MongoDB coords for spherical geometry
+            if row['RADeg'] > 180:
+                lon=360.0-row['RADeg']
+            else:
+                lon=row['RADeg']
+            newPost['loc']={'type': 'Point', 'coordinates': [lon, row['decDeg']]}
+            
+            # Properties in the table
+            for key in tab.keys():
+                # Just to make sure MongoDB happy with data types
+                # e.g., redmapper .fits table doesn't play nicely by default
+                if tab.columns[key].dtype.name.find("int") != -1:
+                    newPost[key]=int(row[key])
+                    if key not in fieldTypesList:
+                        fieldTypesList.append(key)
+                        fieldTypesDict[key]="number"
+                elif tab.columns[key].dtype.name.find("string") != -1:
+                    newPost[key]=str(row[key])
+                    if key not in fieldTypesList:
+                        fieldTypesList.append(key)
+                        fieldTypesDict[key]="string"
+                elif tab.columns[key].dtype.name.find("float") != -1:
+                    if key not in fieldTypesList:
+                        fieldTypesList.append(key)
+                        fieldTypesDict[key]="number"
+                    newPost[key]=float(row[key])
+                elif tab.columns[key].dtype.name.find("bool") != -1:
+                    if key not in fieldTypesList:
+                        fieldTypesList.append(key)
+                        fieldTypesDict[key]="number"
+                    newPost[key]=bool(row[key])
+                else:
+                    raise Exception, "Unknown data type in column '%s' of table cross match table '%s'" % (key, label)            
+            
+            # NED cross match
+            if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
+                self.findNEDMatch(newPost)
+                stringKeys=['NED_name']
+                numberKeys=['NED_z', 'NED_distArcmin', 'NED_RADeg', 'NED_decDeg']
+                typesList=['string', 'number']
+                for t, l in zip(typesList, [stringKeys, numberKeys]):
+                    for key in l:
+                        if key not in fieldTypesList:
+                            fieldTypesList.append(key)
+                            fieldTypesDict[key]=t
+            
+            # All other cross matches
+            if 'crossMatchCatalogFileNames' in self.configDict.keys():
+                for label in self.configDict['crossMatchCatalogLabels']:
+                    xTab=xTabsDict[label]
+                    r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
+                    if r.min() < crossMatchRadiusDeg:
+                        xMatch=xTab.where(r == r.min())[0]
+                        for key in xTab.keys():
+                            newKey='%s_%s' % (label, key)
+                            # Just to make sure MongoDB happy with data types
+                            # e.g., redmapper .fits table doesn't play nicely by default
+                            if xTab.columns[key].dtype.name.find("int") != -1:
+                                newPost[newKey]=int(xMatch[key])
+                                if newKey not in fieldTypesList:
+                                    fieldTypesList.append(newKey)
+                                    fieldTypesDict[newKey]="number"
+                            elif xTab.columns[key].dtype.name.find("string") != -1:
+                                newPost[newKey]=str(xMatch[key])
+                                if newKey not in fieldTypesList:
+                                    fieldTypesList.append(newKey)
+                                    fieldTypesDict[newKey]="string"
+                            elif xTab.columns[key].dtype.name.find("float") != -1:
+                                newPost[newKey]=float(xMatch[key])
+                                if newKey not in fieldTypesList:
+                                    fieldTypesList.append(newKey)
+                                    fieldTypesDict[newKey]="number"
+                            elif xTab.columns[key].dtype.name.find("bool") != -1:
+                                newPost[newKey]=bool(xMatch[key])
+                                if newKey not in fieldTypesList:
+                                    fieldTypesList.append(newKey)
+                                    fieldTypesDict[newKey]="number"
+                            else:
+                                raise Exception, "Unknown data type in column '%s' of table cross match table '%s'" % (key, label)
+                        newPost['%s_RADeg' % (label)]=float(xMatch['RADeg'])
+                        newPost['%s_decDeg' % (label)]=float(xMatch['decDeg'])
+                        newPost['%s_distArcmin' % (label)]=r.min()*60.0
+                        newPost['%s_match' % (label)]=1
+                        numberKeys=['RADeg', 'decDeg', 'distArcmin', 'match']
+                        for key in numberKeys:
+                            if '%s_%s' % (label, key) not in fieldTypesList:
+                                fieldTypesList.append('%s_%s' % (label, key))
+                                fieldTypesDict['%s_%s' % (label, key)]="number"
+                    else:
+                        newPost['%s_match' % (label)]=0
+                        
+            self.sourceCollection.insert(newPost)
+        
+        # Make collection of field types
+        index=0
+        for key in fieldTypesList:
+            fieldDict={}
+            fieldDict['name']=key
+            fieldDict['type']=fieldTypesDict[key]
+            fieldDict['index']=index
+            self.fieldTypesCollection.insert(fieldDict)
+            index=index+1
+
                             
-    
     def parseConfig(self, configFileName):
         """Parse config file, unpacking parameters into the SourceBrowser object.
         
@@ -709,7 +823,7 @@ class SourceBrowser(object):
                                     size = sizeDeg/40.0*3600.0, symbol = 'box', color = "red")
                               
         if plotXMatch == "True":
-            obj=self.tab.where(self.tab['name'] == name)
+            obj=self.sourceCollection.find_one({'name': name})
             xMatchRAs=[]
             xMatchDecs=[]
             xMatchLabels=[]
@@ -831,6 +945,32 @@ class SourceBrowser(object):
                     
         
     @cherrypy.expose
+    def updateQueryParams(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints, queryApply = None,
+                          queryReset = None):
+        """Updates query params in cookie, and then calls index again (which runs the query).
+        
+        """
+
+        if not cherrypy.session.loaded: cherrypy.session.load()
+        
+        if queryReset:
+            cherrypy.session['queryRADeg']="0:360"
+            cherrypy.session['queryDecDeg']="-90:90"
+            cherrypy.session['querySearchBoxArcmin']=""
+            cherrypy.session['viewTopRow']=0
+            cherrypy.session['queryOtherConstraints']=""
+        
+        if queryApply:
+            cherrypy.session['queryRADeg']=queryRADeg
+            cherrypy.session['queryDecDeg']=queryDecDeg
+            cherrypy.session['querySearchBoxArcmin']=querySearchBoxArcmin
+            cherrypy.session['viewTopRow']=0
+            cherrypy.session['queryOtherConstraints']=queryOtherConstraints
+        
+        return self.index()
+    
+        
+    @cherrypy.expose
     def index(self):
         """Shows the table page.
         
@@ -840,8 +980,6 @@ class SourceBrowser(object):
         if not cherrypy.session.loaded: cherrypy.session.load()
         if 'viewTopRow' not in cherrypy.session:
             cherrypy.session['viewTopRow']=0
-        if 'viewTab' not in cherrypy.session:
-            cherrypy.session['viewTab']=copy.deepcopy(self.tab)
         if 'queryRADeg' not in cherrypy.session:
             cherrypy.session['queryRADeg']="0:360"
         if 'queryDecDeg' not in cherrypy.session:
@@ -850,8 +988,6 @@ class SourceBrowser(object):
             cherrypy.session['querySearchBoxArcmin']=""
         if 'queryOtherConstraints' not in cherrypy.session:
             cherrypy.session['queryOtherConstraints']=""
-        viewTab=cherrypy.session.get('viewTab')
-        #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
         queryRADeg=cherrypy.session.get('queryRADeg')
         queryDecDeg=cherrypy.session.get('queryDecDeg')
         querySearchBoxArcmin=cherrypy.session.get('querySearchBoxArcmin')
@@ -889,7 +1025,7 @@ class SourceBrowser(object):
         $COLOR_CODING
         
         <br>
-        <form method="get" action="runQuery">
+        <form method="get" action="updateQueryParams">
         <fieldset>
         <legend><b>Constraints</b></legend>
         <p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative R.A. values to wrap around 0 degrees (e.g., -60:60).</p>
@@ -953,13 +1089,21 @@ class SourceBrowser(object):
                 
         html=templatePage
         
+        # Extract table view from MongoDB
+        # First need to apply query parameters here
+        self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
+        queryPosts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))
+
+        # Then cut to number of rows to view as below
+        viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
+        
         # Fill in query params
         html=html.replace("$QUERY_RADEG", queryRADeg)
         html=html.replace("$QUERY_DECDEG", queryDecDeg)
         html=html.replace("$QUERY_SEARCHBOXARCMIN", querySearchBoxArcmin)
         html=html.replace("$QUERY_OTHERCONSTRAINTS", queryOtherConstraints)
         html=html.replace("$OBJECT_TYPE_STRING", self.configDict['objectTypeString'])
-        html=html.replace("$NUMBER_SOURCES", str(len(viewTab)))
+        html=html.replace("$NUMBER_SOURCES", str(len(queryPosts)))
         html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
@@ -976,7 +1120,7 @@ class SourceBrowser(object):
         <p>Total number of %s = %d (original source list: %d)</p>
         <p>%s</p>
         </fieldset>""" % (os.path.split(self.configDict['catalogFileName'])[-1], self.configDict['objectTypeString'], 
-                          len(viewTab), len(self.tab), commentsString)
+                          len(queryPosts), self.sourceCollection.count(), commentsString)
         html=html.replace("$META_DATA", metaData)        
         
         # Catalog download links
@@ -992,22 +1136,15 @@ class SourceBrowser(object):
         <p>Note that current constraints are applied to downloaded catalogs.</p>
         </fieldset><br>
         """ % (shortCatalogName, shortFITSName, shortRegName))
-                
+                        
         tableData=""
         usedBckColors=[]
         usedBckKeys=[]
-        viewTopRow=cherrypy.session.get('viewTopRow')
-        viewBottomRow=viewTopRow+self.tableViewRows
-        if viewBottomRow > len(viewTab):
-            viewBottomRow=len(viewTab)
-        for obj in viewTab[viewTopRow:viewBottomRow]:#viewTopRow:viewTopRow+self.tableViewRows]:
-            
-            # On the fly NED matching (we can cache these beforehand by running preprocess()
-            self.fetchNEDInfo(obj)
-            self.findNEDMatch(obj)
 
+        for obj in viewPosts:
+            
             # On the fly MongoDB matching
-            mongoDict=self.findMongoDBMatch(obj)
+            #tagsDict=self.matchTags(obj)
                 
             # Highlighting of rows - obviously, order matters here!
             bckColor="white"
@@ -1033,12 +1170,13 @@ class SourceBrowser(object):
             
             # Insert values - note name is special
             for key, fmt in zip(self.tableDisplayColumns, self.tableDisplayColumnFormats):
-                if key in self.tab.keys():
-                    value=obj[key]
-                elif key in mongoDict.keys():
-                    value=mongoDict[key]
+                if key in obj.keys():
+                    try:
+                        value=obj[key]
+                    except:
+                        raise Exception, "missing key %s" % (key)
                 else:
-                    # No entry in MongoDB yet
+                    # No entry in MongoDB tags yet
                     if fmt != "%s":
                         value=0.0
                     else:
@@ -1098,35 +1236,37 @@ class SourceBrowser(object):
         """Provide user with the current table view as a downloadable catalog.
         
         """
-        if not cherrypy.session.loaded: cherrypy.session.load()
-        if 'viewTab' not in cherrypy.session:
-            cherrypy.session['viewTab']=copy.deepcopy(self.tab)
-        viewTab=cherrypy.session.get('viewTab')
         
-        # Add extra columns from MongoDB
-        if 'fields' in self.configDict.keys():
-            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
-                if t == 'number' and f not in viewTab.keys():
-                    viewTab.add_column(f, np.zeros(len(viewTab), dtype = float))
-                elif t == 'text' and f not in viewTab.keys():
-                    viewTab.add_column(f, np.zeros(len(viewTab), dtype = 'S1000'))
-        if 'classifications' in self.configDict.keys():
-            maxLen=0
-            for c in self.configDict['classifications']:
-                if len(c) > maxLen:
-                    maxLen=len(c)
-            if 'classification' not in viewTab.keys():
-                viewTab.add_column('classification', np.zeros(len(viewTab), dtype = 'S%d' % (maxLen)))
-            
-        self.matchTabToMongoDB(viewTab)
+        if not cherrypy.session.loaded: cherrypy.session.load()
+    
+        keysList, typeNamesList=self.getFieldNamesAndTypes(excludeKeys = [])
+        
+        posts=list(self.db.collection[cherrypy.session.id].find())    # Current view, including classification info
+        tabLength=len(posts)
+        
+        tab=atpy.Table()
+        for key, typeName in zip(keysList, typeNamesList):
+            if typeName == 'number':
+                tab.add_column(str(key), np.zeros(tabLength, dtype = float))
+            else:
+                tab.add_column(str(key), np.zeros(tabLength, dtype = 'S1000'))
+        
+        for i in range(tabLength):
+            row=tab[i]
+            post=posts[i]
+            for key in keysList:
+                if key in post.keys():
+                    row[key]=post[key]
+
+        tab.table_name=self.configDict['catalogDownloadFileName']
         
         tmpFileName=tempfile.mktemp()
         if fileFormat == 'cat':
-            viewTab.write(tmpFileName+".cat", type = 'ascii')
+            tab.write(tmpFileName+".cat", type = 'ascii')
         elif fileFormat == 'fits':
-            viewTab.write(tmpFileName+".fits", type = 'fits')
+            tab.write(tmpFileName+".fits", type = 'fits')
         elif fileFormat == 'reg':
-            catalogTools.tab2DS9(viewTab, tmpFileName+".reg")
+            catalogTools.tab2DS9(tab, tmpFileName+".reg")
         
         cherrypy.response.headers['Content-Disposition']='attachment; filename="%s.%s"' % (self.configDict['catalogDownloadFileName'], fileFormat)
         
@@ -1150,75 +1290,120 @@ class SourceBrowser(object):
         return url.replace("%2b", "+").replace("%20", " ")
 
 
-    @cherrypy.expose
-    def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints, queryApply = None, queryReset = None):            
+    def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints):            
+
         if not cherrypy.session.loaded: cherrypy.session.load()
-        if queryApply:
-            cherrypy.session['viewTab']=copy.deepcopy(self.tab)
-            cherrypy.session['queryRADeg']=queryRADeg
-            cherrypy.session['queryDecDeg']=queryDecDeg
-            cherrypy.session['querySearchBoxArcmin']=querySearchBoxArcmin
-            cherrypy.session['queryOtherConstraints']=queryOtherConstraints
-            viewTab=cherrypy.session.get('viewTab')
             
-            # Add extra columns from MongoDB
-            if 'fields' in self.configDict.keys():
-                for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
-                    if t == 'number' and f not in viewTab.keys():
-                        viewTab.add_column(f, np.zeros(len(viewTab), dtype = float))
-                    elif t == 'text' and f not in viewTab.keys():
-                        viewTab.add_column(f, np.zeros(len(viewTab), dtype = 'S1000'))
-            if 'classifications' in self.configDict.keys():
-                maxLen=0
-                for c in self.configDict['classifications']:
-                    if len(c) > maxLen:
-                        maxLen=len(c)
-                if 'classification' not in viewTab.keys():
-                    viewTab.add_column('classification', np.zeros(len(viewTab), dtype = 'S%d' % (maxLen)))
-            self.matchTabToMongoDB(viewTab)
+        # Store results of query in another collection (empty it first if documents are in it)
+        if cherrypy.session.id not in self.db.collection_names():
+            self.db.create_collection(cherrypy.session.id)
+        self.db.collection[cherrypy.session.id].remove({})
             
-            if ":" not in queryRADeg and ":" not in queryDecDeg:
-                queryRADeg=float(queryRADeg)
-                queryDecDeg=float(queryDecDeg)
-                querySearchBoxArcmin=float(querySearchBoxArcmin)
-                RAMin, RAMax, decMin, decMax=astCoords.calcRADecSearchBox(queryRADeg, queryDecDeg, querySearchBoxArcmin/60.0)
-            else:
-                RAMin, RAMax=queryRADeg.split(":")
-                decMin, decMax=queryDecDeg.split(":")
-                RAMin=float(RAMin)
-                RAMax=float(RAMax)
-                decMin=float(decMin)
-                decMax=float(decMax)
-            if RAMin >= 0:
-                viewTab=viewTab.where(viewTab['RADeg'] > RAMin)
-                viewTab=viewTab.where(viewTab['RADeg'] < RAMax)
-            else:
-                mask1=np.less(viewTab['RADeg'],  RAMax)
-                mask2=np.greater(viewTab['RADeg']-360.0, RAMin) 
-                viewTab=viewTab.where(np.logical_or(mask1, mask2))
-            viewTab=viewTab.where(viewTab['decDeg'] > decMin)
-            viewTab=viewTab.where(viewTab['decDeg'] < decMax)
-            # Other constraints
-            if queryOtherConstraints != "":
-                result=self.applyOtherConstraints(viewTab, queryOtherConstraints)
-                if type(result) == str:
-                    return result   # Error message
-                else:
-                    viewTab=result
-            #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
-            cherrypy.session['viewTopRow']=0
-            cherrypy.session['viewTab']=viewTab
+        # Build query document piece by piece...
+        queryDict={}
         
-        if queryReset:
-            #self.matchTabToMongoDB(self.tab)
-            cherrypy.session['queryRADeg']="0:360"
-            cherrypy.session['queryDecDeg']="-90:90"
-            cherrypy.session['querySearchBoxArcmin']=""
-            cherrypy.session['viewTab']=self.tab
-            cherrypy.session['viewTopRow']=0
-            cherrypy.session['queryOtherConstraints']=""
+        # Position
+        if ":" not in queryRADeg and ":" not in queryDecDeg:
+            queryRADeg=float(queryRADeg)
+            queryDecDeg=float(queryDecDeg)
+            querySearchBoxArcmin=float(querySearchBoxArcmin)
+            RAMin, RAMax, decMin, decMax=astCoords.calcRADecSearchBox(queryRADeg, queryDecDeg, querySearchBoxArcmin/60.0)
+        else:
+            RAMin, RAMax=queryRADeg.split(":")
+            decMin, decMax=queryDecDeg.split(":")
+            RAMin=float(RAMin)
+            RAMax=float(RAMax)
+            decMin=float(decMin)
+            decMax=float(decMax)
+        queryDict['decDeg']={'$lte': decMax, '$gte': decMin}
+        if RAMin >= 0:
+            queryDict['RADeg']={'$lte': RAMax, '$gte': RAMin}
+        else:
+            queryDict['$or']=[{'RADeg': {'$gte': 0, '$lte': RAMax}}, {'RADeg': {'$gte': 360+RAMin, '$lte': 360}}]
+
+        # Other constraints
+        # Need to add support for 'or'
+        transDict={'<':  '$lt', 
+                   '>':  '$gt',
+                   '<=': '$lte',
+                   '>=': '$gte',
+                   '=': '',
+                   '!=': '$ne'}
+        constraints=queryOtherConstraints.split(" and ")
+        for c in constraints:
+            for op in transDict.keys():
+                bits=c.split(op)
+                if len(bits) == 2:
+                    key=bits[0].lstrip().rstrip()
+                    value=bits[1].lstrip().rstrip()
+                    validConstraint=True
+                    for op2 in transDict.keys():
+                        if key.find(op2) != -1:
+                            validConstraint=False
+                        if value.find(op2) != -1:
+                            validConstraint=False
+                    if validConstraint == True:                        
+                        if key not in queryDict.keys():
+                            queryDict[key]={}
+                        # Queries won't work if we use strings instead of numbers when needed...
+                        if op != '=':
+                            try:
+                                queryDict[key][transDict[op]]=float(value)
+                            except:
+                                queryDict[key][transDict[op]]=value
+                        else:
+                            try:
+                                queryDict[key]=float(value)
+                            except:
+                                queryDict[key]=value
+
+        # Check if all fields exist in sourceCollection
+        # If not, we need to search for those in tagsCollection (they can't be anywhere else)
+        tagsQueryDict={}
+        killList=[]
+        skipKeys=['$or']
+        for key in queryDict:
+            if key not in skipKeys:
+                count=self.sourceCollection.find({key: {'$exists': True}}).count()
+                if count == 0:
+                    tagsQueryDict[key]=queryDict[key]
+                    killList.append(key)
+        for k in killList:
+            del queryDict[k]
+                
+        # Execute query
+        queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')
+
+        # Search on tags
+        tagsConstraints=False
+        if len(tagsQueryDict.keys()) > 0:
+            tagsConstraints=True
             
-        return self.index()
+            ## If we didn't have any field in tagsCollection to search on, we're done...
+            #queryDictList=queryPosts
+        #else:
+            ## ...otherwise we need to do some cross matching
+            ##tagPosts=self.tagsCollection.find(tagsQueryDict)
+            #queryDictList=[]
+        
+        for q in queryPosts:
+            qDict=q
+            objTagsQueryDict=tagsQueryDict.copy()
+            objTagsQueryDict['loc']=SON({'$nearSphere': q['loc'], 
+                                            '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})
+            matches=self.tagsCollection.find(objTagsQueryDict).limit(1)
+            foundMatch=False
+            if matches.count() > 0:
+                foundMatch=True
+                tagsDict=matches.next()
+                qDict=q
+                for key in tagsDict:
+                    qDict[key]=tagsDict[key]
+            if tagsConstraints == True:
+                if foundMatch == True:
+                    self.db.collection[cherrypy.session.id].insert(qDict)
+            else:
+                self.db.collection[cherrypy.session.id].insert(qDict)
 
 
     def applyOtherConstraints(self, tab, queryStr):
@@ -1296,11 +1481,6 @@ class SourceBrowser(object):
         with a little blurb on how to define constraints.
         
         """
-        if not cherrypy.session.loaded: cherrypy.session.load()
-        if 'viewTab' not in cherrypy.session:
-            cherrypy.session['viewTab']=copy.deepcopy(self.tab)
-        viewTab=cherrypy.session.get('viewTab')
-        #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
                 
         templatePage="""<html>
         <head>
@@ -1323,7 +1503,7 @@ class SourceBrowser(object):
         <p>
         Constraints can be placed on the source list columns listed below. Each constraint should be
         separated by 'and', e.g., <i>"redshift >= 0 and redshift < 0.4"</i> ('or' is not supported yet; comparison
-        operators which are understood are '<', '>', '>=', '<=' and '=').
+        operators which are understood are '<', '>', '>=', '<=', '=', '!=').
         </p>
         <br>
         <table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
@@ -1352,19 +1532,7 @@ class SourceBrowser(object):
         bckColor="white"
         tableData=""
         excludeKeys=['RADeg', 'decDeg'] # because we handle differently
-        keysList=list(viewTab.keys())
-        typeNamesList=[]
-        for key in viewTab.keys():
-            a=viewTab[key]
-            typeNamesList.append(a.dtype.name)
-        # Add MongoDB object properties        
-        if 'classifications' in self.configDict.keys():
-            keysList.append('classification')
-            typeNamesList.append("text")
-        if 'fields' in self.configDict.keys():
-            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
-                keysList.append(f)
-                typeNamesList.append(t)
+        keysList, typeNamesList=self.getFieldNamesAndTypes(excludeKeys = excludeKeys)
         for key, typeName in zip(keysList, typeNamesList):
             # Row for each column in table
             rowString="<tr>\n"                
@@ -1376,6 +1544,29 @@ class SourceBrowser(object):
         
         return html   
 
+
+    def getFieldNamesAndTypes(self, excludeKeys = []):
+        """Fetches lists of field names and types, for when displaying constraints help and saving tables.
+        
+        """
+        keysList=[]
+        typeNamesList=[]
+        for post in self.fieldTypesCollection.find().sort('index'):
+            if post['name'] not in excludeKeys:
+                keysList.append(post['name'])
+                typeNamesList.append(post['type'])
+        # Add MongoDB object properties        
+        if 'classifications' in self.configDict.keys():
+            keysList.append('classification')
+            typeNamesList.append("text")
+        if 'fields' in self.configDict.keys():
+            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
+                keysList.append(f)
+                typeNamesList.append(t)
+        
+        return keysList, typeNamesList
+                
+    
     @cherrypy.expose
     def updateMongoDB(self, name, returnURL, **kwargs):
         """Update info on source in MongoDB.
@@ -1383,13 +1574,8 @@ class SourceBrowser(object):
         """
         
         if not cherrypy.session.loaded: cherrypy.session.load()
-        if 'viewTab' not in cherrypy.session:
-            cherrypy.session['viewTab']=copy.deepcopy(self.tab)
-        viewTab=cherrypy.session.get('viewTab')
-        #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
-        
-        objTabIndex=np.where(viewTab['name'] == name)[0][0]
-        obj=viewTab[objTabIndex]
+       
+        obj=self.sourceCollection.find_one({'name': name})
         
         # Bizarrely, legacy coordinates are given as degrees (lon, lat) but max distance has to be in radians...
         # Also, need lon between -180, +180
@@ -1397,7 +1583,7 @@ class SourceBrowser(object):
             lon=360.0-obj['RADeg']
         else:
             lon=obj['RADeg']
-        matches=self.collection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+        matches=self.tagsCollection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
         mongoDict=matches.next()
         
         post={}
@@ -1409,10 +1595,8 @@ class SourceBrowser(object):
                     post[key]=kwargs[key]
             else:
                 post[key]=kwargs[key]
-        self.collection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
-        
-        cherrypy.session['viewTab']=viewTab
-        
+        self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
+                
         # NOTE: this will fail if we don't have SDSS or in fact any of default options met
         # also it would reset zoom level if changed
         return self.displaySourcePage(name, clipSizeArcmin = self.configDict['plotSizeArcmin'])
@@ -1429,10 +1613,20 @@ class SourceBrowser(object):
         
         """
         if not cherrypy.session.loaded: cherrypy.session.load()
-        if 'viewTab' not in cherrypy.session:
-            cherrypy.session['viewTab']=copy.deepcopy(self.tab)
-        viewTab=cherrypy.session.get('viewTab')
-        #self.matchTabToMongoDB(viewTab)     # Must be killer for large tables?
+        if 'viewTopRow' not in cherrypy.session:
+            cherrypy.session['viewTopRow']=0
+        if 'queryRADeg' not in cherrypy.session:
+            cherrypy.session['queryRADeg']="0:360"
+        if 'queryDecDeg' not in cherrypy.session:
+            cherrypy.session['queryDecDeg']="-90:90"
+        if 'querySearchBoxArcmin' not in cherrypy.session:
+            cherrypy.session['querySearchBoxArcmin']=""
+        if 'queryOtherConstraints' not in cherrypy.session:
+            cherrypy.session['queryOtherConstraints']=""
+        queryRADeg=cherrypy.session.get('queryRADeg')
+        queryDecDeg=cherrypy.session.get('queryDecDeg')
+        querySearchBoxArcmin=cherrypy.session.get('querySearchBoxArcmin')
+        queryOtherConstraints=cherrypy.session.get('queryOtherConstraints')
 
         name=self.URLToSourceName(name)
         
@@ -1445,12 +1639,12 @@ class SourceBrowser(object):
         <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
             <tbody>
                 <tr>
-                    $PREV_LINK_CODE
+                    <!-- $PREV_LINK_CODE -->
                     <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
                         text-align: center; vertical-align: middle; font-size: 125%;">
                         $SOURCE_NAME
                     </td>
-                    $NEXT_LINK_CODE
+                    <!-- $NEXT_LINK_CODE -->
                 </tr>
             </tbody>
         </table>
@@ -1494,10 +1688,8 @@ class SourceBrowser(object):
         # Taken this out from above the caption line
         #<tr><td align=center><b>$SIZE_ARC_MIN' x $SIZE_ARC_MIN'</b></td></tr>
 
-        objTabIndex=np.where(viewTab['name'] == name)[0][0]
-        obj=viewTab[objTabIndex]
-
-        mongoDict=self.findMongoDBMatch(obj)
+        obj=self.sourceCollection.find_one({'name': name})
+        mongoDict=self.matchTags(obj)
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
         plotFormCode="""
@@ -1577,7 +1769,7 @@ class SourceBrowser(object):
             imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&clipSizeArcmin=%.3f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s&plotXMatch=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, float(clipSizeArcmin), plotNEDObjects, plotSDSSObjects, plotSourcePos, plotXMatch)
         
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
-        if 'enableMongoDB' in self.configDict.keys() and self.configDict['enableMongoDB'] == True:
+        if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
             tagFormCode="""
             <form method="post" action="updateMongoDB">    
             <input name="name" value="$OBJECT_NAME" type="hidden">
@@ -1614,7 +1806,10 @@ class SourceBrowser(object):
         # Put it all together...
         html=templatePage
         html=html.replace("$PLOT_CONTROLS", plotFormCode)
-        html=html.replace("$TAG_CONTROLS", tagFormCode)
+        if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
+            html=html.replace("$TAG_CONTROLS", tagFormCode)
+        else:
+            html=html.replace("$TAG_CONTROLS", "")
         html=html.replace("$SOURCE_NAME", name)
         html=html.replace("$IMAGE_PATH", imagePath)        
         html=html.replace("$SIZE_ARC_MIN", "%.1f" % (self.configDict['plotSizeArcmin']))
@@ -1625,34 +1820,34 @@ class SourceBrowser(object):
                 #html=html.replace("$CAPTION", "%s" % (caption))
                         
         # Previous and next object page links
-        if objTabIndex > 0:
-            prevObjIndex=objTabIndex-1
-        else:
-            prevObjIndex=None
-        if objTabIndex < len(viewTab)-1:
-            nextObjIndex=objTabIndex+1
-        else:
-            nextObjIndex=None
-        if prevObjIndex != None:
-            prevObj=viewTab[prevObjIndex]            
-            prevLinkCode="""<td style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
-            color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
-            <a href=$PREV_LINK><b><<</b></a></td>
-            """ 
-            prevLinkCode=prevLinkCode.replace("$PREV_LINK", "displaySourcePage?name=%s&imageType=%sclipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(prevObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
-        else:
-            prevLinkCode=""
-        if nextObjIndex != None:
-            nextObj=viewTab[nextObjIndex]
-            nextLinkCode="""<td style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
-            color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
-            <a href=$NEXT_LINK><b>>></b></a></td>
-            """
-            nextLinkCode=nextLinkCode.replace("$NEXT_LINK", "displaySourcePage?name=%s&imageType=%s&clipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(nextObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
-        else:
-            nextLinkCode=""
-        html=html.replace("$PREV_LINK_CODE", prevLinkCode)
-        html=html.replace("$NEXT_LINK_CODE", nextLinkCode)
+        #if objTabIndex > 0:
+            #prevObjIndex=objTabIndex-1
+        #else:
+            #prevObjIndex=None
+        #if objTabIndex < len(viewTab)-1:
+            #nextObjIndex=objTabIndex+1
+        #else:
+            #nextObjIndex=None
+        #if prevObjIndex != None:
+            #prevObj=viewTab[prevObjIndex]            
+            #prevLinkCode="""<td style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
+            #color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
+            #<a href=$PREV_LINK><b><<</b></a></td>
+            #""" 
+            #prevLinkCode=prevLinkCode.replace("$PREV_LINK", "displaySourcePage?name=%s&imageType=%sclipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(prevObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
+        #else:
+            #prevLinkCode=""
+        #if nextObjIndex != None:
+            #nextObj=viewTab[nextObjIndex]
+            #nextLinkCode="""<td style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
+            #color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
+            #<a href=$NEXT_LINK><b>>></b></a></td>
+            #"""
+            #nextLinkCode=nextLinkCode.replace("$NEXT_LINK", "displaySourcePage?name=%s&imageType=%s&clipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(nextObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
+        #else:
+            #nextLinkCode=""
+        #html=html.replace("$PREV_LINK_CODE", prevLinkCode)
+        #html=html.replace("$NEXT_LINK_CODE", nextLinkCode)
     
         # NED matches table
         self.fetchNEDInfo(obj)
@@ -1751,8 +1946,10 @@ class SourceBrowser(object):
             </th>
         </tr>
         """
-        for pkey in self.sourceDisplayColumns:
-            if pkey in self.tab.keys():
+        fieldTypes=self.fieldTypesCollection.find().sort('index')
+        for f in fieldTypes:
+            if f['name'] in obj.keys():
+                pkey=f['name']
                 rowString="""<tr><td align=left width=50%><b>$KEY_LABEL</b></td>
                 <td align=center width=50%>$KEY_VALUE</td></tr>
                 """
