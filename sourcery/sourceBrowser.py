@@ -169,7 +169,7 @@ class SourceBrowser(object):
         matches=self.tagsCollection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
         if matches.count() == 0:
             newPost={'loc': {'type': 'Point', 'coordinates': [lon, obj['decDeg']]}}
-            self.collection.insert(newPost)
+            self.tagsCollection.insert(newPost)
             mongoDict={}
         else:
             mongoDict=matches.next()
@@ -187,40 +187,6 @@ class SourceBrowser(object):
     
         return mongoDict
     
-    
-    def matchTabToMongoDB(self, tab):
-        """Performs the matching between MongoDB and atpy table. Do this only when about to provide table
-        for download.
-        
-        """
-        for i in range(len(tab)):
-            row=tab[i]
-            # This query fetches everything within max distance sorted min distance first
-            # We use MongoDB legacy coordinates, because then we get results in radians rather than metres
-            # So we need to also store coords in radians
-            # Bizarrely, legacy coordinates are given as degrees (lon, lat) but max distance has to be in radians...
-            # Also, we need to keep lon between -180, +180 deg
-            if row['RADeg'] > 180:
-                lon=360.0-row['RADeg']
-            else:
-                lon=row['RADeg']
-            matches=self.collection.find({'loc': SON({'$nearSphere': [lon, row['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
-            if matches.count() == 0:
-                newPost={'loc': {'type': 'Point', 'coordinates': [lon, row['decDeg']]}}
-                self.collection.insert(newPost)
-            else:
-                mongoDict=matches.next()
-                if 'classification' in mongoDict.keys():
-                    row['classification']=mongoDict['classification']
-                #if 'tags' in self.configDict.keys():
-                    #for t in self.configDict['tags']:
-                        #if t in mongoDict.keys():
-                            #row[t]=mongoDict[t]
-                if 'fields' in self.configDict.keys():
-                    for f in self.configDict['fields']:
-                        if f in mongoDict.keys():
-                            row[f]=mongoDict[f]
-
 
     def buildDatabase(self):
         """Import .fits table into MongoDB database as sourceCollection. Delete any pre-existing catalog
