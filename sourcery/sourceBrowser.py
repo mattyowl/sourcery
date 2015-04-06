@@ -81,10 +81,10 @@ class SourceBrowser(object):
         self.sourceCollection=self.db['sourceCollection']
         self.sourceCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
         self.fieldTypesCollection=self.db['fieldTypes']
-        if buildDatabase == True:
-            self.buildDatabase()
         self.tagsCollection=self.db['tagsCollection']
         self.tagsCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
+        if buildDatabase == True:
+            self.buildDatabase()
 
         # Column to display info
         # Table pages
@@ -184,6 +184,12 @@ class SourceBrowser(object):
                         mongoDict[f]=0.0
                     elif t == 'text':
                         mongoDict[f]=""
+        
+        # Strip out _id and loc, because whatever is calling this routine won't want them
+        if '_id' in mongoDict.keys():
+            del mongoDict['_id']
+        if 'loc' in mongoDict.keys():
+            del mongoDict['loc']
     
         return mongoDict
     
@@ -191,6 +197,9 @@ class SourceBrowser(object):
     def buildDatabase(self):
         """Import .fits table into MongoDB database as sourceCollection. Delete any pre-existing catalog
         there. Do all the cross matching at this stage also.
+        
+        We also cross match the tagsCollection onto sourceCollection, to save doing a full cross match again
+        later. When we need to update, we'll update both tagsCollection and sourceCollection.
         
         We also store a list of fields and types in a collection, so that we can (a) use this for the 
         constraints help page; (b) keep fields in a sensible order (assuming input catalogs are in sensible 
@@ -263,7 +272,7 @@ class SourceBrowser(object):
                     newPost[key]=bool(row[key])
                 else:
                     raise Exception, "Unknown data type in column '%s' of table cross match table '%s'" % (key, label)            
-            
+                        
             # NED cross match
             if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
                 self.findNEDMatch(newPost)
@@ -320,7 +329,12 @@ class SourceBrowser(object):
                                 fieldTypesDict['%s_%s' % (label, key)]="number"
                     else:
                         newPost['%s_match' % (label)]=0
-                        
+
+            # Match with tagsCollection
+            tagsDict=self.matchTags(newPost)
+            for key in tagsDict:
+                newPost[key]=tagsDict[key]
+            
             self.sourceCollection.insert(newPost)
         
         # Make collection of field types
@@ -1320,46 +1334,11 @@ class SourceBrowser(object):
                                 queryDict[key]=float(value)
                             except:
                                 queryDict[key]=value
-
-        # Check if all fields exist in sourceCollection
-        # If not, we need to search for those in tagsCollection (they can't be anywhere else)
-        tagsQueryDict={}
-        killList=[]
-        skipKeys=['$or']
-        for key in queryDict:
-            if key not in skipKeys:
-                count=self.sourceCollection.find({key: {'$exists': True}}).count()
-                if count == 0:
-                    tagsQueryDict[key]=queryDict[key]
-                    killList.append(key)
-        for k in killList:
-            del queryDict[k]
                 
         # Execute query
-        queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))
-
-        # Search on tags
-        tagsConstraints=False
-        if len(tagsQueryDict.keys()) > 0:
-            tagsConstraints=True
-        
+        queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
         for q in queryPosts:
-            qDict=q
-            objTagsQueryDict=tagsQueryDict.copy()
-            objTagsQueryDict['loc']=SON({'$nearSphere': q['loc']['coordinates'], 
-                                            '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})
-            matches=self.tagsCollection.find(objTagsQueryDict).limit(1)
-            foundMatch=False
-            if matches.count() > 0:
-                foundMatch=True
-                tagsDict=matches.next()
-                for key in tagsDict:
-                    qDict[key]=tagsDict[key]
-            if tagsConstraints == True:
-                if foundMatch == True:
-                    self.db.collection[cherrypy.session.id].insert(qDict)
-            else:
-                self.db.collection[cherrypy.session.id].insert(qDict)
+            self.db.collection[cherrypy.session.id].insert(q)
     
     
     @cherrypy.expose
@@ -1502,7 +1481,10 @@ class SourceBrowser(object):
             else:
                 post[key]=kwargs[key]
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
-                
+        
+        # Update source collection too
+        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+        
         # NOTE: this will fail if we don't have SDSS or in fact any of default options met
         # also it would reset zoom level if changed
         return self.displaySourcePage(name, clipSizeArcmin = self.configDict['plotSizeArcmin'])
