@@ -990,6 +990,24 @@ class SourceBrowser(object):
             </style>
             <title>$TITLE</title>
         </head>
+        
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+
+        <script type="text/javascript">
+        $(function(){
+           // Set cursor to pointer and add click function
+           $("legend").css("cursor","pointer").click(function(){
+               var legend = $(this);
+               var value = $(this).children("span").html();
+               if(value=="hide")
+                   value="show";
+               else
+                   value="hide";
+               $(this).siblings().slideToggle("slow", function() { legend.children("span").html(value); } );
+           });
+       });
+       </script>
+
         <body style="font-family: sans-serif; vertical align: top; justify: full;">
         <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
             <tbody>
@@ -1008,7 +1026,7 @@ class SourceBrowser(object):
         <br>
         <form method="get" action="updateQueryParams">
         <fieldset>
-        <legend><b>Constraints</b></legend>
+        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Constraints</b></legend>
         <p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative R.A. values to wrap around 0 degrees (e.g., -60:60).</p>
         <p>
         <label for="queryRADeg">R.A. (degrees)</label>
@@ -1094,14 +1112,13 @@ class SourceBrowser(object):
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
         # Meta data
-        READMEComment="""Matches to other catalogs (e.g. NED) listed on this page are within %.1f' radius of the 
-        candidate position.""" % (self.configDict['crossMatchRadiusArcmin'])
+        READMEComment=""#"Matches to other catalogs (e.g. NED) listed on this page are within %.1f' radius of the candidate position." % (self.configDict['crossMatchRadiusArcmin'])
         if 'catalogComments' not in self.configDict.keys():
             commentsString=READMEComment
         else:
             commentsString=self.configDict['catalogComments']+" "+READMEComment
         metaData="""<br><fieldset>
-        <legend><b>Source List Information</b></legend>
+        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
         <p>Original source list = %s</p>
         <p>Total number of %s = %d (original source list: %d)</p>
         <p>%s</p>
@@ -1114,7 +1131,7 @@ class SourceBrowser(object):
         shortFITSName=shortCatalogName.replace(".cat", ".fits")
         shortRegName=shortCatalogName.replace(".cat", ".reg")
         html=html.replace("$DOWNLOAD_LINKS", """<fieldset>
-        <legend><b>Download Catalog</b></legend>
+        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Download Catalog</b></legend>
         <ul>
         <li><a href=downloadCatalog?fileFormat=cat>%s</a>   (plain text)</li>
         <li><a href=downloadCatalog?fileFormat=fits>%s</a>   (FITS table format)</li>
