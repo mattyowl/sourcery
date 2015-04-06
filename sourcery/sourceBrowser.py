@@ -1386,10 +1386,11 @@ class SourceBrowser(object):
                                 constraintsDict[key]['$in'].append(float(value))
                             except:
                                 if '*' in value:
+                                    regex='(?i)'    # make case insensitive
                                     if value[0] != '*':
-                                        regexStr="^"+value
+                                        regexStr=regex+"^"+value
                                     else:
-                                        regexStr=value
+                                        regexStr=regex+value
                                     regexStr=regexStr.replace("*", ".*")
                                     constraintsDict[key]['$in'].append(re.compile(regexStr))
                                 else:
@@ -1453,6 +1454,7 @@ class SourceBrowser(object):
         or 'possible cluster').</p>
         <p>The wildcard '*' is supported in text searches, e.g., <i>classification = '* cluster'</i> will return all 
         objects flagged as 'probable cluster', 'possible cluster', or 'not cluster' (but not objects with classification = 'cluster'); <i>notes = '*high-z*'</i> will return all objects where the string 'high-z' appears in notes somewhere.
+        <b>Note that wildcard text searches are case insensitive</b>.
         </p>
         <br>
         <table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
