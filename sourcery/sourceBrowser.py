@@ -988,7 +988,7 @@ class SourceBrowser(object):
                 font-size:small;
             }
             </style>
-            <title>Source Browser</title>
+            <title>$TITLE</title>
         </head>
         <body style="font-family: sans-serif; vertical align: top; justify: full;">
         <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
@@ -996,7 +996,7 @@ class SourceBrowser(object):
                 <tr>
                     <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
                         text-align: center; vertical-align: middle; font-size: 125%;">
-                        Source Browser
+                        $TITLE
                     </td>
                 </tr>
             </tbody>
@@ -1069,6 +1069,11 @@ class SourceBrowser(object):
         """
                 
         html=templatePage
+        
+        if 'indexTitle' in self.configDict.keys():
+            html=html.replace("$TITLE", self.configDict['indexTitle'])
+        else:
+            html=html.replace("$TITLE", "Sourcery Database")
         
         # Extract table view from MongoDB
         # First need to apply query parameters here
@@ -1313,6 +1318,9 @@ class SourceBrowser(object):
             for op in transDict.keys():
                 bits=c.split(op)
                 if len(bits) == 2:
+                    # Checking for valid constraints... 
+                    # below avoids querying for >, = and >= in one query (or != and =) when that's not what user meant
+                    # problem: won't be able to use <,>,=,! in text fields as written below
                     key=bits[0].lstrip().rstrip()
                     value=bits[1].lstrip().rstrip()
                     validConstraint=True
@@ -1321,7 +1329,14 @@ class SourceBrowser(object):
                             validConstraint=False
                         if value.find(op2) != -1:
                             validConstraint=False
-                    if validConstraint == True:                        
+                    if key.find("!") != -1:
+                        validConstraint=False
+                    if value.find("!") != -1:
+                        validConstraint=False
+                    if validConstraint == True:    
+                        # Strip " or ' from strings (saves confusion by user)
+                        value=value.replace("'", "")
+                        value=value.replace('"', '')
                         if key not in queryDict.keys():
                             queryDict[key]={}
                         # Queries won't work if we use strings instead of numbers when needed...
@@ -1342,7 +1357,7 @@ class SourceBrowser(object):
         for q in queryPosts:
             q['lastModifiedDate']=datetime.datetime.utcnow()
             self.db.collection[cherrypy.session.id].insert(q)
-
+                                
         # This makes the session data self destruct after some time
         self.db.collection[cherrypy.session.id].create_index([('lastModifiedDate', 1)], expireAfterSeconds = 7200)
 
