@@ -33,6 +33,7 @@ import catalogTools
 import sourcery
 import sys
 import time
+import datetime
 import string
 from PIL import Image
 import copy
@@ -1276,10 +1277,10 @@ class SourceBrowser(object):
             
         # Store results of query in another collection (empty it first if documents are in it)
         self.db.collection[cherrypy.session.id].remove({})
-        
+
         # Build query document piece by piece...
         queryDict={}
-        
+
         # Position
         if ":" not in queryRADeg and ":" not in queryDecDeg:
             queryRADeg=float(queryRADeg)
@@ -1336,10 +1337,15 @@ class SourceBrowser(object):
                                 queryDict[key]=value
                 
         # Execute query
+        # Add a date so we can expire the data after a couple of hours
         queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
         for q in queryPosts:
+            q['lastModifiedDate']=datetime.datetime.utcnow()
             self.db.collection[cherrypy.session.id].insert(q)
-    
+
+        # This makes the session data self destruct after some time
+        self.db.collection[cherrypy.session.id].create_index([('lastModifiedDate', 1)], expireAfterSeconds = 7200)
+
     
     @cherrypy.expose
     def changeTablePage(self, nextButton = None, prevButton = None):
