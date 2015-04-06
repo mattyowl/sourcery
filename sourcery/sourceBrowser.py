@@ -35,6 +35,7 @@ import sys
 import time
 import datetime
 import string
+import re
 from PIL import Image
 import copy
 import StringIO
@@ -1384,7 +1385,15 @@ class SourceBrowser(object):
                             try:
                                 constraintsDict[key]['$in'].append(float(value))
                             except:
-                                constraintsDict[key]['$in'].append(value)
+                                if '*' in value:
+                                    if value[0] != '*':
+                                        regexStr="^"+value
+                                    else:
+                                        regexStr=value
+                                    regexStr=regexStr.replace("*", ".*")
+                                    constraintsDict[key]['$in'].append(re.compile(regexStr))
+                                else:
+                                    constraintsDict[key]['$in'].append(value)
         
         return constraintsDict
     
@@ -1442,6 +1451,8 @@ class SourceBrowser(object):
         or 'not cluster', one can write <i>classification = 'cluster' and classification = 'not cluster'</i>. This
         will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
         or 'possible cluster').</p>
+        <p>The wildcard '*' is supported in text searches, e.g., <i>classification = '* cluster'</i> will return all 
+        objects flagged as 'probable cluster', 'possible cluster', or 'not cluster' (but not objects with classification = 'cluster'); <i>notes = '*high-z*'</i> will return all objects where the string 'high-z' appears in notes somewhere.
         </p>
         <br>
         <table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
