@@ -1306,14 +1306,36 @@ class SourceBrowser(object):
             queryDict['$or']=[{'RADeg': {'$gte': 0, '$lte': RAMax}}, {'RADeg': {'$gte': 360+RAMin, '$lte': 360}}]
 
         # Other constraints
-        # Need to add support for 'or'
+        constraints=queryOtherConstraints.split(" and ")
+        constraintsDict=self.extractConstraintsDict(constraints)
+        for key in constraintsDict:
+            queryDict[key]=constraintsDict[key]
+        
+        # Execute query
+        # Add a date so we can expire the data after a couple of hours
+        queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+        for q in queryPosts:
+            q['lastModifiedDate']=datetime.datetime.utcnow()
+            self.db.collection[cherrypy.session.id].insert(q)
+                                
+        # This makes the session data self destruct after some time
+        self.db.collection[cherrypy.session.id].create_index([('lastModifiedDate', 1)], expireAfterSeconds = 7200)
+
+
+    def extractConstraintsDict(self, constraints):
+        """Returns a dictionary of constraints extracted from string constraints, parsing all the operators
+        >, <, =, ! etc.
+        
+        """
+        
         transDict={'<':  '$lt', 
                    '>':  '$gt',
                    '<=': '$lte',
                    '>=': '$gte',
                    '=': '',
                    '!=': '$ne'}
-        constraints=queryOtherConstraints.split(" and ")
+                
+        constraintsDict={}
         for c in constraints:
             for op in transDict.keys():
                 bits=c.split(op)
@@ -1331,30 +1353,24 @@ class SourceBrowser(object):
                         # Strip " or ' from strings (saves confusion by user)
                         value=value.replace("'", "")
                         value=value.replace('"', '')
-                        if key not in queryDict.keys():
-                            queryDict[key]={}
+                        if key not in constraintsDict.keys():
+                            constraintsDict[key]={}
                         # Queries won't work if we use strings instead of numbers when needed...
                         if op != '=':
                             try:
-                                queryDict[key][transDict[op]]=float(value)
+                                constraintsDict[key][transDict[op]]=float(value)
                             except:
-                                queryDict[key][transDict[op]]=value
+                                constraintsDict[key][transDict[op]]=value
                         else:
+                            if '$in' not in constraintsDict[key].keys():
+                                constraintsDict[key]['$in']=[]
                             try:
-                                queryDict[key]=float(value)
+                                constraintsDict[key]['$in'].append(float(value))
                             except:
-                                queryDict[key]=value
-                
-        # Execute query
-        # Add a date so we can expire the data after a couple of hours
-        queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
-        for q in queryPosts:
-            q['lastModifiedDate']=datetime.datetime.utcnow()
-            self.db.collection[cherrypy.session.id].insert(q)
-                                
-        # This makes the session data self destruct after some time
-        self.db.collection[cherrypy.session.id].create_index([('lastModifiedDate', 1)], expireAfterSeconds = 7200)
-
+                                constraintsDict[key]['$in'].append(value)
+        
+        return constraintsDict
+    
     
     @cherrypy.expose
     def changeTablePage(self, nextButton = None, prevButton = None):
@@ -1401,9 +1417,14 @@ class SourceBrowser(object):
         
         <br>
         <p>
-        Constraints can be placed on the source list columns listed below. Each constraint should be
-        separated by 'and', e.g., <i>"redshift >= 0 and redshift < 0.4"</i> ('or' is not supported yet; comparison
-        operators which are understood are '<', '>', '>=', '<=', '=', '!=').
+        Constraints can be placed on the source list columns listed below. Operators which are understood are '<', '>', '>=', '<=', '=', '!='.</p>
+        <p>Each constraint should be
+        separated by 'and', e.g., <i>redshift >= 0 and redshift < 0.4</i>.</p>
+        <p><b>Note that 'and' is just a delimiter,
+        and is not used in a logical sense</b>. For example, to fetch all objects with classification of 'cluster'
+        or 'not cluster', one can write <i>classification = 'cluster' and classification = 'not cluster'</i>. This
+        will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
+        or 'possible cluster').</p>
         </p>
         <br>
         <table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
