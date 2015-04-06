@@ -1318,20 +1318,14 @@ class SourceBrowser(object):
             for op in transDict.keys():
                 bits=c.split(op)
                 if len(bits) == 2:
-                    # Checking for valid constraints... 
-                    # below avoids querying for >, = and >= in one query (or != and =) when that's not what user meant
-                    # problem: won't be able to use <,>,=,! in text fields as written below
+                    # Better way of checking for valid constraints than what we did before
                     key=bits[0].lstrip().rstrip()
                     value=bits[1].lstrip().rstrip()
-                    validConstraint=True
-                    for op2 in transDict.keys():
-                        if key.find(op2) != -1:
-                            validConstraint=False
-                        if value.find(op2) != -1:
-                            validConstraint=False
-                    if key.find("!") != -1:
-                        validConstraint=False
-                    if value.find("!") != -1:
+                    before=c[c.find(op)-1]
+                    after=c[c.find(op)+1]
+                    if before not in ['<', '>', '=', '!'] and after not in ['<', '>', '=', '!']:
+                        validConstraint=True
+                    else:
                         validConstraint=False
                     if validConstraint == True:    
                         # Strip " or ' from strings (saves confusion by user)
