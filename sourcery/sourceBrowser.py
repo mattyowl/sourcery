@@ -260,7 +260,7 @@ class SourceBrowser(object):
                     newPost[key]=str(row[key])
                     if key not in fieldTypesList:
                         fieldTypesList.append(key)
-                        fieldTypesDict[key]="string"
+                        fieldTypesDict[key]="text"
                 elif tab.columns[key].dtype.name.find("float") != -1:
                     if key not in fieldTypesList:
                         fieldTypesList.append(key)
@@ -279,7 +279,7 @@ class SourceBrowser(object):
                 self.findNEDMatch(newPost)
                 stringKeys=['NED_name']
                 numberKeys=['NED_z', 'NED_distArcmin', 'NED_RADeg', 'NED_decDeg']
-                typesList=['string', 'number']
+                typesList=['text', 'number']
                 for t, l in zip(typesList, [stringKeys, numberKeys]):
                     for key in l:
                         if key not in fieldTypesList:
@@ -306,7 +306,7 @@ class SourceBrowser(object):
                                 newPost[newKey]=str(xMatch[key])
                                 if newKey not in fieldTypesList:
                                     fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="string"
+                                    fieldTypesDict[newKey]="text"
                             elif xTab.columns[key].dtype.name.find("float") != -1:
                                 newPost[newKey]=float(xMatch[key])
                                 if newKey not in fieldTypesList:
