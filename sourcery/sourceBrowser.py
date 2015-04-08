@@ -288,13 +288,20 @@ class SourceBrowser(object):
                             fieldTypesDict[key]=t
             
             # All other cross matches
+            # We won't add name, RADeg, decDeg, if name matches our source catalog name
+            # This is an easy/lazy way to add extra columns like SZ properties or photo-zs
             if 'crossMatchCatalogFileNames' in self.configDict.keys():
                 for label in self.configDict['crossMatchCatalogLabels']:
                     xTab=xTabsDict[label]
                     r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
                     if r.min() < crossMatchRadiusDeg:
                         xMatch=xTab.where(r == r.min())[0]
-                        for key in xTab.keys():
+                        xKeysList=list(xTab.keys())
+                        if 'name' in xKeysList and xMatch['name'] == newPost['name']:
+                            del xKeysList[xKeysList.index('name')]
+                            del xKeysList[xKeysList.index('RADeg')]
+                            del xKeysList[xKeysList.index('decDeg')]
+                        for key in xKeysList:
                             newKey='%s_%s' % (label, key)
                             # Just to make sure MongoDB happy with data types
                             # e.g., redmapper .fits table doesn't play nicely by default
