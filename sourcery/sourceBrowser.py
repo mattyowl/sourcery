@@ -1245,7 +1245,7 @@ class SourceBrowser(object):
     
         keysList, typeNamesList=self.getFieldNamesAndTypes(excludeKeys = [])
         
-        posts=list(self.db.collection[cherrypy.session.id].find())    # Current view, including classification info
+        posts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))    # Current view, including classification info
         tabLength=len(posts)
         
         tab=atpy.Table()
