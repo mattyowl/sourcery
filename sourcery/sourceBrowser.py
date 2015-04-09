@@ -1143,7 +1143,7 @@ class SourceBrowser(object):
         else:
             commentsString=self.configDict['catalogComments']+" "+READMEComment
         metaData="""<br><fieldset>
-        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>show</span><b>Source List Information</b></legend>
+        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
         <p>Original source list = %s</p>
         <p>Total number of %s = %d (original source list: %d)</p>
         <p>%s</p>
