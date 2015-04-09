@@ -1007,16 +1007,33 @@ class SourceBrowser(object):
            $("legend").css("cursor","pointer").click(function(){
                var legend = $(this);
                var value = $(this).children("span").html();
-               if(value=="hide")
+               if(value == "hide")
                    value="show";
                else
                    value="hide";
-               $(this).siblings().slideToggle("slow", function() { legend.children("span").html(value); } );
-           });
-       });
-       </script>
+               $(this).siblings().slideToggle(300, function() { legend.children("span").html(value); } );
+           });    
+        });
+        </script>
 
-        <body style="font-family: sans-serif; vertical align: top; justify: full;">
+        <!-- 
+        <script type="text/javascript">
+        function hideShow() {
+            var legends = document.getElementsByTagName("legend");
+            for (var i=0; i<legends.length; i++)
+            {
+                var spans = legends[i].getElementsByTagName("span");
+                var value=spans[0].innerHTML;
+                if (value == "show") {
+                    spans[0].innerHTML="hide";
+                    legends[i].click();
+                }
+            }
+        };
+        </script>
+        --!>
+        
+        <body style="font-family: sans-serif; vertical align: top; justify: full;" onload="hideShow()">
         <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
             <tbody>
                 <tr>
@@ -1045,7 +1062,7 @@ class SourceBrowser(object):
         <input type="text" value="$QUERY_SEARCHBOXARCMIN" name="querySearchBoxArcmin"/>
         </p>
         </p>
-        <label for="queryOtherConstraints"><a href=$CONSTRAINTS_HELP_LINK target=new>Other constraints</a></label>
+        <label for="queryOtherConstraints">Other constraints <a href=$CONSTRAINTS_HELP_LINK target=new>(help)</a></label>
         <textarea style="width:100%" name="queryOtherConstraints">$QUERY_OTHERCONSTRAINTS</textarea>
         <input type="submit" class="f" name="queryApply" value="Apply">
         <input type="submit" class="f" name="queryReset" value="Reset"><br>
@@ -1126,7 +1143,7 @@ class SourceBrowser(object):
         else:
             commentsString=self.configDict['catalogComments']+" "+READMEComment
         metaData="""<br><fieldset>
-        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
+        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>show</span><b>Source List Information</b></legend>
         <p>Original source list = %s</p>
         <p>Total number of %s = %d (original source list: %d)</p>
         <p>%s</p>
@@ -1451,17 +1468,21 @@ class SourceBrowser(object):
         
         <br>
         <p>
-        Constraints can be placed on the source list columns listed below. Operators which are understood are '<', '>', '>=', '<=', '=', '!='.</p>
+        Constraints can be placed on the source list columns listed below. Operators which are understood are <, >, >=, <=, =, !=.</p>
         <p>Each constraint should be
-        separated by 'and', e.g., <i>redshift >= 0 and redshift < 0.4</i>.</p>
+        separated by 'and', e.g.,</p>
+        <tt>redshift >= 0 and redshift < 0.4</tt>
         <p><b>Note that 'and' is just a delimiter,
-        and is not used in a logical sense</b>. For example, to fetch all objects with classification of 'cluster'
-        or 'not cluster', one can write <i>classification = 'cluster' and classification = 'not cluster'</i>. This
-        will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
+        and is not used in a strictly logical sense</b>. For example, to fetch all objects with classification of 'cluster'
+        or 'not cluster', one can write</p>
+        <tt>classification = 'cluster' and classification = 'not cluster'</tt> 
+        <p>This will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
         or 'possible cluster').</p>
-        <p>The wildcard '*' is supported in text searches, e.g., <i>classification = '* cluster'</i> will return all 
-        objects flagged as 'probable cluster', 'possible cluster', or 'not cluster' (but not objects with classification = 'cluster'); <i>notes = '*high-z*'</i> will return all objects where the string 'high-z' appears in notes somewhere.
-        <b>Note that wildcard text searches are case insensitive</b>.
+        <p>The wildcard '*' is supported in text searches, e.g.,</p> 
+        <tt>classification = '* cluster'</tt> 
+        <p>will return all objects flagged as 'probable cluster', 'possible cluster', or 'not cluster', but not objects with classification = 'cluster'.</p>
+        <tt>notes = '*high-z*'</tt> 
+        <p>will return all objects where the string 'high-z' appears in the notes field somewhere. <b>Note that wildcard text searches are case insensitive</b>.
         </p>
         <br>
         <table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
