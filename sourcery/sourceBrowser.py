@@ -327,15 +327,20 @@ class SourceBrowser(object):
                                     fieldTypesDict[newKey]="number"
                             else:
                                 raise Exception, "Unknown data type in column '%s' of table cross match table '%s'" % (key, label)
-                        newPost['%s_RADeg' % (label)]=float(xMatch['RADeg'])
-                        newPost['%s_decDeg' % (label)]=float(xMatch['decDeg'])
-                        newPost['%s_distArcmin' % (label)]=r.min()*60.0
+                        skipMatchKeys=False
                         newPost['%s_match' % (label)]=1
-                        numberKeys=['RADeg', 'decDeg', 'distArcmin', 'match']
+                        numberKeys=['match']
+                        if 'name' in xTab.keys() and xMatch['name'] == newPost['name']:
+                            skipMatchKeys=True    
+                        if skipMatchKeys == False:
+                            newPost['%s_RADeg' % (label)]=float(xMatch['RADeg'])
+                            newPost['%s_decDeg' % (label)]=float(xMatch['decDeg'])
+                            newPost['%s_distArcmin' % (label)]=r.min()*60.0
+                            numberKeys=numberKeys+['RADeg', 'decDeg', 'distArcmin']
                         for key in numberKeys:
                             if '%s_%s' % (label, key) not in fieldTypesList:
                                 fieldTypesList.append('%s_%s' % (label, key))
-                                fieldTypesDict['%s_%s' % (label, key)]="number"
+                                fieldTypesDict['%s_%s' % (label, key)]="number"                        
                     else:
                         newPost['%s_match' % (label)]=0
 
