@@ -1778,9 +1778,9 @@ class SourceBrowser(object):
             tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
             if 'fields' in self.configDict.keys():
                 fieldsCode=""
-                for f in self.configDict['fields']:
+                for f, s in zip(self.configDict['fields'], self.configDict['fieldDisplaySizes']):
                     fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (f, f)
-                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s"/>\n' % (str(mongoDict[f]), f)
+                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d/>\n' % (str(mongoDict[f]), f, s)
             tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', fieldsCode)
             classificationsCode=""
             for c in self.configDict['classifications']:
