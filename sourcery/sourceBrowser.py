@@ -1083,13 +1083,11 @@ class SourceBrowser(object):
         </div>
         </form>
                 
-        <table frame=border cellspacing=0 cols=6 rules=all border=2 width=100% align=center class=tablefont>
+        <table frame=border cellspacing=0 cols=$TABLE_COLS rules=all border=2 width=100% align=center class=tablefont>
         <tbody>
             <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;">"""
-        for key in self.tableDisplayColumnLabels:
-            templatePage=templatePage+"\n           <td><b>%s</b></td>" % (key)
-        templatePage=templatePage+"""
+                    text-align: center; vertical-align: middle; font-size: 110%;">
+            $TABLE_COL_NAMES
             </tr>
             <font size="1">
             $TABLE_DATA
@@ -1140,6 +1138,32 @@ class SourceBrowser(object):
         html=html.replace("$NUMBER_SOURCES", str(len(queryPosts)))
         html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
+        
+        # Table columns - as well as defaults, add ones we query on
+        displayColumns=[]+self.tableDisplayColumns
+        displayColumnLabels=[]+self.tableDisplayColumnLabels
+        displayColumnFormats=[]+self.tableDisplayColumnFormats
+        operators=["<", ">", "=", "!"]
+        constraints=queryOtherConstraints.split(" and ")
+        for c in constraints:
+            for o in operators:
+                colName=c.split(o)[0].lstrip().rstrip()
+                if colName in viewPosts[0].keys() and colName not in displayColumns:
+                    displayColumns.append(colName)
+                    displayColumnLabels.append(colName)
+                    fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
+                    if fieldTypeDict['type'] == 'number':
+                        displayColumnFormats.append('%.3f')
+                    elif fieldTypeDict['type'] == 'text':
+                        displayColumnFormats.append('%s')
+                    else:
+                        raise Exception, "unknown type for field '%s'" % (colName)
+        
+        columnHeadings=""
+        for key in displayColumnLabels:
+            columnHeadings=columnHeadings+"\n           <td><b>%s</b></td>" % (key)
+        html=html.replace("$TABLE_COL_NAMES", columnHeadings)
+        html=html.replace("$TABLE_COLS", str(len(displayColumns)))
         
         # Meta data
         READMEComment=""#"Matches to other catalogs (e.g. NED) listed on this page are within %.1f' radius of the candidate position." % (self.configDict['crossMatchRadiusArcmin'])
@@ -1196,13 +1220,13 @@ class SourceBrowser(object):
                 
             # Row for each cluster in table
             rowString="<tr>\n"
-            for key in self.tableDisplayColumns:
+            for key in displayColumns:
                 htmlKey="$"+string.upper(key)+"_KEY"
                 rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center width=10%>"+htmlKey+"</td>\n"
             rowString=rowString+"</tr>\n"
             
             # Insert values - note name is special
-            for key, fmt in zip(self.tableDisplayColumns, self.tableDisplayColumnFormats):
+            for key, fmt in zip(displayColumns, displayColumnFormats):
                 if key in obj.keys():
                     try:
                         value=obj[key]
