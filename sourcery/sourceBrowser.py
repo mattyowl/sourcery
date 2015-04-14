@@ -1458,6 +1458,18 @@ class SourceBrowser(object):
         
         """
         if not cherrypy.session.loaded: cherrypy.session.load()
+        # Sometimes after a while we lose our session: need to check this out...
+        if 'viewTopRow' not in cherrypy.session:
+            cherrypy.session['viewTopRow']=0
+        if 'queryRADeg' not in cherrypy.session:
+            cherrypy.session['queryRADeg']="0:360"
+        if 'queryDecDeg' not in cherrypy.session:
+            cherrypy.session['queryDecDeg']="-90:90"
+        if 'querySearchBoxArcmin' not in cherrypy.session:
+            cherrypy.session['querySearchBoxArcmin']=""
+        if 'queryOtherConstraints' not in cherrypy.session:
+            cherrypy.session['queryOtherConstraints']=""
+            
         if nextButton:
             viewTopRow=cherrypy.session.get('viewTopRow')
             viewTopRow=viewTopRow+self.tableViewRows
@@ -1468,6 +1480,7 @@ class SourceBrowser(object):
             if viewTopRow < 0:
                 viewTopRow=0
             cherrypy.session['viewTopRow']=viewTopRow
+            
         return self.index()        
     
     
@@ -1611,6 +1624,37 @@ class SourceBrowser(object):
         # NOTE: this will fail if we don't have SDSS or in fact any of default options met
         # also it would reset zoom level if changed
         return self.displaySourcePage(name, clipSizeArcmin = self.configDict['plotSizeArcmin'])
+
+
+    def offlineUpdateTags(self, name, tagsToInsertDict):
+        """Update tags for object matching name, offline version. Used by sourcery_fast_tag.
+        
+        """
+               
+        obj=self.sourceCollection.find_one({'name': name})
+        
+        # Bizarrely, legacy coordinates are given as degrees (lon, lat) but max distance has to be in radians...
+        # Also, need lon between -180, +180
+        if obj['RADeg'] > 180:
+            lon=360.0-obj['RADeg']
+        else:
+            lon=obj['RADeg']
+        matches=self.tagsCollection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
+        mongoDict=matches.next()
+        
+        post={}
+        for key in tagsToInsertDict.keys():
+            if key in self.configDict['fields']:
+                if self.configDict['fieldTypes'][self.configDict['fields'].index(key)] == 'number':
+                    post[key]=float(tagsToInsertDict[key])
+                else:
+                    post[key]=tagsToInsertDict[key]
+            else:
+                post[key]=tagsToInsertDict[key]
+        self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
+        
+        # Update source collection too
+        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
     
     @cherrypy.expose
