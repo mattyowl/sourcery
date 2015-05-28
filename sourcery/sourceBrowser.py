@@ -297,10 +297,16 @@ class SourceBrowser(object):
                     if r.min() < crossMatchRadiusDeg:
                         xMatch=xTab.where(r == r.min())[0]
                         xKeysList=list(xTab.keys())
+                        # Undocumentated feature - for the BCG position table, which only has positions
+                        if xTab.keys() == ('name', 'RADeg', 'decDeg'):
+                            zapPosKeys=False
+                        else:
+                            zapPosKeys=True
                         if 'name' in xKeysList and xMatch['name'] == newPost['name']:
                             del xKeysList[xKeysList.index('name')]
-                            del xKeysList[xKeysList.index('RADeg')]
-                            del xKeysList[xKeysList.index('decDeg')]
+                            if zapPosKeys == True:
+                                del xKeysList[xKeysList.index('RADeg')]
+                                del xKeysList[xKeysList.index('decDeg')]
                         for key in xKeysList:
                             newKey='%s_%s' % (label, key)
                             # Just to make sure MongoDB happy with data types
