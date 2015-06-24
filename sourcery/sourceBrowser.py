@@ -945,9 +945,9 @@ class SourceBrowser(object):
                     
         
     @cherrypy.expose
-    def updateQueryParams(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints, queryApply = None,
-                          queryReset = None):
-        """Updates query params in cookie, and then calls index again (which runs the query).
+    def updateQueryParams(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints, 
+                          queryApply = None, queryReset = None):
+        """Updates query params in session, and then calls index again (which runs the query).
         
         """
 
@@ -1127,10 +1127,8 @@ class SourceBrowser(object):
         else:
             html=html.replace("$TITLE", "Sourcery Database")
         
-        # Extract table view from MongoDB
         # First need to apply query parameters here
-        self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
-        queryPosts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))
+        queryPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
 
         # Then cut to number of rows to view as below
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
@@ -1172,7 +1170,7 @@ class SourceBrowser(object):
         html=html.replace("$TABLE_COLS", str(len(displayColumns)))
         
         # Meta data
-        READMEComment=""#"Matches to other catalogs (e.g. NED) listed on this page are within %.1f' radius of the candidate position." % (self.configDict['crossMatchRadiusArcmin'])
+        READMEComment="" #"Matches to other catalogs (e.g. NED) listed on this page are within %.1f' radius of the candidate position." % (self.configDict['crossMatchRadiusArcmin'])
         if 'catalogComments' not in self.configDict.keys():
             commentsString=READMEComment
         else:
@@ -1187,19 +1185,23 @@ class SourceBrowser(object):
         html=html.replace("$META_DATA", metaData)        
         
         # Catalog download links
+        #http://localhost:8080/downloadCatalog?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints=softCts+%3E+300
         shortCatalogName=self.configDict['catalogDownloadFileName']+".cat"
         shortFITSName=shortCatalogName.replace(".cat", ".fits")
         shortRegName=shortCatalogName.replace(".cat", ".reg")
-        html=html.replace("$DOWNLOAD_LINKS", """<fieldset>
+        downloadLinkStr="downloadCatalog?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=%s&" % (queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
+        downloadLinkStr=urllib.quote_plus(downloadLinkStr, safe='&?=')
+        downloadLinks="""<fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Download Catalog</b></legend>
         <ul>
-        <li><a href=downloadCatalog?fileFormat=cat>%s</a>   (plain text)</li>
-        <li><a href=downloadCatalog?fileFormat=fits>%s</a>   (FITS table format)</li>
-        <li><a href=downloadCatalog?fileFormat=reg>%s</a>   (DS9 region file)</li></ul>
+        <li><a href=%sfileFormat=cat>%s</a>   (plain text)</li>
+        <li><a href=%sfileFormat=fits>%s</a>   (FITS table format)</li>
+        <li><a href=%sfileFormat=reg>%s</a>   (DS9 region file)</li></ul>
         <p>Note that current constraints are applied to downloaded catalogs.</p>
         </fieldset><br>
-        """ % (shortCatalogName, shortFITSName, shortRegName))
-                        
+        """ % (downloadLinkStr, shortCatalogName, downloadLinkStr, shortFITSName, downloadLinkStr, shortRegName)
+        html=html.replace("$DOWNLOAD_LINKS", downloadLinks)
+        
         tableData=""
         usedBckColors=[]
         usedBckKeys=[]
@@ -1295,16 +1297,19 @@ class SourceBrowser(object):
 
 
     @cherrypy.expose
-    def downloadCatalog(self, fileFormat = "cat"):
+    def downloadCatalog(self, queryRADeg = "0:360", queryDecDeg = "-90:90", querySearchBoxArcmin = "",
+                        queryOtherConstraints = "", fileFormat = "cat"):
         """Provide user with the current table view as a downloadable catalog.
         
         """
         
-        if not cherrypy.session.loaded: cherrypy.session.load()
+        posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
+
+        #if not cherrypy.session.loaded: cherrypy.session.load()
     
         keysList, typeNamesList=self.getFieldNamesAndTypes(excludeKeys = [])
         
-        posts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))    # Current view, including classification info
+        #posts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))    # Current view, including classification info
         tabLength=len(posts)
         
         tab=atpy.Table()
@@ -1353,12 +1358,15 @@ class SourceBrowser(object):
         return url.replace("%2b", "+").replace("%20", " ")
 
 
-    def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints):            
+    def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints):           
+        """Runs a query, returns the posts found.
+        
+        """
 
-        if not cherrypy.session.loaded: cherrypy.session.load()
+        #if not cherrypy.session.loaded: cherrypy.session.load()
             
-        # Store results of query in another collection (empty it first if documents are in it)
-        self.db.collection[cherrypy.session.id].remove({})
+        ## Store results of query in another collection (empty it first if documents are in it)
+        #self.db.collection[cherrypy.session.id].remove({})
 
         # Build query document piece by piece...
         queryDict={}
@@ -1389,16 +1397,35 @@ class SourceBrowser(object):
             queryDict[key]=constraintsDict[key]
         
         # Execute query
-        # Add a date so we can expire the data after a couple of hours
         queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+        
+        # If we wanted to store all this in its own collection
+        #self.makeSessionCollection(queryPosts)
+        
+        return queryPosts
+        
+
+    def makeSessionCollection(self, queryPosts):
+        """Inserts all the posts from a query into a mongodb collection associated with this session. This
+        is fairly slow for large databases (e.g., 10000+ objects). 
+        
+        Should not needed anymore, but left here just in case...
+        
+        """
+        if not cherrypy.session.loaded: cherrypy.session.load()
+            
+        # Store results of query in another collection (empty it first if documents are in it)
+        self.db.collection[cherrypy.session.id].remove({})
+        
+        # Add a date so we can expire the data after a couple of hours
         for q in queryPosts:
             q['lastModifiedDate']=datetime.datetime.utcnow()
             self.db.collection[cherrypy.session.id].insert(q)
-                                
+
         # This makes the session data self destruct after some time
         self.db.collection[cherrypy.session.id].create_index([('lastModifiedDate', 1)], expireAfterSeconds = 7200)
 
-
+        
     def extractConstraintsDict(self, constraints):
         """Returns a dictionary of constraints extracted from string constraints, parsing all the operators
         >, <, =, ! etc.
