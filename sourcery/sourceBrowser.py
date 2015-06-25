@@ -1152,7 +1152,7 @@ class SourceBrowser(object):
         for c in constraints:
             for o in operators:
                 colName=c.split(o)[0].lstrip().rstrip()
-                if colName in viewPosts[0].keys() and colName not in displayColumns:
+                if len(viewPosts) > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
                     displayColumns.append(colName)
                     displayColumnLabels.append(colName)
                     fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
@@ -1684,6 +1684,11 @@ class SourceBrowser(object):
                     post[key]=tagsToInsertDict[key]
             else:
                 post[key]=tagsToInsertDict[key]
+        
+        print "How to avoid overwrites of things we shouldn't?"
+        IPython.embed()
+        sys.exit()
+        
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
         # Update source collection too
