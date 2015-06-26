@@ -1432,12 +1432,13 @@ class SourceBrowser(object):
         
         """
         
+        # Order matters... equals should be last
         transDict={'<':  '$lt', 
                    '>':  '$gt',
                    '<=': '$lte',
                    '>=': '$gte',
-                   '=': '',
-                   '!=': '$ne'}
+                   '!=': '$ne',
+                   '=': ''}
                 
         constraintsDict={}
         for c in constraints:
@@ -1448,7 +1449,7 @@ class SourceBrowser(object):
                     key=bits[0].lstrip().rstrip()
                     value=bits[1].lstrip().rstrip()
                     before=c[c.find(op)-1]
-                    after=c[c.find(op)+1]
+                    after=c[c.find(op)+len(op)]
                     if before not in ['<', '>', '=', '!'] and after not in ['<', '>', '=', '!']:
                         validConstraint=True
                     else:
@@ -1460,16 +1461,20 @@ class SourceBrowser(object):
                         if key not in constraintsDict.keys():
                             constraintsDict[key]={}
                         # Queries won't work if we use strings instead of numbers when needed...
-                        if op != '=':
+                        if op not in ['=', '!=']:
                             try:
                                 constraintsDict[key][transDict[op]]=float(value)
                             except:
                                 constraintsDict[key][transDict[op]]=value
                         else:
-                            if '$in' not in constraintsDict[key].keys():
-                                constraintsDict[key]['$in']=[]
+                            if op == '=':
+                                opStr="$in"
+                            elif op == '!=':
+                                opStr="$nin"
+                            if opStr not in constraintsDict[key].keys():
+                                constraintsDict[key][opStr]=[]
                             try:
-                                constraintsDict[key]['$in'].append(float(value))
+                                constraintsDict[key][opStr].append(float(value))
                             except:
                                 if '*' in value:
                                     regex='(?i)'    # make case insensitive
@@ -1478,9 +1483,11 @@ class SourceBrowser(object):
                                     else:
                                         regexStr=regex+value
                                     regexStr=regexStr.replace("*", ".*")
-                                    constraintsDict[key]['$in'].append(re.compile(regexStr))
+                                    constraintsDict[key][opStr].append(re.compile(regexStr))
                                 else:
-                                    constraintsDict[key]['$in'].append(value)
+                                    constraintsDict[key][opStr].append(value)
+
+        print constraintsDict
         
         return constraintsDict
     
@@ -1547,9 +1554,8 @@ class SourceBrowser(object):
         <p>Each constraint should be
         separated by 'and', e.g.,</p>
         <tt>redshift >= 0 and redshift < 0.4</tt>
-        <p><b>Note that 'and' is just a delimiter,
-        and is not used in a strictly logical sense</b>. For example, to fetch all objects with classification of 'cluster'
-        or 'not cluster', one can write</p>
+        <p><b>Note that when querying for multiple values in the same column, 'and' acts like a delimiter,
+        rather than in a strictly logical sense</b>. For example, to fetch all objects with classification of 'cluster' and 'not cluster', one can write</p>
         <tt>classification = 'cluster' and classification = 'not cluster'</tt> 
         <p>This will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
         or 'possible cluster').</p>
