@@ -1487,7 +1487,7 @@ class SourceBrowser(object):
                                 else:
                                     constraintsDict[key][opStr].append(value)
 
-        print constraintsDict
+        #print constraintsDict
         
         return constraintsDict
     
