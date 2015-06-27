@@ -1148,20 +1148,22 @@ class SourceBrowser(object):
         displayColumnLabels=[]+self.tableDisplayColumnLabels
         displayColumnFormats=[]+self.tableDisplayColumnFormats
         operators=["<", ">", "=", "!"]
-        constraints=queryOtherConstraints.split(" and ")
-        for c in constraints:
-            for o in operators:
-                colName=c.split(o)[0].lstrip().rstrip()
-                if len(viewPosts) > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
-                    displayColumns.append(colName)
-                    displayColumnLabels.append(colName)
-                    fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
-                    if fieldTypeDict['type'] == 'number':
-                        displayColumnFormats.append('%.3f')
-                    elif fieldTypeDict['type'] == 'text':
-                        displayColumnFormats.append('%s')
-                    else:
-                        raise Exception, "unknown type for field '%s'" % (colName)
+        logicalOps=[' and ', ' or ']
+        for logOp in logicalOps:
+            constraints=queryOtherConstraints.split(logOp)
+            for c in constraints:
+                for o in operators:
+                    colName=c.split(o)[0].lstrip().rstrip()
+                    if len(viewPosts) > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
+                        displayColumns.append(colName)
+                        displayColumnLabels.append(colName)
+                        fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
+                        if fieldTypeDict['type'] == 'number':
+                            displayColumnFormats.append('%.3f')
+                        elif fieldTypeDict['type'] == 'text':
+                            displayColumnFormats.append('%s')
+                        else:
+                            raise Exception, "unknown type for field '%s'" % (colName)
         
         columnHeadings=""
         for key in displayColumnLabels:
@@ -1391,8 +1393,7 @@ class SourceBrowser(object):
             queryDict['$or']=[{'RADeg': {'$gte': 0, '$lte': RAMax}}, {'RADeg': {'$gte': 360+RAMin, '$lte': 360}}]
 
         # Other constraints
-        constraints=queryOtherConstraints.split(" and ")
-        constraintsDict=self.extractConstraintsDict(constraints)
+        constraintsDict=self.extractConstraintsDict(queryOtherConstraints)
         for key in constraintsDict:
             queryDict[key]=constraintsDict[key]
         
@@ -1439,57 +1440,65 @@ class SourceBrowser(object):
                    '>=': '$gte',
                    '!=': '$ne',
                    '=': ''}
-                
-        constraintsDict={}
-        for c in constraints:
-            for op in transDict.keys():
-                bits=c.split(op)
-                if len(bits) == 2:
-                    # Better way of checking for valid constraints than what we did before
-                    key=bits[0].lstrip().rstrip()
-                    value=bits[1].lstrip().rstrip()
-                    before=c[c.find(op)-1]
-                    after=c[c.find(op)+len(op)]
-                    if before not in ['<', '>', '=', '!'] and after not in ['<', '>', '=', '!']:
-                        validConstraint=True
-                    else:
-                        validConstraint=False
-                    if validConstraint == True:    
-                        # Strip " or ' from strings (saves confusion by user)
-                        value=value.replace("'", "")
-                        value=value.replace('"', '')
-                        if key not in constraintsDict.keys():
-                            constraintsDict[key]={}
-                        # Queries won't work if we use strings instead of numbers when needed...
-                        if op not in ['=', '!=']:
-                            try:
-                                constraintsDict[key][transDict[op]]=float(value)
-                            except:
-                                constraintsDict[key][transDict[op]]=value
+        
+        # 'and' has precedence - which in practice means split on 'or' first, and then or all those together
+        # Still need to handle () though, which means some recursion?
+        orConstraints=constraints.split(' or ')
+        allConstraintsDict={'$or': []}
+        for orc in orConstraints:
+            andConstraints=orc.split(" and ")
+            constraintsDict={}
+            for c in andConstraints:
+                for op in transDict.keys():
+                    bits=c.split(op)
+                    if len(bits) == 2:
+                        # Better way of checking for valid constraints than what we did before
+                        key=bits[0].lstrip().rstrip()
+                        value=bits[1].lstrip().rstrip()
+                        before=c[c.find(op)-1]
+                        after=c[c.find(op)+len(op)]
+                        if before not in ['<', '>', '=', '!'] and after not in ['<', '>', '=', '!']:
+                            validConstraint=True
                         else:
-                            if op == '=':
-                                opStr="$in"
-                            elif op == '!=':
-                                opStr="$nin"
-                            if opStr not in constraintsDict[key].keys():
-                                constraintsDict[key][opStr]=[]
-                            try:
-                                constraintsDict[key][opStr].append(float(value))
-                            except:
-                                if '*' in value:
-                                    regex='(?i)'    # make case insensitive
-                                    if value[0] != '*':
-                                        regexStr=regex+"^"+value
+                            validConstraint=False
+                        if validConstraint == True:    
+                            # Strip " or ' from strings (saves confusion by user)
+                            value=value.replace("'", "")
+                            value=value.replace('"', '')
+                            if key not in constraintsDict.keys():
+                                constraintsDict[key]={}
+                            # Queries won't work if we use strings instead of numbers when needed...
+                            if op not in ['=', '!=']:
+                                try:
+                                    constraintsDict[key][transDict[op]]=float(value)
+                                except:
+                                    constraintsDict[key][transDict[op]]=value
+                            else:
+                                if op == '=':
+                                    opStr="$in"
+                                elif op == '!=':
+                                    opStr="$nin"
+                                if opStr not in constraintsDict[key].keys():
+                                    constraintsDict[key][opStr]=[]
+                                try:
+                                    constraintsDict[key][opStr].append(float(value))
+                                except:
+                                    if '*' in value:
+                                        regex='(?i)'    # make case insensitive
+                                        if value[0] != '*':
+                                            regexStr=regex+"^"+value
+                                        else:
+                                            regexStr=regex+value
+                                        regexStr=regexStr.replace("*", ".*")
+                                        constraintsDict[key][opStr].append(re.compile(regexStr))
                                     else:
-                                        regexStr=regex+value
-                                    regexStr=regexStr.replace("*", ".*")
-                                    constraintsDict[key][opStr].append(re.compile(regexStr))
-                                else:
-                                    constraintsDict[key][opStr].append(value)
-
+                                        constraintsDict[key][opStr].append(value)
+            allConstraintsDict['$or'].append(constraintsDict)
+            #IPython.embed()
+            #sys.exit()
         #print constraintsDict
         
-        return constraintsDict
+        return allConstraintsDict
     
     
     @cherrypy.expose
