@@ -1559,15 +1559,16 @@ class SourceBrowser(object):
         
         <br>
         <p>
-        Constraints can be placed on the source list columns listed below. Operators which are understood are <, >, >=, <=, =, !=.</p>
+        Constraints can be placed on the source list columns listed below. Comparison operators which are understood are <, >, >=, <=, =, !=. Logical operators which are understood are 'and', 'or'.</p>
         <p>Each constraint should be
-        separated by 'and', e.g.,</p>
-        <tt>redshift >= 0 and redshift < 0.4</tt>
-        <p><b>Note that when querying for multiple values in the same column, 'and' acts like a delimiter,
-        rather than in a strictly logical sense</b>. For example, to fetch all objects with classification of 'cluster' and 'not cluster', one can write</p>
+        separated by 'and' or 'or', e.g.,</p>
+        <p><tt>redshift >= 0 and redshift < 0.4</tt></p>
+        <p><tt>RM_match = 1 or PSZ2_match = 1</tt></p>
+        <p><b>Note that when querying for multiple values in the same column using '=' or '!=', 'and' acts like a delimiter, rather than in a strictly logical sense</b>. For example, to fetch all objects with classification of 'cluster' and 'not cluster', one can write</p>
         <tt>classification = 'cluster' and classification = 'not cluster'</tt> 
         <p>This will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
-        or 'possible cluster').</p>
+        or 'possible cluster'). This query is also equivalent to</p>
+        <tt>classification = 'cluster' or classification = 'not cluster'</tt>
         <p>The wildcard '*' is supported in text searches, e.g.,</p> 
         <tt>classification = '* cluster'</tt> 
         <p>will return all objects flagged as 'probable cluster', 'possible cluster', or 'not cluster', but not objects with classification = 'cluster'.</p>
