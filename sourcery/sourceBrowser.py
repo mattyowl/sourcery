@@ -422,6 +422,8 @@ class SourceBrowser(object):
                                 value.append(True)
                             elif b.lstrip().rstrip() == 'False':
                                 value.append(False)
+                            elif b.lstrip().rstrip() == 'None':
+                                value.append(None)
                             else:
                                 value.append(float(b))
                 elif value[0] == '(':
@@ -775,6 +777,8 @@ class SourceBrowser(object):
         cardList.append(pyfits.Card('CUNIT2', 'DEG'))
         newHead=pyfits.Header(cards=cardList)
         wcs=astWCS.WCS(newHead, mode='pyfits')
+
+        cutLevels=[[R.min(), R.max()], [G.min(), G.max()], [B.min(), B.max()]]
         
         # Optional zoom
         if clipSizeArcmin != None:
@@ -786,8 +790,6 @@ class SourceBrowser(object):
             G=GClip['data']
             B=BClip['data']
             wcs=RClip['wcs']
-
-        cutLevels=[[R.min(), R.max()], [G.min(), G.max()], [B.min(), B.max()]]
                                                
         # Make plot
         fig=pylab.figure(figsize = self.configDict['figSize'])
@@ -2112,14 +2114,20 @@ class SourceBrowser(object):
         If there is only one image in a directory (like an ACT map say), and all objects fall in it, we will
         flag to make a clickable map page.
         
+        For tracking e.g. follow-up (and using it), we add a key to object if it has an imageDir image,
+        with name image_<imageDirLabel> (e.g., 'image_NICFPS-Ks'). So would be able to search on
+        'image_NICFPS-Ks = 1'
+        
         """
         print ">>> Making imageDir .jpgs ..."
-        for imageDir, label, colourMap, sizePix, smoothingArcsec, minMaxRadiusArcmin in zip(self.configDict['imageDirs'], 
-                                                                        self.configDict['imageDirsLabels'],
-                                                                        self.configDict['imageDirsColourMaps'],
-                                                                        self.configDict['imageDirsSizesPix'],
-                                                                        self.configDict['imageDirsSmoothingArcsec'],
-                                                                        self.configDict['imageDirsMinMaxRadiusArcmin']):
+        for imageDir, label, colourMap, sizePix, smoothingArcsec, minMaxRadiusArcmin, scaling in zip(
+                 self.configDict['imageDirs'], 
+                 self.configDict['imageDirsLabels'],
+                 self.configDict['imageDirsColourMaps'],
+                 self.configDict['imageDirsSizesPix'],
+                 self.configDict['imageDirsSmoothingArcsec'],
+                 self.configDict['imageDirsMinMaxRadiusArcmin'],
+                 self.configDict['imageDirsScaling']):
             
             if smoothingArcsec == 0.0:
                 smoothingArcsec=None
@@ -2150,6 +2158,18 @@ class SourceBrowser(object):
                         # coordsAreInImage doesn't seem to work for XCS, but RAMin, RAMax etc. doesn't for ACT
                         # Fix this later...
                         if wcs.coordsAreInImage(obj['RADeg'], obj['decDeg']):
+                            
+                            # Add to mongodb
+                            post={'image_%s' % (label): 1}
+                            self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+                            if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
+                                keysList, typeNamesList=self.getFieldNamesAndTypes()
+                                fieldDict={}
+                                fieldDict['name']='image_%s' % (label)
+                                fieldDict['type']='number'
+                                fieldDict['index']=len(keysList)+1
+                                self.fieldTypesCollection.insert(fieldDict)
+                            
                             if data == None:
                                 img=pyfits.open(imgFileName)
                                 data=img[0].data
@@ -2169,9 +2189,15 @@ class SourceBrowser(object):
                             # Try to pick sensible cut levels
                             # Min-Max scaling
                             # Should probably stick with this, but also add log option for optical
-                            rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
-                            minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
-                            cuts=[clip['data'].min(), clip['data'].max()]
+                            if scaling == 'auto' and minMaxRadiusArcmin != None:
+                                rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
+                                minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
+                                cuts=[clip['data'].min(), clip['data'].max()]
+                            else:
+                                scaleMin, scaleMax=scaling.split(":")
+                                scaleMin=float(scaleMin)
+                                scaleMax=float(scaleMax)
+                                cuts=[scaleMin, scaleMax]
                             
                             # This should guard against picking up edges of images, if source position is not actually visible
                             # (e.g., XMM images)

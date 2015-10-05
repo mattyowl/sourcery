@@ -128,7 +128,66 @@ def tab2DS9(tab, outFileName, color = "cyan"):
         outFile.write("fk5;point(%.6f,%.6f) # point=boxcircle color={%s} text={%s}\n" \
                     % (obj['RADeg'], obj['decDeg'], color, obj['name']))
     outFile.close()
-             
+
+#-------------------------------------------------------------------------------------------------------------
+def getNEDInfo(obj, nedDir = "NEDResults", radiusDeg = 5.0/60.0, crossMatchRadiusDeg = 2.5/60):
+    """Queries NED for matches near each obj (must have keys name, RADeg, decDeg) and returns the nearest 
+    cluster match and its distance in arcmin. We search a box of radius deg around the object.
+        
+    """
+        
+    if os.path.exists(nedDir) == False:
+        os.makedirs(nedDir)
+                    
+    name=obj['name']
+    RADeg=obj['RADeg']
+    decDeg=obj['decDeg']
+            
+    outFileName=nedDir+os.path.sep+name.replace(" ", "_")+"_%.1f.txt" % (radiusDeg*60.0)        
+    if os.path.exists(outFileName) == False:
+        print "... fetching NED info for %s ..." % (name)
+        try:                
+            urllib.urlretrieve("http://ned.ipac.caltech.edu/cgi-bin/objsearch?search_type=Near+Position+Search&in_csys=Equatorial&in_equinox=J2000.0&lon=%.6fd&lat=%.6fd&radius=%.2f&dot_include=ANY&in_objtypes1=GGroups&in_objtypes1=GClusters&in_objtypes1=QSO&in_objtypes2=Radio&in_objtypes2=SmmS&in_objtypes2=Infrared&in_objtypes2=Xray&nmp_op=ANY&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=ascii_tab&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (RADeg, decDeg, radiusDeg*60.0), filename = outFileName)
+        except:
+            print "WARNING: couldn't get NED info"
+            #IPython.embed()
+            #sys.exit()
+            outFileName=None
+            
+    nedObjs=parseNEDResult(outFileName)
+    
+    # Flag matches against clusters - choose nearest one
+    rMin=10000
+    clusterMatch={}
+    if len(nedObjs['RAs']) > 0:
+        obj['NED_allClusterMatches']=[]
+        for i in range(len(nedObjs['RAs'])):
+            ned=nedObjs
+            if ned['sourceTypes'][i] == 'GClstr':
+                r=astCoords.calcAngSepDeg(ned['RAs'][i], ned['decs'][i], RADeg, decDeg)
+                if r < crossMatchRadiusDeg:
+                    obj['NED_allClusterMatches'].append(ned['names'][i])
+                if r < rMin and r < crossMatchRadiusDeg:
+                    keepName=False
+                    if 'name' in clusterMatch:
+                        if "ABELL" in clusterMatch['name']:
+                            keepName=True
+                    if keepName == False:
+                        rMin=r
+                        clusterMatch['name']=ned['names'][i]
+                        if ned['redshifts'][i] != 'N/A':
+                            clusterMatch['z']=float(ned['redshifts'][i])
+                        else:
+                            clusterMatch['z']=None
+                        clusterMatch['rArcmin']=rMin*60.0
+                        clusterMatch['NED_RADeg']=float(ned['RAs'][i])
+                        clusterMatch['NED_decDeg']=float(ned['decs'][i])
+    
+    if clusterMatch != {}:
+        return clusterMatch
+    else:
+        return None
+            
 #-------------------------------------------------------------------------------------------------------------
 def parseNEDResult(inFileName, onlyObjTypes = None):
     """Parses NED tab-delimited text file query result, returns dictionary.
