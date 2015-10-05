@@ -2155,9 +2155,10 @@ class SourceBrowser(object):
                 for obj in objList:
                     outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
                     if os.path.exists(outFileName) == False:
-                        # coordsAreInImage doesn't seem to work for XCS, but RAMin, RAMax etc. doesn't for ACT
-                        # Fix this later...
-                        if wcs.coordsAreInImage(obj['RADeg'], obj['decDeg']):
+                        # coordsAreInImage sometimes gives spurious results, not clear why...
+                        # Replacement with below works - need to check and fix in astWCS
+                        pixCoords=wcs.wcs2pix(obj['RADeg'], obj['decDeg'])
+                        if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']:                           
                             
                             # Add to mongodb
                             post={'image_%s' % (label): 1}
