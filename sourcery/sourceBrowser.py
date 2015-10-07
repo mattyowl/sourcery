@@ -1824,7 +1824,7 @@ class SourceBrowser(object):
         <script type="text/javascript">
         
             $(document).ready(function() {
-                    $.post('/makePlotFromJPEG', 
+                    $.post('makePlotFromJPEG', 
                            {name: '$OBJECT_NAME',
                             RADeg: $OBJECT_RADEG,
                             decDeg: $OBJECT_DECDEG,
@@ -1856,7 +1856,7 @@ class SourceBrowser(object):
             $(function() {
                 // When the form is submitted...
                 $("#imageForm").submit(function() {   
-                    $.post('/makePlotFromJPEG', 
+                    $.post('makePlotFromJPEG', 
                            {name: '$OBJECT_NAME',
                             RADeg: $OBJECT_RADEG,
                             decDeg: $OBJECT_DECDEG,
@@ -1943,10 +1943,6 @@ class SourceBrowser(object):
             if 'skyviewLabels' in self.configDict.keys():
                 skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
                 self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], self.configDict['skyviewSurveyStrings'][skyviewIndex], imageType)
-        if clipSizeArcmin == None:
-            imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s&plotXMatch=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, plotNEDObjects, plotSDSSObjects, plotSourcePos, plotXMatch)
-        else:
-            imagePath="makePlotFromJPEG?name=%s&RADeg=%.6f&decDeg=%.6f&surveyLabel=%s&clipSizeArcmin=%.3f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s&plotXMatch=%s" % (self.sourceNameToURL(obj['name']), obj['RADeg'], obj['decDeg'], imageType, float(clipSizeArcmin), plotNEDObjects, plotSDSSObjects, plotSourcePos, plotXMatch)
         
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
         if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
@@ -1991,7 +1987,6 @@ class SourceBrowser(object):
         else:
             html=html.replace("$TAG_CONTROLS", "")
         html=html.replace("$SOURCE_NAME", name)
-        html=html.replace("$IMAGE_PATH", imagePath)        
         html=html.replace("$SIZE_ARC_MIN", "%.1f" % (self.configDict['plotSizeArcmin']))
         html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
 
