@@ -36,6 +36,7 @@ import time
 import datetime
 import string
 import re
+import base64
 from PIL import Image
 import copy
 import StringIO
@@ -715,7 +716,7 @@ class SourceBrowser(object):
                 
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False", plotXMatch = "False", clipSizeArcmin = None):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", clipSizeArcmin = None):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -797,10 +798,10 @@ class SourceBrowser(object):
         axesLabels="sexagesimal"
         p=astPlots.ImagePlot([R, G, B], wcs, cutLevels = cutLevels, title = name, axes = axes, 
                             axesLabels = axesLabels)
-        if plotSourcePos == "True":
+        if plotSourcePos == "true":
             p.addPlotObjects([RADeg], [decDeg], 'clusterPos', symbol='cross', size=sizeDeg/20.0*3600.0, color='white')
                 
-        if plotNEDObjects == "True":
+        if plotNEDObjects == "true":
             # We should already have the files for this from doing addNEDInfo earlier
             nedFileName=self.nedDir+os.path.sep+name.replace(" ", "_")+".txt"
             nedObjs=catalogTools.parseNEDResult(nedFileName)
@@ -808,7 +809,7 @@ class SourceBrowser(object):
                 p.addPlotObjects(nedObjs['RAs'], nedObjs['decs'], 'nedObjects', objLabels = nedObjs['labels'],
                                     size = sizeDeg/40.0*3600.0, color = "#7cfc00")
     
-        if plotSDSSObjects == "True":
+        if plotSDSSObjects == "true":
             SDSSRedshifts=self.fetchSDSSRedshifts(name, RADeg, decDeg)
             if SDSSRedshifts != None:
                 sdssRAs=[]
@@ -824,7 +825,7 @@ class SourceBrowser(object):
                     p.addPlotObjects(sdssRAs, sdssDecs, 'sdssObjects', objLabels = sdssLabels,
                                     size = sizeDeg/40.0*3600.0, symbol = 'box', color = "red")
                               
-        if plotXMatch == "True":
+        if plotXMatch == "true":
             obj=self.sourceCollection.find_one({'name': name})
             xMatchRAs=[]
             xMatchDecs=[]
@@ -852,7 +853,12 @@ class SourceBrowser(object):
         pylab.savefig(buf, dpi = 96, format = 'jpg')
         pylab.close()
         
-        return buf.getvalue()
+        #print "return image as base64"
+        #IPython.embed()
+        #sys.exit()
+        
+        #return buf.getvalue()
+        return base64.b64encode(buf.getvalue())
      
      
     def fetchSkyviewJPEG(self, name, RADeg, decDeg, RGBSurveysString, surveyLabel, lowSigmaCut = 2.0, highSigmaCut = 2.0,
@@ -1760,11 +1766,13 @@ class SourceBrowser(object):
             </tbody>
         </table>
         
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+
         <table frame=border cellspacing=0 cols=1 rules=None border=0 width=100%>
         <tbody>
         
         <tr>
-            <td align=center><a href="$IMAGE_PATH"><img src="$IMAGE_PATH" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"></a>
+            <td align=center id="imagePlot">
             </td>
         </tr>
 
@@ -1813,33 +1821,87 @@ class SourceBrowser(object):
         window.onload = function() { printValue('sizeSlider', 'sizeSliderValue');}
         </script>
 
-        <form method="get" action="displaySourcePage">        
+        <script type="text/javascript">
+        
+            $(document).ready(function() {
+                    $.post('/makePlotFromJPEG', 
+                           {name: '$OBJECT_NAME',
+                            RADeg: $OBJECT_RADEG,
+                            decDeg: $OBJECT_DECDEG,
+                            surveyLabel: '$OBJECT_SURVEY',
+                            plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
+                            plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
+                            plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
+                            plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
+                            clipSizeArcmin: $("#clipSizeArcmin").val()}, 
+                            function(data) {
+                                // directly insert the image
+                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
+                           });
+                    return false;
+            });
+            
+            $(document).ready(function() {
+                $(':checkbox').change(function(){
+                    $( "#imageForm" ).submit();
+                });
+            });
+            
+            $(function() {
+                // When the form is submitted...
+                $("#imageForm").submit(function() {   
+                    $.post('/makePlotFromJPEG', 
+                           {name: '$OBJECT_NAME',
+                            RADeg: $OBJECT_RADEG,
+                            decDeg: $OBJECT_DECDEG,
+                            surveyLabel: '$OBJECT_SURVEY',
+                            plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
+                            plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
+                            plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
+                            plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
+                            clipSizeArcmin: $("#sizeSliderValue").val()}, 
+                            function(data) {
+                                // directly insert the image
+                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
+                           });
+                    return false;
+                });
+            });
+
+        </script>
+
+        <form action="#" id="imageForm" method="post">        
         <fieldset style="width:80%">
         <legend><b>Image Controls</b></legend>
         <input name="name" value="$OBJECT_NAME" type="hidden">
         <p><b>Survey:</b> $IMAGE_TYPES</p>      
         <p><b>Show:</b>
-        <input type="checkbox" onChange="this.form.submit();" name="plotSourcePos" value="True"$CHECKED_SOURCEPOS>Source position
-        <input type="checkbox" onChange="this.form.submit();" name="plotNEDObjects" value="True"$CHECKED_NED>NED objects
-        <input type="checkbox" onChange="this.form.submit();" name="plotSDSSObjects" value="True"$CHECKED_SDSS>SDSS DR12 objects
-        <input type="checkbox" onChange="this.form.submit();" name="plotXMatch" value="True"$CHECKED_XMATCH>Cross match objects
+        <input class="target" type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
+        <input class="target" type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
+        <input class="target" type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR12 objects
+        <input class="target" type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>Cross match objects
         </p>
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
-        <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
+        <input class="target" id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
         <input id="sizeSliderValue" type="text" size="2"/>
-        <input type="submit" class="f" value="Apply">
+        <input type="submit" value="Apply">
         </fieldset>
         </form>
+     
         """ 
+        # Taken out: onChange="this.form.submit();" from all checkboxes ^^^
         plotFormCode=plotFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
         plotFormCode=plotFormCode.replace("$OBJECT_NAME", name)
+        plotFormCode=plotFormCode.replace("$OBJECT_RADEG", str(obj['RADeg']))
+        plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
+        plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
         
         imageTypesCode=""            
         for label in self.imageLabels:
             if label == imageType:
-                imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s" checked>%s\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<input class="target" type="radio" name="imageType" value="%s" checked>%s\n' % (label, label)
             else:
-                imageTypesCode=imageTypesCode+'<input type="radio" onChange="this.form.submit();" name="imageType" value="%s">%s\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<input class="target" type="radio" name="imageType" value="%s">%s\n' % (label, label)
         plotFormCode=plotFormCode.replace("$IMAGE_TYPES", imageTypesCode)
         
         if plotNEDObjects == "True":
