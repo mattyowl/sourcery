@@ -1828,7 +1828,7 @@ class SourceBrowser(object):
                            {name: '$OBJECT_NAME',
                             RADeg: $OBJECT_RADEG,
                             decDeg: $OBJECT_DECDEG,
-                            surveyLabel: '$OBJECT_SURVEY',
+                            surveyLabel: $('input:radio[name=imageType]:checked').val(),
                             plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
                             plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
@@ -1845,6 +1845,10 @@ class SourceBrowser(object):
                 $(':checkbox').change(function(){
                     $( "#imageForm" ).submit();
                 });
+                
+                $('input:radio[name=imageType]').change(function(){
+                    $( "#imageForm" ).submit();
+                });
             });
             
             $(function() {
@@ -1854,7 +1858,7 @@ class SourceBrowser(object):
                            {name: '$OBJECT_NAME',
                             RADeg: $OBJECT_RADEG,
                             decDeg: $OBJECT_DECDEG,
-                            surveyLabel: '$OBJECT_SURVEY',
+                            surveyLabel: $('input:radio[name=imageType]:checked').val(),
                             plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
                             plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
@@ -1863,6 +1867,7 @@ class SourceBrowser(object):
                             function(data) {
                                 // directly insert the image
                                 $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
+                                //alert($('input:radio[name=imageType]:checked').val());
                            });
                     return false;
                 });
@@ -1876,13 +1881,13 @@ class SourceBrowser(object):
         <input name="name" value="$OBJECT_NAME" type="hidden">
         <p><b>Survey:</b> $IMAGE_TYPES</p>      
         <p><b>Show:</b>
-        <input class="target" type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
-        <input class="target" type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
-        <input class="target" type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR12 objects
-        <input class="target" type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>Cross match objects
+        <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
+        <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
+        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR12 objects
+        <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>Cross match objects
         </p>
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
-        <input class="target" id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
+        <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
         <input id="sizeSliderValue" type="text" size="2"/>
         <input type="submit" value="Apply">
         </fieldset>
@@ -1899,9 +1904,9 @@ class SourceBrowser(object):
         imageTypesCode=""            
         for label in self.imageLabels:
             if label == imageType:
-                imageTypesCode=imageTypesCode+'<input class="target" type="radio" name="imageType" value="%s" checked>%s\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s" checked>%s\n' % (label, label)
             else:
-                imageTypesCode=imageTypesCode+'<input class="target" type="radio" name="imageType" value="%s">%s\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s">%s\n' % (label, label)
         plotFormCode=plotFormCode.replace("$IMAGE_TYPES", imageTypesCode)
         
         if plotNEDObjects == "True":
