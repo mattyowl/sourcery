@@ -1842,6 +1842,7 @@ class SourceBrowser(object):
             });
             
             $(document).ready(function() {
+                
                 $(':checkbox').change(function(){
                     $( "#imageForm" ).submit();
                 });
@@ -1849,6 +1850,7 @@ class SourceBrowser(object):
                 $('input:radio[name=imageType]').change(function(){
                     $( "#imageForm" ).submit();
                 });
+                
             });
             
             $(function() {
