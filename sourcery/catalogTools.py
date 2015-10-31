@@ -230,6 +230,18 @@ def parseNEDResult(inFileName, onlyObjTypes = None):
     return {'labels': labels, 'names': names, 'RAs': RAs, 'decs': decs, 'sourceTypes': sourceTypes, 'redshifts': redshifts}
 
 #-------------------------------------------------------------------------------------------------------------
+def byteSwapArr(arr):
+    """FITS is big-endian, but cython likes native-endian arrays (little-endian for x86)... so, byteswap
+    if we need.
+    
+    """
+
+    if arr.dtype.byteorder == '>':
+        arr=arr.byteswap().newbyteorder('=')
+
+    return arr
+
+#-------------------------------------------------------------------------------------------------------------
 def addSDSSRedshifts(catalog, cacheDir = "SDSSQueryResults"):
     """Queries SDSS for redshifts. 
     

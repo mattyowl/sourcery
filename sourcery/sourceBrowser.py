@@ -716,7 +716,7 @@ class SourceBrowser(object):
                 
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", clipSizeArcmin = None):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", clipSizeArcmin = None):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -738,7 +738,7 @@ class SourceBrowser(object):
         # Load data
         inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+name.replace(" ", "_")+".jpg"
         if os.path.exists(inJPGPath) == False:
-            return None
+            inJPGPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
         
         im=Image.open(inJPGPath)
         data=np.array(im)
@@ -753,11 +753,19 @@ class SourceBrowser(object):
         G=data[:, :, 1]
         B=data[:, :, 2]
         
+        # HACK: for ACT maps, with huge pixels, we can get offsets in .jpg relative to original
+        # So, if we have a .fits image, load that and use to set centre coords
+        fitsFileName=inJPGPath.replace(".jpg", ".fits")
+        if os.path.exists(fitsFileName) == True:
+            hackWCS=astWCS.WCS(fitsFileName)
+            CRVAL1, CRVAL2=hackWCS.getCentreWCSCoords()
+        else:
+            CRVAL1, CRVAL2=RADeg, decDeg
         # Make a WCS
         sizeArcmin=self.configDict['plotSizeArcmin']
         xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
-        xSizePix=R.shape[1]
-        ySizePix=R.shape[0]
+        xSizePix=float(R.shape[1])
+        ySizePix=float(R.shape[0])
         xRefPix=xSizePix/2.0
         yRefPix=ySizePix/2.0
         xOutPixScale=xSizeDeg/xSizePix
@@ -768,8 +776,8 @@ class SourceBrowser(object):
         cardList.append(pyfits.Card('NAXIS2', ySizePix))
         cardList.append(pyfits.Card('CTYPE1', 'RA---TAN'))
         cardList.append(pyfits.Card('CTYPE2', 'DEC--TAN'))
-        cardList.append(pyfits.Card('CRVAL1', RADeg))
-        cardList.append(pyfits.Card('CRVAL2', decDeg))
+        cardList.append(pyfits.Card('CRVAL1', CRVAL1))
+        cardList.append(pyfits.Card('CRVAL2', CRVAL2))
         cardList.append(pyfits.Card('CRPIX1', xRefPix+1))
         cardList.append(pyfits.Card('CRPIX2', yRefPix+1))
         cardList.append(pyfits.Card('CDELT1', xOutPixScale))
@@ -791,7 +799,8 @@ class SourceBrowser(object):
             G=GClip['data']
             B=BClip['data']
             wcs=RClip['wcs']
-                                               
+        #astImages.saveFITS("test.fits", R, wcs)
+        
         # Make plot
         fig=pylab.figure(figsize = self.configDict['figSize'])
         axes=[0.1,0.085,0.9,0.85]
@@ -841,23 +850,27 @@ class SourceBrowser(object):
                 p.addPlotObjects(xMatchRAs, xMatchDecs, 'xMatchObjects', objLabels = xMatchLabels,
                                  size = sizeDeg/40.0*3600.0, symbol = "diamond", color = 'cyan')
             
-        #if contourImg != None:
-            #p.addContourOverlay(contourImg[0].data, contourWCS, 'actContour', levels = contourLevels, width = 2,     
-                                    #color = 'yellow', highAccuracy = False)
+        if plotContours == "true":
+            if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
+                contourImg=pyfits.open(self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+name+".fits")
+                contourWCS=astWCS.WCS(contourImg[0].header, mode = 'pyfits')
+                if self.configDict['contour1Sigma'] == "measureFromImage":
+                    print "add measureFromImage code"
+                    IPython.embed()
+                    sys.exit()
+                else:
+                    contourLevels=np.linspace(self.configDict['contour1Sigma'], 
+                                              20*self.configDict['contour1Sigma'], 20)
+                p.addContourOverlay(contourImg[0].data, contourWCS, 'contour', levels = contourLevels, width = 2,     
+                                    color = self.configDict['contourColour'], 
+                                    smooth = self.configDict['contourSmoothingArcsec'],
+                                    highAccuracy = False)
         
-        #outFileName=plotsDir+os.path.sep+name.replace(" ", "_")+".jpg"
-        #pylab.savefig(outFileName)
-        #pylab.close()
         cherrypy.response.headers['Content-Type']="image/jpg"
         buf=StringIO.StringIO()
         pylab.savefig(buf, dpi = 96, format = 'jpg')
         pylab.close()
         
-        #print "return image as base64"
-        #IPython.embed()
-        #sys.exit()
-        
-        #return buf.getvalue()
         return base64.b64encode(buf.getvalue())
      
      
@@ -1720,7 +1733,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "False", plotSDSSObjects = "False", plotSourcePos = "False", plotXMatch = "False"):
+    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false"):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -1833,6 +1846,7 @@ class SourceBrowser(object):
                             plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
+                            plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             clipSizeArcmin: $("#clipSizeArcmin").val()}, 
                             function(data) {
                                 // directly insert the image
@@ -1865,6 +1879,7 @@ class SourceBrowser(object):
                             plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
+                            plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             clipSizeArcmin: $("#sizeSliderValue").val()}, 
                             function(data) {
                                 // directly insert the image
@@ -1883,6 +1898,7 @@ class SourceBrowser(object):
         <input name="name" value="$OBJECT_NAME" type="hidden">
         <p><b>Survey:</b> $IMAGE_TYPES</p>      
         <p><b>Show:</b>
+        <input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>Contours ($CONTOUR_IMAGE)
         <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
         <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
         <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR12 objects
@@ -1902,6 +1918,10 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$OBJECT_RADEG", str(obj['RADeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
+        if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
+            plotFormCode=plotFormCode.replace("$CONTOUR_IMAGE", self.configDict['contourImage'])
+        else:
+            plotFormCode=plotFormCode.replace("$CONTOUR_IMAGE", "None")
         
         imageTypesCode=""            
         for label in self.imageLabels:
@@ -1911,22 +1931,26 @@ class SourceBrowser(object):
                 imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s">%s\n' % (label, label)
         plotFormCode=plotFormCode.replace("$IMAGE_TYPES", imageTypesCode)
         
-        if plotNEDObjects == "True":
+        if plotNEDObjects == "true":
             plotFormCode=plotFormCode.replace("$CHECKED_NED", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_NED", "")
-        if plotSDSSObjects == "True":
+        if plotSDSSObjects == "true":
             plotFormCode=plotFormCode.replace("$CHECKED_SDSS", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_SDSS", "")
-        if plotSourcePos == "True":
+        if plotSourcePos == "true":
             plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", "")
-        if plotXMatch == "True":
+        if plotXMatch == "true":
             plotFormCode=plotFormCode.replace("$CHECKED_XMATCH", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_XMATCH", "")
+        if plotContours == "true":
+            plotFormCode=plotFormCode.replace("$CHECKED_CONTOURS", " checked")
+        else:
+            plotFormCode=plotFormCode.replace("$CHECKED_CONTOURS", "")
             
         plotFormCode=plotFormCode.replace("$MAX_SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))        
         if clipSizeArcmin == None:
@@ -2184,12 +2208,11 @@ class SourceBrowser(object):
         
         """
         print ">>> Making imageDir .jpgs ..."
-        for imageDir, label, colourMap, sizePix, smoothingArcsec, minMaxRadiusArcmin, scaling in zip(
+        for imageDir, label, colourMap, sizePix, minMaxRadiusArcmin, scaling in zip(
                  self.configDict['imageDirs'], 
                  self.configDict['imageDirsLabels'],
                  self.configDict['imageDirsColourMaps'],
                  self.configDict['imageDirsSizesPix'],
-                 self.configDict['imageDirsSmoothingArcsec'],
                  self.configDict['imageDirsMinMaxRadiusArcmin'],
                  self.configDict['imageDirsScaling']):
             
@@ -2234,28 +2257,50 @@ class SourceBrowser(object):
                             fieldDict['index']=len(keysList)+1
                             self.fieldTypesCollection.insert(fieldDict)
 
+                        if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
+                            fitsOutFileName=outFileName.replace(".jpg", ".fits")
+                        else:
+                            fitsOutFileName=None
+                        if fitsOutFileName != None and os.path.exists(fitsOutFileName) == False:
+                            if data == None:
+                                img=pyfits.open(imgFileName)
+                                data=img[0].data
+                            clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
+                                                               self.configDict['plotSizeArcmin']/60.0)
+                            astImages.saveFITS(fitsOutFileName, clip['data'], clip['wcs'])
+
                         if os.path.exists(outFileName) == False:
                             
                             if data == None:
                                 img=pyfits.open(imgFileName)
                                 data=img[0].data
-                            try:
-                                clip=catalogTools.clipSmoothedTanResampledImage(obj, data, wcs, 
-                                                                            self.configDict['plotSizeArcmin']/60.0, 
-                                                                            smoothingArcsec, 
-                                                                            outFileName = None, 
-                                                                            sizePix = sizePix)
-                            except:
-                                print "WARNING: Some other reason why clip failed - check out later"
-                                clip=None
+                            clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
+                                                               self.configDict['plotSizeArcmin']/60.0)
+                            
+                            # Below causes some offset which stops contours lining up
+                            #if data == None:
+                                #img=pyfits.open(imgFileName)
+                                #data=img[0].data
+                            #try:
+                                #clip=catalogTools.clipSmoothedTanResampledImage(obj, data, wcs, 
+                                                                            #self.configDict['plotSizeArcmin']/60.0, 
+                                                                            #smoothingArcsec, 
+                                                                            #outFileName = None, 
+                                                                            #sizePix = sizePix)
+                            #except:
+                                #print "why did clip fail?"
+                                #IPython.embed()
+                                #sys.exit()
+                                #clip=None
                              
-                            if clip == None:
-                                continue    # in this case, the object probably wasn't quite in the image?
+                            #if clip == None:
+                                #continue    # in this case, the object probably wasn't quite in the image?
                             
                             # Try to pick sensible cut levels
                             # Min-Max scaling
                             # Should probably stick with this, but also add log option for optical
                             if scaling == 'auto' and minMaxRadiusArcmin != None:
+                                clip['data']=catalogTools.byteSwapArr(clip['data'])
                                 rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
                                 minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
                                 cuts=[clip['data'].min(), clip['data'].max()]
@@ -2273,11 +2318,14 @@ class SourceBrowser(object):
                             dpi=96.0
                             f=pylab.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
                             pylab.axes([0, 0, 1, 1])
-                            cutImageDict=astImages.intensityCutImage(clip['data'], cuts)
-                            pylab.imshow(cutImageDict['image'], interpolation = None, origin = 'lower', 
-                                        cmap = colourMap, norm = cutImageDict['norm'])
+                            #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
+                            pylab.imshow(clip['data'], interpolation = "none", origin = 'lower', 
+                                         cmap = colourMap, norm = pylab.Normalize(cuts[0], cuts[1]))
                             pylab.savefig(outFileName, dpi = dpi)
                             pylab.close()
+                            
+                            #IPython.embed()
+                            #sys.exit()
 
         
         
