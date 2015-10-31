@@ -805,7 +805,7 @@ class SourceBrowser(object):
         fig=pylab.figure(figsize = self.configDict['figSize'])
         axes=[0.1,0.085,0.9,0.85]
         axesLabels="sexagesimal"
-        p=astPlots.ImagePlot([R, G, B], wcs, cutLevels = cutLevels, title = name, axes = axes, 
+        p=astPlots.ImagePlot([R, G, B], wcs, cutLevels = cutLevels, title = name.replace("_", " "), axes = axes, 
                             axesLabels = axesLabels)
         if plotSourcePos == "true":
             p.addPlotObjects([RADeg], [decDeg], 'clusterPos', symbol='cross', size=sizeDeg/20.0*3600.0, color='white')
@@ -859,9 +859,13 @@ class SourceBrowser(object):
                     IPython.embed()
                     sys.exit()
                 else:
-                    contourLevels=np.linspace(self.configDict['contour1Sigma'], 
-                                              20*self.configDict['contour1Sigma'], 20)
-                p.addContourOverlay(contourImg[0].data, contourWCS, 'contour', levels = contourLevels, width = 2,     
+                    contourLevels=[self.configDict['contour1Sigma'], 2*self.configDict['contour1Sigma'],
+                                   4*self.configDict['contour1Sigma'], 8*self.configDict['contour1Sigma'],
+                                   16*self.configDict['contour1Sigma']]
+                    #contourLevels=np.linspace(self.configDict['contour1Sigma'], 
+                                              #20*self.configDict['contour1Sigma'], 20)
+                p.addContourOverlay(contourImg[0].data, contourWCS, 'contour', levels = contourLevels, 
+                                    width = self.configDict['contourWidth'],     
                                     color = self.configDict['contourColour'], 
                                     smooth = self.configDict['contourSmoothingArcsec'],
                                     highAccuracy = False)
