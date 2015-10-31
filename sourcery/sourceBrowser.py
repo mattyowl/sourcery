@@ -2219,10 +2219,7 @@ class SourceBrowser(object):
                  self.configDict['imageDirsSizesPix'],
                  self.configDict['imageDirsMinMaxRadiusArcmin'],
                  self.configDict['imageDirsScaling']):
-            
-            if smoothingArcsec == 0.0:
-                smoothingArcsec=None
-            
+                        
             # NOTE: Need to worry at some point about labels with spaces...
             outDir=self.configDict['cacheDir']+os.path.sep+label
             if os.path.exists(outDir) == False:
