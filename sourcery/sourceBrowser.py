@@ -2179,6 +2179,10 @@ class SourceBrowser(object):
         
         If the use specified their own imageDirs, then the .jpg images from these are constructed here
         
+        Directories containing ready-made .jpgs can also be directly added into the cacheDir folder. So long
+        as these have a corresponding entry in the .config file they will be picked up. We spin through
+        those folders and also add 'image_<imageDirLabel>' tags in the MongoDB too. 
+        
         """
         self.makeImageDirJPEGs()
             
@@ -2195,6 +2199,40 @@ class SourceBrowser(object):
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
 
+        # Now spin through cache imageDirs and add 'image_<imageDirLabel>' tags
+        print ">>> Adding image_<imageDirLabel> tags to MongoDB ..."
+        minSizeBytes=40000
+        imageDirs=glob.glob(self.cacheDir+os.path.sep+"*")
+        for imageDir in imageDirs:
+            label=os.path.split(imageDir)[-1]
+            print "... %s ..." % (label)
+            fileNames=glob.glob(imageDir+os.path.sep+"*.jpg")
+            for f in fileNames:
+                
+                # image size check: don't include SDSS if image size is tiny as no data
+                skipImage=False
+                if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
+                    skipImage=True
+                
+                objName=os.path.split(f)[-1].replace(".jpg", "")
+                namesToTry=[objName, objName.replace("_", " ")]
+                obj=None
+                for n in namesToTry:
+                    obj=self.sourceCollection.find_one({'name': n})
+                    if obj != None:
+                        break
+                
+                if obj != None and skipImage == False:
+                    post={'image_%s' % (label): 1}
+                    self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+                    if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
+                        keysList, typeNamesList=self.getFieldNamesAndTypes()
+                        fieldDict={}
+                        fieldDict['name']='image_%s' % (label)
+                        fieldDict['type']='number'
+                        fieldDict['index']=len(keysList)+1
+                        self.fieldTypesCollection.insert(fieldDict)
+
 
     def makeImageDirJPEGs(self):
         """Actual makes .jpg images from .fits images in given directories. We figure out which image to use
@@ -2209,7 +2247,7 @@ class SourceBrowser(object):
         For tracking e.g. follow-up (and using it), we add a key to object if it has an imageDir image,
         with name image_<imageDirLabel> (e.g., 'image_NICFPS-Ks'). So would be able to search on
         'image_NICFPS-Ks = 1'
-        
+                
         """
         print ">>> Making imageDir .jpgs ..."
         for imageDir, label, colourMap, sizePix, minMaxRadiusArcmin, scaling in zip(
@@ -2219,6 +2257,8 @@ class SourceBrowser(object):
                  self.configDict['imageDirsSizesPix'],
                  self.configDict['imageDirsMinMaxRadiusArcmin'],
                  self.configDict['imageDirsScaling']):
+            
+            print "... %s ..." % (label)
                         
             # NOTE: Need to worry at some point about labels with spaces...
             outDir=self.configDict['cacheDir']+os.path.sep+label
@@ -2277,26 +2317,7 @@ class SourceBrowser(object):
                                 data=img[0].data
                             clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
                                                                self.configDict['plotSizeArcmin']/60.0)
-                            
-                            # Below causes some offset which stops contours lining up
-                            #if data == None:
-                                #img=pyfits.open(imgFileName)
-                                #data=img[0].data
-                            #try:
-                                #clip=catalogTools.clipSmoothedTanResampledImage(obj, data, wcs, 
-                                                                            #self.configDict['plotSizeArcmin']/60.0, 
-                                                                            #smoothingArcsec, 
-                                                                            #outFileName = None, 
-                                                                            #sizePix = sizePix)
-                            #except:
-                                #print "why did clip fail?"
-                                #IPython.embed()
-                                #sys.exit()
-                                #clip=None
-                             
-                            #if clip == None:
-                                #continue    # in this case, the object probably wasn't quite in the image?
-                            
+
                             # Try to pick sensible cut levels
                             # Min-Max scaling
                             # Should probably stick with this, but also add log option for optical
