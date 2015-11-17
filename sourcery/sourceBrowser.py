@@ -2277,77 +2277,85 @@ class SourceBrowser(object):
             
             objList=list(self.sourceCollection.find().sort('decDeg').sort('RADeg'))
 
-            for imgFileName in imgList:
-                wcs=astWCS.WCS(imgFileName)
-                data=None
-                for obj in objList:
-                    outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
-                    # coordsAreInImage sometimes gives spurious results, not clear why...
-                    # Replacement with below works - need to check and fix in astWCS
-                    pixCoords=wcs.wcs2pix(obj['RADeg'], obj['decDeg'])
-                    if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']:                           
-                            
-                        # Add to mongodb
-                        post={'image_%s' % (label): 1}
-                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
-                        if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                            keysList, typeNamesList=self.getFieldNamesAndTypes()
-                            fieldDict={}
-                            fieldDict['name']='image_%s' % (label)
-                            fieldDict['type']='number'
-                            fieldDict['index']=len(keysList)+1
-                            self.fieldTypesCollection.insert(fieldDict)
+            for obj in objList:
+                outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
+                
+                if os.path.exists(outFileName) == True:
+                    print "... image for %s exists..." % (obj['name'])
+                else:
+                    print "... making image for %s ..." % (obj['name'])
+                    print "... WARNING: skipping for now - put this back in later ..."
+                    break
+                    for imgFileName in imgList:
+                        
+                        wcs=astWCS.WCS(imgFileName)
+                        data=None
+                        # coordsAreInImage sometimes gives spurious results, not clear why...
+                        # Replacement with below works - need to check and fix in astWCS
+                        pixCoords=wcs.wcs2pix(obj['RADeg'], obj['decDeg'])
+                        if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']:                           
+                                
+                            # Add to mongodb - we now do this in preprocess
+                            #post={'image_%s' % (label): 1}
+                            #self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+                            #if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
+                                #keysList, typeNamesList=self.getFieldNamesAndTypes()
+                                #fieldDict={}
+                                #fieldDict['name']='image_%s' % (label)
+                                #fieldDict['type']='number'
+                                #fieldDict['index']=len(keysList)+1
+                                #self.fieldTypesCollection.insert(fieldDict)
 
-                        if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
-                            fitsOutFileName=outFileName.replace(".jpg", ".fits")
-                        else:
-                            fitsOutFileName=None
-                        if fitsOutFileName != None and os.path.exists(fitsOutFileName) == False:
-                            if data == None:
-                                img=pyfits.open(imgFileName)
-                                data=img[0].data
-                            clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
-                                                               self.configDict['plotSizeArcmin']/60.0)
-                            astImages.saveFITS(fitsOutFileName, clip['data'], clip['wcs'])
-
-                        if os.path.exists(outFileName) == False:
-                            
-                            if data == None:
-                                img=pyfits.open(imgFileName)
-                                data=img[0].data
-                            clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
-                                                               self.configDict['plotSizeArcmin']/60.0)
-
-                            # Try to pick sensible cut levels
-                            # Min-Max scaling
-                            # Should probably stick with this, but also add log option for optical
-                            if scaling == 'auto' and minMaxRadiusArcmin != None:
-                                clip['data']=catalogTools.byteSwapArr(clip['data'])
-                                rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
-                                minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
-                                cuts=[clip['data'].min(), clip['data'].max()]
+                            if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
+                                fitsOutFileName=outFileName.replace(".jpg", ".fits")
                             else:
-                                scaleMin, scaleMax=scaling.split(":")
-                                scaleMin=float(scaleMin)
-                                scaleMax=float(scaleMax)
-                                cuts=[scaleMin, scaleMax]
-                            
-                            # This should guard against picking up edges of images, if source position is not actually visible
-                            # (e.g., XMM images)
-                            if cuts[0] == 0 and cuts[1] == 0:
-                                continue
-                            
-                            dpi=96.0
-                            f=pylab.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
-                            pylab.axes([0, 0, 1, 1])
-                            #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
-                            pylab.imshow(clip['data'], interpolation = "none", origin = 'lower', 
-                                         cmap = colourMap, norm = pylab.Normalize(cuts[0], cuts[1]))
-                            pylab.savefig(outFileName, dpi = dpi)
-                            pylab.close()
-                            
-                            #IPython.embed()
-                            #sys.exit()
+                                fitsOutFileName=None
+                            if fitsOutFileName != None and os.path.exists(fitsOutFileName) == False:
+                                if data == None:
+                                    img=pyfits.open(imgFileName)
+                                    data=img[0].data
+                                clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
+                                                                self.configDict['plotSizeArcmin']/60.0)
+                                astImages.saveFITS(fitsOutFileName, clip['data'], clip['wcs'])
+
+                            if os.path.exists(outFileName) == False:
+                                
+                                if data == None:
+                                    img=pyfits.open(imgFileName)
+                                    data=img[0].data
+                                clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
+                                                                self.configDict['plotSizeArcmin']/60.0)
+
+                                # Try to pick sensible cut levels
+                                # Min-Max scaling
+                                # Should probably stick with this, but also add log option for optical
+                                if scaling == 'auto' and minMaxRadiusArcmin != None:
+                                    clip['data']=catalogTools.byteSwapArr(clip['data'])
+                                    rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
+                                    minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
+                                    cuts=[clip['data'].min(), clip['data'].max()]
+                                else:
+                                    scaleMin, scaleMax=scaling.split(":")
+                                    scaleMin=float(scaleMin)
+                                    scaleMax=float(scaleMax)
+                                    cuts=[scaleMin, scaleMax]
+                                
+                                # This should guard against picking up edges of images, if source position is not actually visible
+                                # (e.g., XMM images)
+                                if cuts[0] == 0 and cuts[1] == 0:
+                                    continue
+                                
+                                dpi=96.0
+                                f=pylab.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
+                                pylab.axes([0, 0, 1, 1])
+                                #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
+                                pylab.imshow(clip['data'], interpolation = "none", origin = 'lower', 
+                                            cmap = colourMap, norm = pylab.Normalize(cuts[0], cuts[1]))
+                                pylab.savefig(outFileName, dpi = dpi)
+                                pylab.close()
+                                
+                                #IPython.embed()
+                                #sys.exit()
 
         
         
