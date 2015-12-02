@@ -672,7 +672,7 @@ class SourceBrowser(object):
     
     
     def fetchCFHTLSImage(self, obj, refetch = False):
-        """Retrieves coloir .jpg from CFHT legacy survey.
+        """Retrieves colour .jpg from CFHT legacy survey. Returns True if successful, False if not
         
         """
 
@@ -691,11 +691,11 @@ class SourceBrowser(object):
         url=url.replace("$DEC", str(decDeg))
         url=url.replace("$SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))
         print url
+        foundCutoutInfo=False
         if os.path.exists(outFileName) == False or refetch == True:
             response=urllib2.urlopen(url)
             lines=response.read()
             lines=lines.split("\n")
-            foundCutoutInfo=False
             for line in lines:
                 if line.find("cutout preview") != -1:
                     foundCutoutInfo=True
@@ -705,14 +705,12 @@ class SourceBrowser(object):
                 foundCutoutInfo=False
             if foundCutoutInfo == True:
                 imageURL="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/"+line[line.find("src=")+4:].split('"')[1]
-                try:
-                    urllib.urlretrieve(imageURL, outFileName)
-                except:
-                    noDataPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
-                    os.system("cp %s %s" % (noDataPath, outFileName))
-            else:
-                noDataPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
-                os.system("cp %s %s" % (noDataPath, outFileName))
+                urllib.urlretrieve(imageURL, outFileName)
+                #except:
+                    #noDataPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
+                    #os.system("cp %s %s" % (noDataPath, outFileName))
+        
+        return foundCutoutInfo
                 
                 
     @cherrypy.expose
@@ -849,20 +847,31 @@ class SourceBrowser(object):
             if len(xMatchRAs) > 0:
                 p.addPlotObjects(xMatchRAs, xMatchDecs, 'xMatchObjects', objLabels = xMatchLabels,
                                  size = sizeDeg/40.0*3600.0, symbol = "diamond", color = 'cyan')
-            
+        
         if plotContours == "true":
             if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-                contourImg=pyfits.open(self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+name+".fits")
+                contourImg=pyfits.open(self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+name.replace(" ", "_")+".fits")
                 contourWCS=astWCS.WCS(contourImg[0].header, mode = 'pyfits')
                 if self.configDict['contour1Sigma'] == "measureFromImage":
-                    print "add measureFromImage code"
-                    IPython.embed()
-                    sys.exit()
+                    contourData=contourImg[0].data
+                    # Choose level from clipped stdev
+                    sigmaCut=2.0
+                    mean=0
+                    sigma=1e6
+                    for i in range(20):
+                        #nonZeroMask=np.not_equal(contourData, 0)
+                        mask=np.less(abs(contourData-mean), sigmaCut*sigma)
+                        #mask=np.logical_and(nonZeroMask, mask)
+                        mean=np.mean(contourData[mask])
+                        sigma=np.std(contourData[mask])
                 else:
-                    contourLevels=[self.configDict['contour1Sigma'], 2*self.configDict['contour1Sigma'],
-                                   4*self.configDict['contour1Sigma'], 8*self.configDict['contour1Sigma'],
-                                   16*self.configDict['contour1Sigma']]
-                    #contourLevels=np.linspace(self.configDict['contour1Sigma'], 
+                    sigma=self.configDict['contour1Sigma']
+                contourSigmaLevels=np.array(self.configDict['contourSigmaLevels'])
+                contourLevels=contourSigmaLevels*sigma
+                #contourLevels=[self.configDict['contour1Sigma'], 2*self.configDict['contour1Sigma'],
+                                   #4*self.configDict['contour1Sigma'], 8*self.configDict['contour1Sigma'],
+                                   #16*self.configDict['contour1Sigma']]
+                #contourLevels=np.linspace(self.configDict['contour1Sigma'], 
                                               #20*self.configDict['contour1Sigma'], 20)
                 p.addContourOverlay(contourImg[0].data, contourWCS, 'contour', levels = contourLevels, 
                                     width = self.configDict['contourWidth'],     
@@ -2185,6 +2194,18 @@ class SourceBrowser(object):
         
         """
         self.makeImageDirJPEGs()
+        
+        # In the CFHT dir, we keep a file that lists objects that don't have data
+        # Saves us pinging CFHT servers again if we rerun
+        cfhtCacheDir=self.cacheDir+os.path.sep+"CFHTLS"
+        failsFileName=cfhtCacheDir+os.path.sep+"objectsNotFound.txt"
+        CFHTFailsList=[]
+        if os.path.exists(failsFileName) == True:
+            inFile=file(failsFileName, "r")
+            lines=inFile.readlines()
+            inFile.close()
+            for line in lines:
+                CFHTFailsList.append(line.replace("\n", ""))
             
         for obj in self.sourceCollection.find().sort('decDeg').sort('RADeg'):
 
@@ -2194,11 +2215,20 @@ class SourceBrowser(object):
             if self.configDict['addSDSSImage'] == True:
                 self.fetchSDSSImage(obj)
             if self.configDict['addCFHTLSImage'] == True:
-                self.fetchCFHTLSImage(obj)
+                if obj['name'] not in CFHTFailsList:
+                    CFHTResult=self.fetchCFHTLSImage(obj)
+                    if CFHTResult == False:
+                        CFHTFailsList.append(obj['name'])
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
 
+        # Update CFHT fails list
+        outFile=file(failsFileName, "w")
+        for objName in CFHTFailsList:
+            outFile.write(objName+"\n")
+        outFile.close()
+                
         # Now spin through cache imageDirs and add 'image_<imageDirLabel>' tags
         print ">>> Adding image_<imageDirLabel> tags to MongoDB ..."
         minSizeBytes=40000
