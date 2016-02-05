@@ -56,6 +56,10 @@ class SourceBrowser(object):
         # Parse config file
         self.parseConfig(configFileName)
         
+        # Add news into self.configDict, if there is any...
+        if 'newsFileName' in self.configDict.keys():
+            self.addNews()
+        
         if 'skyviewPath' in self.configDict.keys():
             self.skyviewPath=self.configDict['skyviewPath']
         else:
@@ -445,7 +449,22 @@ class SourceBrowser(object):
                 except:
                     continue
         
-    
+
+    def addNews(self):
+        """Parse news file, if there is one, filling up self.configDict['newsItems'].
+        
+        """
+        inFile=file(self.configDict['newsFileName'], "r")
+        lines=inFile.readlines()
+        inFile.close()
+        
+        newsItems=[]
+        for line in lines:
+            if line[0] != "#":
+                newsItems.append(line.replace("\n", ""))
+        self.configDict['newsItems']=newsItems
+        
+        
     def fetchNEDInfo(self, obj, retryFails = False):
         """Fetches NED info for given obj (which must have name, RADeg, decDeg keys) - just stores on disk 
         in cacheDir - we'll retrieve it later as needed.
@@ -685,6 +704,8 @@ class SourceBrowser(object):
         decDeg=obj['decDeg']
                 
         outFileName=cfhtCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        
+        #http://www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/en/megapipe/access/cut.html
         
         url="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/community/CFHTLS-SG/cgi/cutcfhtls.pl?ra=$RA&dec=$DEC&size=$SIZE_ARCMIN&units=arcminutes&wide=true&deep=true&preview=colour"
         url=url.replace("$RA", str(RADeg))
@@ -1216,8 +1237,18 @@ class SourceBrowser(object):
         <p>Original source list = %s</p>
         <p>Total number of %s = %d (original source list: %d)</p>
         <p>%s</p>
+        $NEWS
         </fieldset>""" % (os.path.split(self.configDict['catalogFileName'])[-1], self.configDict['objectTypeString'], 
                           len(queryPosts), self.sourceCollection.count(), commentsString)
+        if 'newsItems' in self.configDict.keys():
+            newsStr="<p>News:<ul>\n"
+            for item in self.configDict['newsItems']:
+                newsStr=newsStr+"<li>%s</li>\n" % (item)
+            newsStr=newsStr+"</ul></p>\n"
+            metaData=metaData.replace("$NEWS", newsStr)
+        else:
+            metaData=metaData.replace("$NEWS", "")
+            
         html=html.replace("$META_DATA", metaData)        
         
         # Catalog download links
