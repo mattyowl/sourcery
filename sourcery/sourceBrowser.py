@@ -2345,8 +2345,8 @@ class SourceBrowser(object):
                     print "... image for %s exists..." % (obj['name'])
                 else:
                     print "... making image for %s ..." % (obj['name'])
-                    print "... WARNING: skipping for now - put this back in later ..."
-                    break
+                    #print "... WARNING: skipping for now - put this back in later ..."
+                    #break
                     for imgFileName in imgList:
                         
                         wcs=astWCS.WCS(imgFileName)
