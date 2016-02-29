@@ -1323,7 +1323,7 @@ class SourceBrowser(object):
                     nedName=obj[key]
                     nedLinkURL="http://ned.ipac.caltech.edu/cgi-bin/objsearch?objname=%s&extend=no&hconst=73&omegam=0.27&omegav=0.73&corr_z=1&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=pre_text&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (nedName.replace("+", "%2B").replace(" ", "+"))
                     rowString=rowString.replace(htmlKey, "<a href=%s>%s</a>" % (nedLinkURL, nedName))
-                elif key == "NED_z" and np.isnan(obj['NED_z']) == True:
+                elif key == "NED_z" and obj['NED_z'] == "nan":
                     rowString=rowString.replace(htmlKey, "-")
                 else:
                     try:
