@@ -148,7 +148,7 @@ class SourceBrowser(object):
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) CFHT Legacy Survey image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # unWISE colour .jpgs
         if "addUnWISEImage" in self.configDict.keys() and self.configDict['addUnWISEImage'] == True:
-            label="UnWISE"
+            label="unWISE"
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (W1, W2) unWISE image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
@@ -744,7 +744,7 @@ class SourceBrowser(object):
         
         """
         
-        wiseCacheDir=self.cacheDir+os.path.sep+"UnWISE"
+        wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
         if os.path.exists(wiseCacheDir) == False:
             os.makedirs(wiseCacheDir)
         
