@@ -28,7 +28,7 @@ import glob
 from astLib import *
 import pyfits
 import numpy as np
-import pylab
+import pylab as plt
 import catalogTools
 import sourcery
 import sys
@@ -146,6 +146,11 @@ class SourceBrowser(object):
             label="CFHTLS"
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) CFHT Legacy Survey image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+        # unWISE colour .jpgs
+        if "addUnWISEImage" in self.configDict.keys() and self.configDict['addUnWISEImage'] == True:
+            label="UnWISE"
+            self.imageLabels.append(label)
+            self.imageCaptions.append("%.1f' x %.1f' false color (W1, W2) unWISE image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
         if 'skyviewLabels' in self.configDict.keys():
             for label in self.configDict['skyviewLabels']:
@@ -693,6 +698,7 @@ class SourceBrowser(object):
     def fetchCFHTLSImage(self, obj, refetch = False):
         """Retrieves colour .jpg from CFHT legacy survey. Returns True if successful, False if not
         
+        NOTE: Broken since CADC removed this service (I can't find it any more)
         """
 
         cfhtCacheDir=self.cacheDir+os.path.sep+"CFHTLS"
@@ -732,7 +738,131 @@ class SourceBrowser(object):
                     #os.system("cp %s %s" % (noDataPath, outFileName))
         
         return foundCutoutInfo
-                
+
+    def fetchUnWISEImage(self, obj, refetch = False):
+        """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
+        
+        """
+        
+        wiseCacheDir=self.cacheDir+os.path.sep+"UnWISE"
+        if os.path.exists(wiseCacheDir) == False:
+            os.makedirs(wiseCacheDir)
+        
+        name=obj['name']
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']
+        
+        # 2.75" pixels in the unWISE images (max for query is 250 pixels though)
+        sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))
+        
+        outFileName=wiseCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        targzPath=wiseCacheDir+os.path.sep+"wise.tar.gz"
+        if os.path.exists(outFileName) == False or refetch == True:
+            print "... fetching unWISE data for %s ..." % (name) 
+            
+            urllib.urlretrieve("http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix), targzPath)
+            
+            os.system("tar -zxvf %s" % (targzPath))
+            wiseFiles=glob.glob("unwise-*-img-m.fits")
+            w1FileName=None
+            w2FileName=None
+            for w in wiseFiles:
+                # Weirdly, the archives sometimes have multiple images, some of odd dimensions
+                if w.find("-img-m.fits") != -1:
+                    img=pyfits.open(w)
+                    if img[0].data.shape == (sizePix, sizePix):
+                        if w.find("-w1-img") != -1:
+                            w1FileName=w
+                        if w.find("-w2-img") != -1:
+                            w2FileName=w
+            if w1FileName == None or w2FileName == None:
+                # In this case, we have to stitch all the images together
+                # Takes ~1.6 sec per image
+                for band in ['w1', 'w2']:
+                    # Make a WCS
+                    CRVAL1, CRVAL2=RADeg, decDeg
+                    sizeArcmin=self.configDict['plotSizeArcmin']
+                    xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
+                    xSizePix=sizePix
+                    ySizePix=sizePix
+                    xRefPix=xSizePix/2.0
+                    yRefPix=ySizePix/2.0
+                    xOutPixScale=xSizeDeg/xSizePix
+                    yOutPixScale=ySizeDeg/ySizePix
+                    cardList=pyfits.CardList()
+                    cardList.append(pyfits.Card('NAXIS', 2))
+                    cardList.append(pyfits.Card('NAXIS1', xSizePix))
+                    cardList.append(pyfits.Card('NAXIS2', ySizePix))
+                    cardList.append(pyfits.Card('CTYPE1', 'RA---TAN'))
+                    cardList.append(pyfits.Card('CTYPE2', 'DEC--TAN'))
+                    cardList.append(pyfits.Card('CRVAL1', CRVAL1))
+                    cardList.append(pyfits.Card('CRVAL2', CRVAL2))
+                    cardList.append(pyfits.Card('CRPIX1', xRefPix+1))
+                    cardList.append(pyfits.Card('CRPIX2', yRefPix+1))
+                    cardList.append(pyfits.Card('CDELT1', xOutPixScale))
+                    cardList.append(pyfits.Card('CDELT2', xOutPixScale))    # Makes more sense to use same pix scale
+                    cardList.append(pyfits.Card('CUNIT1', 'DEG'))
+                    cardList.append(pyfits.Card('CUNIT2', 'DEG'))
+                    newHead=pyfits.Header(cards=cardList)
+                    wcs=astWCS.WCS(newHead, mode='pyfits')
+                    outData=np.zeros([sizePix, sizePix])
+                    imgFileNames=glob.glob(("*-%s-img-m.fits" % (band)))
+                    for fileName in imgFileNames:
+                        img=pyfits.open(fileName)
+                        imgWCS=astWCS.WCS(img[0].header, mode = 'pyfits')
+                        for y in range(sizePix):
+                            for x in range(sizePix):
+                                outRADeg, outDecDeg=wcs.pix2wcs(x, y)
+                                inX, inY=imgWCS.wcs2pix(outRADeg, outDecDeg)
+                                if inX >= 0 and inX < img[0].data.shape[1]-1 and inY >= 0 and inY < img[0].data.shape[0]-1:
+                                    outData[y, x]=img[0].data[inY, inX]
+                    if band == 'w1':
+                        bClip={'wcs': wcs, 'data': outData}
+                    elif band == 'w2':
+                        rClip={'wcs': wcs, 'data': outData}
+            else:
+                wcs=astWCS.WCS(w1FileName)
+                bImg=pyfits.open(w1FileName)
+                rImg=pyfits.open(w2FileName)
+                bClip={'wcs': wcs, 'data': bImg[0].data}
+                rClip={'wcs': wcs, 'data': rImg[0].data}
+        
+            try:
+                gClip={'wcs': rClip['wcs'], 'data': (rClip['data']+bClip['data'])/2.0}
+            except:
+                raise Exception, "W1, W2 images not same dimensions"
+
+            # Make colour .jpg
+            # Nicer log scaling - twiddle with the min, max levels here and cuts below as you like
+            dpi=96.0
+            bData=bClip['data']
+            gData=gClip['data']
+            rData=rClip['data']
+            rData[np.less(rData, 1e-5)]=1e-5
+            rData[np.greater(rData, 1000)]=1000.0
+            rData=np.log10(rData)
+            gData[np.less(gData, 1e-5)]=1e-5
+            gData[np.greater(gData, 1000)]=1000.0
+            gData=np.log10(gData)
+            bData[np.less(bData, 1e-5)]=1e-5
+            bData[np.greater(bData, 1000)]=1000.0
+            bData=np.log10(bData)
+
+            cuts=[0, 3]
+
+            sizePix=1024
+            f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
+            plt.axes([0, 0, 1, 1])
+            axes=[0., 0., 1.0, 1.0]
+            plot=astPlots.ImagePlot([rData, gData, bData], bClip['wcs'], axes = axes, 
+                                cutLevels = [cuts, cuts, cuts], axesFontSize = 18.0)
+            plt.savefig(outFileName, dpi = dpi)
+            plt.close()
+            
+            # Clean up
+            os.remove(targzPath)
+            os.system("rm unwise-*.fits*")
+
                 
     @cherrypy.expose
     def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", clipSizeArcmin = None):
@@ -821,7 +951,7 @@ class SourceBrowser(object):
         #astImages.saveFITS("test.fits", R, wcs)
         
         # Make plot
-        fig=pylab.figure(figsize = self.configDict['figSize'])
+        fig=plt.figure(figsize = self.configDict['figSize'])
         axes=[0.1,0.085,0.9,0.85]
         axesLabels="sexagesimal"
         p=astPlots.ImagePlot([R, G, B], wcs, cutLevels = cutLevels, title = name.replace("_", " "), axes = axes, 
@@ -902,8 +1032,8 @@ class SourceBrowser(object):
         
         cherrypy.response.headers['Content-Type']="image/jpg"
         buf=StringIO.StringIO()
-        pylab.savefig(buf, dpi = 96, format = 'jpg')
-        pylab.close()
+        plt.savefig(buf, dpi = 96, format = 'jpg')
+        plt.close()
         
         return base64.b64encode(buf.getvalue())
      
@@ -985,11 +1115,11 @@ class SourceBrowser(object):
                 imData[:, :, i]=channel
             
             dpi=96.0
-            pylab.figure(figsize=(self.configDict['plotSizePix']/dpi, self.configDict['plotSizePix']/dpi), dpi = dpi)
-            pylab.axes([0, 0, 1, 1])
-            pylab.imshow(imData, interpolation="bilinear", origin='lower')
-            pylab.savefig(outFileName, dpi = dpi)
-            pylab.close()
+            plt.figure(figsize=(self.configDict['plotSizePix']/dpi, self.configDict['plotSizePix']/dpi), dpi = dpi)
+            plt.axes([0, 0, 1, 1])
+            plt.imshow(imData, interpolation="bilinear", origin='lower')
+            plt.savefig(outFileName, dpi = dpi)
+            plt.close()
             
             # Clean up .fits images
             if cleanUp == True:
@@ -2250,6 +2380,8 @@ class SourceBrowser(object):
                     CFHTResult=self.fetchCFHTLSImage(obj)
                     if CFHTResult == False:
                         CFHTFailsList.append(obj['name'])
+            if self.configDict['addUnWISEImage'] == True:
+                self.fetchUnWISEImage(obj)
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
@@ -2407,13 +2539,13 @@ class SourceBrowser(object):
                                     continue
                                 
                                 dpi=96.0
-                                f=pylab.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
-                                pylab.axes([0, 0, 1, 1])
+                                f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
+                                plt.axes([0, 0, 1, 1])
                                 #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
-                                pylab.imshow(clip['data'], interpolation = "none", origin = 'lower', 
-                                            cmap = colourMap, norm = pylab.Normalize(cuts[0], cuts[1]))
-                                pylab.savefig(outFileName, dpi = dpi)
-                                pylab.close()
+                                plt.imshow(clip['data'], interpolation = "none", origin = 'lower', 
+                                            cmap = colourMap, norm = plt.Normalize(cuts[0], cuts[1]))
+                                plt.savefig(outFileName, dpi = dpi)
+                                plt.close()
                                 
                                 #IPython.embed()
                                 #sys.exit()
