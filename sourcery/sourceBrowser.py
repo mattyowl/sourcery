@@ -2452,7 +2452,11 @@ class SourceBrowser(object):
                  self.configDict['imageDirsScaling']):
             
             print "... %s ..." % (label)
-                        
+
+            if 'skipMakingNewImages' in self.configDict.keys() and label in self.configDict['skipMakingNewImages']:
+                print "... WARNING: skipMakingNewImages enabled for %s ..." % (label)
+                continue
+                    
             # NOTE: Need to worry at some point about labels with spaces...
             outDir=self.configDict['cacheDir']+os.path.sep+label
             if os.path.exists(outDir) == False:
@@ -2477,8 +2481,7 @@ class SourceBrowser(object):
                     print "... image for %s exists..." % (obj['name'])
                 else:
                     print "... making image for %s ..." % (obj['name'])
-                    #print "... WARNING: skipping for now - put this back in later ..."
-                    #break
+                                        
                     for imgFileName in imgList:
                         
                         wcs=astWCS.WCS(imgFileName)
