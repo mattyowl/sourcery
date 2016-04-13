@@ -96,7 +96,7 @@ class SourceBrowser(object):
         # Column to display info
         # Table pages
         self.tableDisplayColumns=['name', 'RADeg', 'decDeg']+self.configDict['tableDisplayColumns']
-        self.tableDisplayColumnLabels=['Name', 'R.A. (degrees)', 'Dec. (degrees)']+self.configDict['tableDisplayColumns']
+        self.tableDisplayColumnLabels=['Name', 'RA (degrees)', 'Dec. (degrees)']+self.configDict['tableDisplayColumns']
         self.tableDisplayColumnFormats=['%s', '%.6f', '%.6f']+self.configDict['tableDisplayColumnFormats']
         # Source pages
         self.sourceDisplayColumns=[]
@@ -402,6 +402,8 @@ class SourceBrowser(object):
                     # This is now complicated by having to handle , inside "" or ''
                     lst=[]
                     items=value.replace("[", "").replace("]", "")#.split(",")
+                    if len(items) == 0:
+                        continue
                     if items[0] == '"':
                         delim='"'
                     elif items[0] == "'":
@@ -465,7 +467,7 @@ class SourceBrowser(object):
         
         newsItems=[]
         for line in lines:
-            if line[0] != "#":
+            if line[0] != "#" and len(line) > 3:
                 newsItems.append(line.replace("\n", ""))
         self.configDict['newsItems']=newsItems
         
@@ -495,11 +497,15 @@ class SourceBrowser(object):
                 outFileName=None
 
 
-    def findNEDMatch(self, obj):
+    def findNEDMatch(self, obj, NEDObjType = "GClstr"):
         """Checks if there is a NED match for obj. Uses matching radius specified in config file by
         crossMatchRadiusArcmin.
         
         """
+        
+        if "NEDObjType" in self.configDict.keys():
+            NEDObjType=self.configDict['NEDObjType']
+            
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
         nedObjs=catalogTools.parseNEDResult(nedFileName)
             
@@ -510,7 +516,7 @@ class SourceBrowser(object):
         if len(nedObjs['RAs']) > 0:
             for i in range(len(nedObjs['RAs'])):
                 ned=nedObjs
-                if ned['sourceTypes'][i] == 'GClstr':
+                if ned['sourceTypes'][i] == NEDObjType:
                     r=astCoords.calcAngSepDeg(ned['RAs'][i], ned['decs'][i], obj['RADeg'], obj['decDeg'])
                     if r < rMin and r < crossMatchRadiusDeg:
                         keepName=False
@@ -1059,7 +1065,7 @@ class SourceBrowser(object):
         
         if refetch == True or os.path.exists(outFileName) == False:
             #print "java -jar %s position=%.6f,%.6f output=%s size=%.3f pixels=%d survey=%s cache=%s/" % (self.skyviewPath, RADeg, decDeg, rootFileName, self.configDict['plotSizeArcmin']/60.0, self.configDict['plotSizePix'], RGBSurveysString, self.skyCacheDir)
-            os.system("java -jar %s position=%.6f,%.6f output=%s size=%.3f pixels=%d survey=%s cache=%s/" % (self.skyviewPath, RADeg, decDeg, rootFileName, self.configDict['plotSizeArcmin']/60.0, self.configDict['plotSizePix'], RGBSurveysString, self.skyCacheDir))
+            os.system("java -jar %s position=%.6f,%.6f output=%s size=%.3f pixels=%d survey=%s cache=%s/" % (self.skyviewPath, RADeg, decDeg, rootFileName, self.configDict['plotSizeArcmin']/60.0, self.configDict['skyviewPlotSizePix'], RGBSurveysString, self.skyCacheDir))
             
             # If skyview doesn't return something (e.g., FIRST in southern hemisphere) then copy the noData image
             if len(RGBSurveysString.split(",")) == 3:
@@ -1096,7 +1102,7 @@ class SourceBrowser(object):
                 minLevel=med-lowSigmaCut*std
                 
                 # This is better
-                freq, binEdges=np.histogram(channel, bins = (channel.shape[0]*channel.shape[1])/100.0)
+                freq, binEdges=np.histogram(channel, bins = int((channel.shape[0]*channel.shape[1])/100.0))
                 binCentres=binEdges[:-1]+(binEdges[1]-binEdges[0])/2.0
                 minLevel=binCentres[freq.tolist().index(freq.max())]
                 
@@ -1115,7 +1121,7 @@ class SourceBrowser(object):
                 imData[:, :, i]=channel
             
             dpi=96.0
-            plt.figure(figsize=(self.configDict['plotSizePix']/dpi, self.configDict['plotSizePix']/dpi), dpi = dpi)
+            plt.figure(figsize=(self.configDict['skyviewPlotSizePix']/dpi, self.configDict['skyviewPlotSizePix']/dpi), dpi = dpi)
             plt.axes([0, 0, 1, 1])
             plt.imshow(imData, interpolation="bilinear", origin='lower')
             plt.savefig(outFileName, dpi = dpi)
@@ -1248,9 +1254,9 @@ class SourceBrowser(object):
         <form method="get" action="updateQueryParams">
         <fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Constraints</b></legend>
-        <p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative R.A. values to wrap around 0 degrees (e.g., -60:60).</p>
+        <p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative RA values to wrap around 0 degrees (e.g., -60:60).</p>
         <p>
-        <label for="queryRADeg">R.A. (degrees)</label>
+        <label for="queryRADeg">RA (degrees)</label>
         <input type="text" value="$QUERY_RADEG" name="queryRADeg"/>
         <label for="queryDecDeg">Dec. (degrees)</label>
         <input type="text" value="$QUERY_DECDEG" name="queryDecDeg"/>
@@ -1446,8 +1452,11 @@ class SourceBrowser(object):
                 htmlKey="$"+string.upper(key)+"_KEY"
                 if key == "name":
                     #linksDir="dummy"
+                    linkURL="displaySourcePage?name=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['name']), self.configDict['plotSizeArcmin'])
+                    if 'defaultImageType' in self.configDict.keys():
+                        linkURL=linkURL+"&imageType=%s" % (self.configDict['defaultImageType'])
                     nameLink="<a href=\"%s\" target=new>%s</a>" % \
-                        ("displaySourcePage?name=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['name']), self.configDict['plotSizeArcmin']), obj['name'])
+                        (linkURL, obj['name'])
                     rowString=rowString.replace(htmlKey, "%s" % (nameLink))
                 elif key == "NED_name" and obj['NED_name'] != "None":
                     nedName=obj[key]
@@ -1459,7 +1468,9 @@ class SourceBrowser(object):
                     try:
                         rowString=rowString.replace(htmlKey, fmt % (value))
                     except:
-                        raise Exception, "IndexError: check .config file tableDisplayColumns are actually in the .fits table"
+                        IPython.embed()
+                        sys.exit()
+                        raise Exception, """IndexError: check .config file tableDisplayColumns are actually in the .fits table, or for mixed '' "" inside [] """ 
                            
             tableData=tableData+rowString
             
@@ -2132,15 +2143,15 @@ class SourceBrowser(object):
         else:
             plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(clipSizeArcmin))
         
-        # Directly serving .jpg image
-        if imageType == 'SDSS':
-            self.fetchSDSSImage(obj)
-        elif imageType == 'CFHTLS':
-            self.fetchCFHTLSImage(obj)
-        else:
-            if 'skyviewLabels' in self.configDict.keys():
-                skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
-                self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], self.configDict['skyviewSurveyStrings'][skyviewIndex], imageType)
+        # Directly fetching .jpg images - now we rely on first running sourcery_build_cache
+        #if imageType == 'SDSS':
+            #self.fetchSDSSImage(obj)
+        #elif imageType == 'CFHTLS':
+            #self.fetchCFHTLSImage(obj)
+        #else:
+            #if 'skyviewLabels' in self.configDict.keys():
+                #skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
+                #self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], self.configDict['skyviewSurveyStrings'][skyviewIndex], imageType)
         
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
         if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
@@ -2239,7 +2250,7 @@ class SourceBrowser(object):
             <tr>
                 <td><b>ID</b></td>
                 <td><b>Name</b></td>
-                <td><b>R.A.</b></td>
+                <td><b>RA</b></td>
                 <td><b>Dec.</b></td>
                 <td><b>Object Type</b></td>
                 <td><b>Redshift</b></td>
@@ -2281,7 +2292,7 @@ class SourceBrowser(object):
             </tr>
             <tr>
                 <td><b>ID</b></td>
-                <td><b>R.A.</b></td>
+                <td><b>RA</b></td>
                 <td><b>Dec.</b></td>
                 <td><b>z</b></td>
                 <td><b>zWarning</b></td>                    
@@ -2354,11 +2365,14 @@ class SourceBrowser(object):
         those folders and also add 'image_<imageDirLabel>' tags in the MongoDB too. 
         
         """
-        self.makeImageDirJPEGs()
+        if 'imageDirs' in self.configDict.keys():
+            self.makeImageDirJPEGs()
         
         # In the CFHT dir, we keep a file that lists objects that don't have data
         # Saves us pinging CFHT servers again if we rerun
         cfhtCacheDir=self.cacheDir+os.path.sep+"CFHTLS"
+        if os.path.exists(cfhtCacheDir) == False:
+            os.makedirs(cfhtCacheDir)
         failsFileName=cfhtCacheDir+os.path.sep+"objectsNotFound.txt"
         CFHTFailsList=[]
         if os.path.exists(failsFileName) == True:
@@ -2368,7 +2382,7 @@ class SourceBrowser(object):
             for line in lines:
                 CFHTFailsList.append(line.replace("\n", ""))
             
-        for obj in self.sourceCollection.find().sort('decDeg').sort('RADeg'):
+        for obj in self.sourceCollection.find().batch_size(30).sort('decDeg').sort('RADeg'):
 
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
