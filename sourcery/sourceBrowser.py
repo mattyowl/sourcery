@@ -2382,7 +2382,7 @@ class SourceBrowser(object):
             for line in lines:
                 CFHTFailsList.append(line.replace("\n", ""))
             
-        for obj in self.sourceCollection.find().batch_size(30).sort('decDeg').sort('RADeg'):
+        for obj in self.sourceCollection.find().batch_size(10).sort('decDeg').sort('RADeg'):
 
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
