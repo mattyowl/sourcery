@@ -2381,7 +2381,10 @@ class SourceBrowser(object):
             inFile.close()
             for line in lines:
                 CFHTFailsList.append(line.replace("\n", ""))
-            
+        
+        # We need to do this to avoid hitting 32 Mb limit below when using large databases
+        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+
         for obj in self.sourceCollection.find().batch_size(10).sort('decDeg').sort('RADeg'):
 
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
