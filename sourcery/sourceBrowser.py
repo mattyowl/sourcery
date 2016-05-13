@@ -1604,6 +1604,7 @@ class SourceBrowser(object):
             queryDict[key]=constraintsDict[key]
         
         # Execute query
+        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
         queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
         
         # If we wanted to store all this in its own collection
