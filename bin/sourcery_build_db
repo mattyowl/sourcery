@@ -31,4 +31,6 @@ else:
     
     configFileName=sys.argv[1].replace("\n", "")
     sb=SourceBrowser(configFileName, buildDatabase = True)
+    sb.preprocess()
+
     

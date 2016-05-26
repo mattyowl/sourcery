@@ -367,6 +367,9 @@ class SourceBrowser(object):
             
             self.sourceCollection.insert(newPost)
         
+        # Add descriptions of field (displayed on help page only)
+        descriptionsDict=self.parseColumnDescriptionsFile()
+        
         # Make collection of field types
         index=0
         for key in fieldTypesList:
@@ -374,9 +377,38 @@ class SourceBrowser(object):
             fieldDict['name']=key
             fieldDict['type']=fieldTypesDict[key]
             fieldDict['index']=index
+            if key in descriptionsDict.keys():
+                fieldDict['description']=descriptionsDict[key]
+            else:
+                fieldDict['description']="-"
             self.fieldTypesCollection.insert(fieldDict)
             index=index+1
 
+
+    def parseColumnDescriptionsFile(self):
+        """Reads a text file containing column descriptions. The format of the file is:
+        
+        columnName: description
+        
+        Any white space between : and description is stripped.
+        
+        Returns a dictionary with keys {'columnName': 'description'}
+        
+        """
+        
+        descriptionsDict={}
+        if 'descriptionsFileName' in self.configDict.keys():
+            inFile=file(self.configDict['descriptionsFileName'], "r")
+            lines=inFile.readlines()
+            inFile.close()
+            for line in lines:
+                if line[0] != "#":
+                    splitIndex=line.find(":")
+                    key=line[:splitIndex]
+                    desc=line[splitIndex+1:].lstrip().rstrip()
+                    descriptionsDict[key]=desc
+        return descriptionsDict
+    
                             
     def parseConfig(self, configFileName):
         """Parse config file, unpacking parameters into the SourceBrowser object.
@@ -1429,7 +1461,7 @@ class SourceBrowser(object):
                 #usedBckColors.append(bckColor)
                 #usedBckKeys.append(bckKey)
                 
-            # Row for each cluster in table
+            # Row for each object in table
             rowString="<tr>\n"
             for key in displayColumns:
                 htmlKey="$"+string.upper(key)+"_KEY"
@@ -1515,7 +1547,7 @@ class SourceBrowser(object):
 
         #if not cherrypy.session.loaded: cherrypy.session.load()
     
-        keysList, typeNamesList=self.getFieldNamesAndTypes(excludeKeys = [])
+        keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
         
         #posts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))    # Current view, including classification info
         tabLength=len(posts)
@@ -1783,12 +1815,13 @@ class SourceBrowser(object):
         <p>will return all objects where the string 'high-z' appears in the notes field somewhere. <b>Note that wildcard text searches are case insensitive</b>.
         </p>
         <br>
-        <table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
+        <table frame=border cellspacing=0 cols=3 rules=all border=2 width=80% align=center>
         <tbody>
             <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
                     text-align: center; vertical-align: middle; font-size: 110%;">
             <td><b>Column</td>
             <td><b>Type</b></td>
+            <td><b>Description</b></td>
             </tr>
             $TABLE_DATA
         </tbody>
@@ -1809,12 +1842,13 @@ class SourceBrowser(object):
         bckColor="white"
         tableData=""
         excludeKeys=['RADeg', 'decDeg'] # because we handle differently
-        keysList, typeNamesList=self.getFieldNamesAndTypes(excludeKeys = excludeKeys)
-        for key, typeName in zip(keysList, typeNamesList):
+        keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = excludeKeys)
+        for key, typeName, description in zip(keysList, typeNamesList, descriptionsList):
             # Row for each column in table
             rowString="<tr>\n"                
-            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center width=10%><b>"+key+"</b></td>\n"
-            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center width=10%>"+typeName+"</td>\n"
+            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=left width=10%><b>"+key+"</b></td>\n"
+            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=left width=10%>"+typeName+"</td>\n"
+            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=left width=80%>"+description+"</td>\n"
             rowString=rowString+"</tr>\n"                           
             tableData=tableData+rowString
         html=html.replace("$TABLE_DATA", tableData)
@@ -1823,25 +1857,30 @@ class SourceBrowser(object):
 
 
     def getFieldNamesAndTypes(self, excludeKeys = []):
-        """Fetches lists of field names and types, for when displaying constraints help and saving tables.
+        """Fetches lists of field names, types and descriptions, for when displaying constraints help and 
+        saving tables.
         
         """
         keysList=[]
         typeNamesList=[]
+        descList=[]
         for post in self.fieldTypesCollection.find().sort('index'):
             if post['name'] not in excludeKeys:
                 keysList.append(post['name'])
                 typeNamesList.append(post['type'])
+                descList.append(post['description'])
         # Add MongoDB object properties        
         if 'classifications' in self.configDict.keys():
             keysList.append('classification')
             typeNamesList.append("text")
+            descList.append("place holder")
         if 'fields' in self.configDict.keys():
             for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
                 keysList.append(f)
                 typeNamesList.append(t)
+                descList.append("place holder")
         
-        return keysList, typeNamesList
+        return keysList, typeNamesList, descList
                 
     
     @cherrypy.expose
@@ -1877,9 +1916,14 @@ class SourceBrowser(object):
         # Update source collection too
         self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
-        # NOTE: this will fail if we don't have SDSS or in fact any of default options met
-        # also it would reset zoom level if changed
-        return self.displaySourcePage(name, clipSizeArcmin = self.configDict['plotSizeArcmin'])
+        # Would reset zoom level if changed
+        if 'defaultImageType' in self.configDict.keys():
+            imageType=self.configDict['defaultImageType']
+        else:
+            imageType="SDSS"
+                        
+        return self.displaySourcePage(name, clipSizeArcmin = self.configDict['plotSizeArcmin'],
+                                      imageType = imageType)
 
 
     def offlineUpdateTags(self, name, tagsToInsertDict):
@@ -1908,9 +1952,9 @@ class SourceBrowser(object):
             else:
                 post[key]=tagsToInsertDict[key]
         
-        print "How to avoid overwrites of things we shouldn't?"
-        IPython.embed()
-        sys.exit()
+        #print "How to avoid overwrites of things we shouldn't?"
+        #IPython.embed()
+        #sys.exit()
         
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
@@ -2437,10 +2481,11 @@ class SourceBrowser(object):
                     post={'image_%s' % (label): 1}
                     self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
                     if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                        keysList, typeNamesList=self.getFieldNamesAndTypes()
+                        keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
                         fieldDict={}
                         fieldDict['name']='image_%s' % (label)
                         fieldDict['type']='number'
+                        fieldDict['description']='1 if object has image in the database; 0 otherwise'
                         fieldDict['index']=len(keysList)+1
                         self.fieldTypesCollection.insert(fieldDict)
 
