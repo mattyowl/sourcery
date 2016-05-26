@@ -1395,11 +1395,14 @@ class SourceBrowser(object):
         html=html.replace("$TABLE_COLS", str(len(displayColumns)))
         
         # Meta data
-        READMEComment="" #"Matches to other catalogs (e.g. NED) listed on this page are within %.1f' radius of the candidate position." % (self.configDict['crossMatchRadiusArcmin'])
-        if 'catalogComments' not in self.configDict.keys():
-            commentsString=READMEComment
+        if 'classificationDescription' in self.configDict.keys():
+            classificationDesc=self.configDict['classificationDescription']
         else:
-            commentsString=self.configDict['catalogComments']+" "+READMEComment
+            classificationDesc=""
+        if 'catalogComments' not in self.configDict.keys():
+            commentsString=classificationDesc
+        else:
+            commentsString=self.configDict['catalogComments']+" "+classificationDesc
         metaData="""<br><fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
         <p>Original source list = %s</p>
@@ -1873,12 +1876,13 @@ class SourceBrowser(object):
         if 'classifications' in self.configDict.keys():
             keysList.append('classification')
             typeNamesList.append("text")
-            descList.append("place holder")
+            descList.append(self.configDict['classificationDescription'])
         if 'fields' in self.configDict.keys():
-            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
+            for f, t, d in zip(self.configDict['fields'], self.configDict['fieldTypes'], 
+                               self.configDict['fieldDescriptions']):
                 keysList.append(f)
                 typeNamesList.append(t)
-                descList.append("place holder")
+                descList.append(d)
         
         return keysList, typeNamesList, descList
                 
