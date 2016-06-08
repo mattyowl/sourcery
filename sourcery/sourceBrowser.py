@@ -131,6 +131,12 @@ class SourceBrowser(object):
             self.tableDisplayColumns=self.tableDisplayColumns+["classification"]
             self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["classification"]
             self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
+        
+        # Now tracking when changes are made
+        self.sourceDisplayColumns.append('lastUpdated')
+        self.tableDisplayColumns.append('lastUpdated')
+        self.tableDisplayColumnLabels.append('lastUpdated')
+        self.tableDisplayColumnFormats.append('%s')
                                
         # We will generate images dynamically... here we set up info like labels and captions
         self.imageLabels=[]      # labels at top of each source page that allow us to select image to view
@@ -1094,6 +1100,7 @@ class SourceBrowser(object):
         # Just in case they are passed as strings (e.g., if direct from the url)
         RADeg=float(RADeg)
         decDeg=float(decDeg)
+        name=self.URLToSourceName(name)
         
         obj=self.sourceCollection.find_one({'name': name})
         mongoDict=self.matchTags(obj)
@@ -2018,6 +2025,7 @@ class SourceBrowser(object):
                     post[key]=kwargs[key]
             else:
                 post[key]=kwargs[key]
+        post['lastUpdated']=datetime.date.today().isoformat()
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
         # Update source collection too
@@ -2333,6 +2341,12 @@ class SourceBrowser(object):
                 for f, s in zip(self.configDict['fields'], self.configDict['fieldDisplaySizes']):
                     fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (f, f)
                     fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d/>\n' % (str(mongoDict[f]), f, s)
+                if 'lastUpdated' in mongoDict.keys():
+                    lastUpdated=mongoDict['lastUpdated']
+                else:
+                    lastUpdated='-'
+                fieldsCode=fieldsCode+'<p><label for = "lastUpdated"><b>Last Updated:</b></label>\n'
+                fieldsCode=fieldsCode+'<input type="text" value="%s" name="lastUpdated" size=10 readonly/></p>\n' % (lastUpdated)
             tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', fieldsCode)
             classificationsCode=""
             for c in self.configDict['classifications']:
@@ -2358,7 +2372,7 @@ class SourceBrowser(object):
             </tbody>
             </table>
             """
-            spectrumCode=spectrumCode.replace("$NAME", name)
+            spectrumCode=spectrumCode.replace("$NAME", self.sourceNameToURL(name))
             spectrumCode=spectrumCode.replace("$RA", str(obj['RADeg']))
             spectrumCode=spectrumCode.replace("$DEC", str(obj['decDeg']))
             spectrumCode=spectrumCode.replace("$SPEC_DISPLAY_WIDTH_PIX", str(self.configDict['specPlotDisplayWidthPix']))
