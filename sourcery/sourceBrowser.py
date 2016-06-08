@@ -29,8 +29,11 @@ from astLib import *
 import pyfits
 import numpy as np
 import pylab as plt
+import matplotlib.patches as patches
+from scipy import ndimage
 import catalogTools
 import sourcery
+from sourcery import specFeatures
 import sys
 import time
 import datetime
@@ -237,7 +240,8 @@ class SourceBrowser(object):
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
             for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
                 xTabsDict[label]=atpy.Table(f)
-        crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
+        if 'crossMatchRadiusArcmin' in self.configDict.keys():
+            crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
                 
         # Import each object into MongoDB, cross matching as we go...
         idCount=0
@@ -1074,8 +1078,107 @@ class SourceBrowser(object):
         plt.close()
         
         return base64.b64encode(buf.getvalue())
-     
-     
+    
+    
+    @cherrypy.expose
+    def makeSpectrumPlot(self, name, RADeg, decDeg):
+        """Returns plot of spectrum that matches obj position (assuming it's within a few arcmin). 
+        Marks on positions of spectral lines if redshift field is set appropriately.
+        
+        Relies on many parameters being set in the .config file.
+        
+        Returns None if no suitable matching spectrum found
+        
+        """
+
+        # Just in case they are passed as strings (e.g., if direct from the url)
+        RADeg=float(RADeg)
+        decDeg=float(decDeg)
+        
+        obj=self.sourceCollection.find_one({'name': name})
+        mongoDict=self.matchTags(obj)
+        
+        # Spin through to find matching file
+        # If we have multiple files with the same RA, dec, then we'll take the last one we see
+        fitsFiles=glob.glob(self.configDict['specDir']+os.path.sep+"*.fits")
+        rDegMin=1e6
+        matchFileName=None
+        for f in fitsFiles:
+            img=pyfits.open(f)
+            headRA=img[0].header[self.configDict['specHeaderRAKey']]
+            headDec=img[0].header[self.configDict['specHeaderDecKey']]
+            if type(headRA) == str:
+                headRA=astCoords.hms2decimal(headRA, ":")
+            if type(headDec) == str:
+                headDec=astCoords.dms2decimal(headDec, ":")
+            rDeg=astCoords.calcAngSepDeg(RADeg, decDeg, headRA, headDec)
+            if rDeg < rDegMin:
+                rDegMin=rDeg
+                matchFileName=f
+
+        # Make plot
+        if rDegMin > self.configDict['plotSizeArcmin']/60.:
+            plt.figure(figsize=(10, 1))
+            plt.figtext(0.5, 0.5, "No spectrum found", ha = 'center', va = 'center', size = 20)
+        else:
+            
+            img=pyfits.open(matchFileName)
+            wavelength=img[self.configDict['specExtName']].data[self.configDict['specLambdaKey']]
+            flux=img[self.configDict['specExtName']].data[self.configDict['specFluxKey']]
+            sky=img[self.configDict['specExtName']].data[self.configDict['specSkyKey']]
+            flux=ndimage.uniform_filter1d(flux, int(self.configDict['specSmoothPix']))
+            flux=flux/flux.max()
+            
+            plt.figure(figsize=(10,6))
+            plt.title(matchFileName)
+            plt.plot(wavelength, flux, 'k-')
+
+            plt.xlabel("Wavelength (Angstroms)")
+            plt.ylabel("Relative Flux")
+
+            # Plots the spectral features in turn
+            z=mongoDict[self.configDict['specRedshiftField']]
+            yRange=np.linspace(0, flux.max()*1.2)
+            for f in specFeatures.lineList:
+                featureLabel=f[0]
+                featureLambda=f[1]*(1+z)
+                if featureLambda > wavelength.min() and featureLambda < wavelength.max():
+                    # Greek letters? eta will cause a problem here!
+                    featureLabel=featureLabel.replace("alpha", "$\\alpha$")
+                    featureLabel=featureLabel.replace("beta", "$\\beta$")
+                    featureLabel=featureLabel.replace("gamma", "$\gamma$")
+                    featureLabel=featureLabel.replace("delta", "$\delta$")
+                    featureLabel=featureLabel.replace("epsilon", "$\\epsilon$")
+                    featureLabel=featureLabel.replace("zeta", "$\zeta$")
+                    featureLabel=featureLabel.replace("theta", "$\\theta$")
+                    plt.text(featureLambda, flux.max()*1.1, featureLabel, 
+                            ha='center', va='top', size=12, rotation='vertical', color = 'red')
+                    plt.plot([featureLambda]*len(yRange), yRange, 'k--')                
+            
+            # Sky, inc. main telluric absorption features
+            plt.plot(wavelength, sky/sky.max()*0.3, 'b-', label='Sky')
+            c=patches.Rectangle((6860, 0), (6930-6860), 1.2, fill=True, edgecolor=(0.8, 0.8, 0.8), 
+                            facecolor=(0.8, 0.8, 0.8), linewidth=1)
+            plt.gca().add_patch(c)
+            c=patches.Rectangle((7590, 0), (7710-7590), 1.2, fill=True, edgecolor=(0.8, 0.8, 0.8), 
+                            facecolor=(0.8, 0.8, 0.8), linewidth=1)
+            plt.gca().add_patch(c)
+
+            #pylab.legend(loc="upper right")
+            #plt.savefig("test.jpg")
+
+            plt.xlim(wavelength.min(), wavelength.max())
+            plt.ylim(0, flux.max()*1.2)
+            
+        cherrypy.response.headers['Content-Type']="image/jpg"
+        buf=StringIO.StringIO()
+        plt.savefig(buf, dpi = 96, format = 'jpg')
+        plt.close()
+        buf.seek(0)
+        
+        return cherrypy.lib.file_generator(buf)
+    
+    
     def fetchSkyviewJPEG(self, name, RADeg, decDeg, RGBSurveysString, surveyLabel, lowSigmaCut = 2.0, highSigmaCut = 2.0,
                          refetch = False, cleanUp = True):
         """Fetch .fits images using skyview for the given survey - e.g., for 2MASS RGB = KHJ:
@@ -2027,6 +2130,8 @@ class SourceBrowser(object):
 
         <tr><td align=center>$TAG_CONTROLS</td></tr>
 
+        $SPECTRUM_PLOT
+        
         <tr>
             <td align=center>$NED_MATCHES_TABLE</td>
         </tr>
@@ -2237,8 +2342,32 @@ class SourceBrowser(object):
                     classificationsCode=classificationsCode+'<input type="radio" onChange="this.form.submit();" name="classification" value="%s">%s\n' % (c, c)
             tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", classificationsCode)
         
+        # Optional spectrum plot
+        if 'displaySpectra' in self.configDict.keys() and self.configDict['displaySpectra'] == True:
+            spectrumCode="""<br><table frame=border cellspacing=0 cols=1 rules=all border=2 width=80% align=center>
+            <tbody>
+            <tr>
+                <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
+                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
+                    <b>Spectrum</b>
+                </th>
+            </tr>
+            <tr>
+            <td align=center><img src="makeSpectrumPlot?name=$NAME&RADeg=$RA&decDeg=$DEC" align="middle" border=2 width=$SPEC_DISPLAY_WIDTH_PIX/></td>
+            </tr>
+            </tbody>
+            </table>
+            """
+            spectrumCode=spectrumCode.replace("$NAME", name)
+            spectrumCode=spectrumCode.replace("$RA", str(obj['RADeg']))
+            spectrumCode=spectrumCode.replace("$DEC", str(obj['decDeg']))
+            spectrumCode=spectrumCode.replace("$SPEC_DISPLAY_WIDTH_PIX", str(self.configDict['specPlotDisplayWidthPix']))
+        else:
+            spectrumCode=""
+            
         # Put it all together...
         html=templatePage
+        html=html.replace("$SPECTRUM_PLOT", spectrumCode)
         html=html.replace("$PLOT_CONTROLS", plotFormCode)
         if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
             html=html.replace("$TAG_CONTROLS", tagFormCode)
@@ -2399,7 +2528,7 @@ class SourceBrowser(object):
                 propTable=propTable+rowString
         propTable=propTable+"</td></tr></tbody></table>"
         html=html.replace("$PROPERTIES_TABLE", propTable)
-        
+                
         return html   
     
     
