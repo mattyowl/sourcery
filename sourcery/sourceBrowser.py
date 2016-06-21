@@ -913,7 +913,7 @@ class SourceBrowser(object):
 
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", clipSizeArcmin = None):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", clipSizeArcmin = None):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -999,11 +999,26 @@ class SourceBrowser(object):
         #astImages.saveFITS("test.fits", R, wcs)
         
         # Make plot
-        fig=plt.figure(figsize = self.configDict['figSize'])
-        axes=[0.1,0.085,0.9,0.85]
-        axesLabels="sexagesimal"
+        if noAxes == "false":
+            axes=[0.1,0.085,0.9,0.85]
+            axesLabels="sexagesimal"
+            figSize=self.configDict['figSize']
+        else:
+            axes=[0, 0, 1, 1]
+            axesLabels="sexagesimal"    # Avoid dealing with axis flips
+            figSize=(max(self.configDict['figSize']), max(self.configDict['figSize']))
+        fig=plt.figure(figsize = figSize)
+        
         p=astPlots.ImagePlot([R, G, B], wcs, cutLevels = cutLevels, title = name.replace("_", " "), axes = axes, 
                             axesLabels = axesLabels)
+        
+        if noAxes != "false":
+            scaleBarSizeArcmin=1.0
+            p.addScaleBar('NW', scaleBarSizeArcmin*60.0, color='yellow', fontSize=16, width=2.0, label = "1'")
+            plt.figtext(0.025, 0.95, name.replace("_", " "), ha = 'left', size = 24, color = 'yellow')
+            #if plotTitle != None:
+            #plt.figtext(0.965, 0.88, plotTitle, ha = 'right', size = 24)
+        
         if plotSourcePos == "true":
             p.addPlotObjects([RADeg], [decDeg], 'clusterPos', symbol='cross', size=sizeDeg/20.0*3600.0, color='white')
                 
@@ -2078,7 +2093,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false"):
+    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false"):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2194,6 +2209,7 @@ class SourceBrowser(object):
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
+                            noAxes: $('input:checkbox[name=noAxes]').prop('checked'),
                             clipSizeArcmin: $("#clipSizeArcmin").val()}, 
                             function(data) {
                                 // directly insert the image
@@ -2227,6 +2243,7 @@ class SourceBrowser(object):
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
+                            noAxes: $('input:checkbox[name=noAxes]').prop('checked'),
                             clipSizeArcmin: $("#sizeSliderValue").val()}, 
                             function(data) {
                                 // directly insert the image
@@ -2244,7 +2261,8 @@ class SourceBrowser(object):
         <legend><b>Image Controls</b></legend>
         <input name="name" value="$OBJECT_NAME" type="hidden">
         <p><b>Survey:</b> $IMAGE_TYPES</p>      
-        <p><b>Show:</b>
+        <p><b>Plot:</b>
+        <input type="checkbox" name="noAxes" value=1 $CHECKED_NOAXES>Remove coordinate axes
         <input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>Contours ($CONTOUR_IMAGE)
         <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
         <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
@@ -2298,6 +2316,10 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_CONTOURS", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_CONTOURS", "")
+        if noAxes == "true":
+            plotFormCode=plotFormCode.replace("$CHECKED_NOAXES", " checked")
+        else:
+            plotFormCode=plotFormCode.replace("$CHECKED_NOAXES", "")
             
         plotFormCode=plotFormCode.replace("$MAX_SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))        
         if clipSizeArcmin == None:
