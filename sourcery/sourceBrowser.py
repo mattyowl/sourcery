@@ -149,22 +149,22 @@ class SourceBrowser(object):
         if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
             label="SDSS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # CFHTLS colour .jpgs
         if "addCFHTLSImage" in self.configDict.keys() and self.configDict['addCFHTLSImage'] == True:
             label="CFHTLS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) CFHT Legacy Survey image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) CFHT Legacy Survey image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # unWISE colour .jpgs
         if "addUnWISEImage" in self.configDict.keys() and self.configDict['addUnWISEImage'] == True:
             label="unWISE"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (W1, W2) unWISE image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (W1, W2) unWISE image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
         if 'skyviewLabels' in self.configDict.keys():
             for label in self.configDict['skyviewLabels']:
                 self.imageLabels.append(label)
-                self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR12 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
+                self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
        
         # Pre-processing
         # NOTE: this includes generating .jpgs from user-specified, probably proprietary, image dirs
@@ -634,7 +634,8 @@ class SourceBrowser(object):
         
         """
         if decDeg > -20:
-            url='http://skyserver.sdss3.org/dr10/en/tools/search/x_sql.aspx'
+            #url='http://skyserver.sdss3.org/dr10/en/tools/search/x_sql.aspx'
+            url='http://skyserver.sdss.org/dr13/en/tools/search/x_results.aspx'
             outFileName=self.sdssRedshiftsDir+os.path.sep+"%s.csv" % (name.replace(" ", "_"))
             if os.path.exists(outFileName) == False:
                 sql="""SELECT
@@ -652,11 +653,12 @@ class SourceBrowser(object):
                 fsql = ''
                 for line in sql.split('\n'):
                     fsql += line.split('--')[0] + ' ' + os.linesep;
-                params=urllib.urlencode({'cmd': fsql, 'format': "csv"})
+                params=urllib.urlencode({'searchtool': 'SQL', 'TaskName': 'Skyserver.Search.SQL', 
+                                         'cmd': fsql, 'format': "csv"})                
                 try:
                     response=urllib2.urlopen(url+'?%s' % (params))
                 except:
-                    print "What's going on now?"
+                    print "SDSS spec query failed"
                     IPython.embed()
                     sys.exit()
                 lines=response.read()
@@ -2266,7 +2268,7 @@ class SourceBrowser(object):
         <input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>Contours ($CONTOUR_IMAGE)
         <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
         <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
-        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR12 objects
+        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR13 objects
         <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>Cross match objects
         </p>
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
