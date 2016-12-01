@@ -498,6 +498,17 @@ class SourceBrowser(object):
                 except:
                     continue
         
+        # Add root path where necessary in place
+        if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
+            rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
+            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogFileNames"]
+            for k in keysToFix:
+                if type(self.configDict[k]) == list:
+                    for i in range(len(self.configDict[k])):
+                        self.configDict[k][i]=rootDir+os.path.sep+self.configDict[k][i]
+                else:
+                    self.configDict[k]=rootDir+os.path.sep+self.configDict[k]
+        
 
     def addNews(self):
         """Parse news file, if there is one, filling up self.configDict['newsItems'].
