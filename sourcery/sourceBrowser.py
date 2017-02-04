@@ -150,6 +150,11 @@ class SourceBrowser(object):
             label="SDSS"
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+        # PS1 colour .jpgs
+        if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
+            label="PS1"
+            self.imageLabels.append(label)
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # CFHTLS colour .jpgs
         if "addCFHTLSImage" in self.configDict.keys() and self.configDict['addCFHTLSImage'] == True:
             label="CFHTLS"
@@ -514,10 +519,14 @@ class SourceBrowser(object):
         """Parse news file, if there is one, filling up self.configDict['newsItems'].
         
         """
-        inFile=file(self.configDict['newsFileName'], "r")
-        lines=inFile.readlines()
-        inFile.close()
         
+        if os.path.exists(self.configDict['newsFileName']) == True:
+            inFile=file(self.configDict['newsFileName'], "r")
+            lines=inFile.readlines()
+            inFile.close()
+        else:
+            lines=[]
+            
         newsItems=[]
         for line in lines:
             if line[0] != "#" and len(line) > 3:
@@ -639,91 +648,46 @@ class SourceBrowser(object):
                         row['%s_distArcmin' % (label)]=r.min()*60.0
                         row['%s_match' % (label)]=1
             
-            
-    #def fetchSDSSRedshifts(self, name, RADeg, decDeg):
-        #"""Queries SDSS for redshifts. 
+
+    def fetchPS1Image(self, obj, refetch = False):
+        """Fetches Pan-STARRS gri .jpg using the cutout webservice.
         
-        #"""
-        #if decDeg > -20:
-            ##url='http://skyserver.sdss3.org/dr10/en/tools/search/x_sql.aspx'
-            #url='http://skyserver.sdss.org/dr13/en/tools/search/x_results.aspx'
-            #outFileName=self.sdssRedshiftsDir+os.path.sep+"%s.csv" % (name.replace(" ", "_"))
-            #if os.path.exists(outFileName) == False:
-                #sql="""SELECT
-                #p.objid,p.ra,p.dec,p.r,
-                #s.specobjid,s.z, 
-                #dbo.fSpecZWarningN(s.zWarning) as warning,
-                #s.plate, s.mjd, s.fiberid
-                #FROM PhotoObj AS p
-                #JOIN SpecObj AS s ON s.bestobjid = p.objid
-                #WHERE 
-                #p.ra < %.6f+0.1 and p.ra > %.6f-0.1
-                #AND p.dec < %.6f+0.1 and p.dec > %.6f-0.1
-                #""" % (RADeg, RADeg, decDeg, decDeg)
-                ## Filter SQL so that it'll work
-                #fsql = ''
-                #for line in sql.split('\n'):
-                    #fsql += line.split('--')[0] + ' ' + os.linesep;
-                #params=urllib.urlencode({'searchtool': 'SQL', 'TaskName': 'Skyserver.Search.SQL', 
-                                         #'cmd': fsql, 'format': "csv"})                
-                #try:
-                    #response=urllib2.urlopen(url+'?%s' % (params))
-                #except:
-                    #print "SDSS spec query failed"
-                    #IPython.embed()
-                    #sys.exit()
-                #lines=response.read()
-                #lines=lines.split("\n")
-                #outFile=file(outFileName, "w")
-                #for line in lines:
-                    #outFile.write(line+"\n")
-                #outFile.close()        
-            #else:
-                #inFile=file(outFileName, "r")
-                #lines=inFile.readlines()
-                #inFile.close()
-        #else:
-            #return []
-            
-        ## Parse .csv into catalog
-        #SDSSRedshifts=[]
-        #if lines[0] == "No objects have been found\n":
-            #SDSSRedshifts=[]
-        #elif len(lines) > 1 and lines[1] == '"ERROR: Maximum 60 queries allowed per minute. Rejected query: SELECT \n':
-            #os.remove(outFileName)
-            #raise Exception, "Exceeded 60 queries/min on SDSS server. Take a breather and rerun (previous queries cached)."
-        #else:
-            #SDSSRedshifts=[]
-            #for line in lines[2:]: # first line (DR7) always heading, first two lines (DR10) always heading
-                #if len(line) > 3:
-                    #zDict={}
-                    #bits=line.replace("\n", "").split(",")
-                    #zDict['objID']=bits[0]
-                    #try:
-                        #zDict['RADeg']=float(bits[1])
-                        #zDict['decDeg']=float(bits[2])
-                    #except:
-                        #if len(lines) > 1 and lines[1].find('"ERROR: Maximum 60 queries allowed per minute. Rejected query: SELECT') != -1:
-                            #raise Exception, "Exceeded 60 queries/min on SDSS server. Take a breather and rerun nemo (previous queries cached)."
-                        #else:
-                            #print "Probably asking for too many queries from SDSS... waiting then trying again."
-                            #time.sleep(60)
-                            #os.remove(outFileName)
-                            #SDSSRedshifts=self.fetchSDSSRedshifts(name, RADeg, decDeg)
-                            #break
-                    #zDict['rMag']=float(bits[3])
-                    #zDict['specObjID']=bits[4]
-                    #zDict['z']=float(bits[5])
-                    #zDict['zWarning']=bits[6]
-                    #zDict['plate']=bits[7]
-                    #zDict['mjd']=bits[8]
-                    #zDict['fiberID']=bits[9]
-                    ## Throw out stars/junk
-                    #if zDict['z'] > 0.02:
-                        #SDSSRedshifts.append(zDict)
+        """
+       
+        ps1CacheDir=self.cacheDir+os.path.sep+"PS1"
+        if os.path.exists(ps1CacheDir) == False:
+            os.makedirs(ps1CacheDir)
         
-        #return SDSSRedshifts
-                 
+        name=obj['name']
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']                
+        outFileName=ps1CacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        
+        if os.path.exists(outFileName) == False or refetch == True:
+        
+            if os.path.exists('ps1tmp.html') == True:
+                os.remove('ps1tmp.html')
+                
+            # 1920 pixels is 8 arcmin on PS1 scale
+            PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
+            
+            urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=g&filter=r&filter=i&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
+            urllib.urlretrieve(urlString, filename = 'ps1tmp.html')
+            
+            inFile=file('ps1tmp.html', 'r')
+            lines=inFile.readlines()
+            inFile.close()
+            for line in lines:
+                if line.find("fitscut.cgi") != -1 and line.find("green") != -1:
+                    break
+            urlString='http://'+line.split('src="//')[-1].split('"')[0]
+            try:
+                urllib.urlretrieve(urlString, filename = outFileName)
+            except:
+                print "... WARNING: couldn't get PS1 image ..."
+                print urlString
+                outFileName=None
+                
 
     def fetchSDSSImage(self, obj, refetch = False):
         """Fetches the SDSS .jpg for the given image size using the casjobs webservice.
@@ -2620,6 +2584,8 @@ class SourceBrowser(object):
             catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'], obj['decDeg'])
             if self.configDict['addSDSSImage'] == True:
                 self.fetchSDSSImage(obj)
+            if self.configDict['addPS1Image'] == True:
+                self.fetchPS1Image(obj)
             if self.configDict['addCFHTLSImage'] == True:
                 if obj['name'] not in CFHTFailsList:
                     CFHTResult=self.fetchCFHTLSImage(obj)
