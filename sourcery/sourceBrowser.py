@@ -67,7 +67,8 @@ class SourceBrowser(object):
             self.skyviewPath=self.configDict['skyviewPath']
         else:
             # Default - if we have run the sourcery_fetch_skyview script
-            self.skyviewPath=os.environ['HOME']+os.path.sep+".sourcery"+os.path.sep+"skyview.jar"
+            # Disabled until find a better way of doing this for e.g., apache on webserver
+            self.skyviewPath=None#os.environ['HOME']+os.path.sep+".sourcery"+os.path.sep+"skyview.jar"
 
         # Below will be enabled if we have exactly one image in an imageDir
         self.mapPageEnabled=False
