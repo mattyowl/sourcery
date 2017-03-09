@@ -711,7 +711,8 @@ class SourceBrowser(object):
         SDSSWidth=1200.0
         SDSSScale=(self.configDict['plotSizeArcmin']*60.0)/SDSSWidth # 0.396127
         if os.path.exists(outFileName) == False or refetch == True:
-            urlString="http://skyservice.pha.jhu.edu/DR10/ImgCutout/getjpeg.aspx?ra="+str(RADeg)+"&dec="+str(decDeg)
+            #urlString="http://skyservice.pha.jhu.edu/DR10/ImgCutout/getjpeg.aspx?ra="+str(RADeg)+"&dec="+str(decDeg)
+            urlString="http://skyserver.sdss.org/dr13/SkyServerWS/ImgCutout/getjpeg?TaskName=Skyserver.Chart.Image&ra="+str(RADeg)+"&dec="+str(decDeg)
             urlString=urlString+"&scale="+str(SDSSScale)+"&width="+str(int(SDSSWidth))+"&height="+str(int(SDSSWidth))
             try:
                 urllib.urlretrieve(urlString, filename = outFileName)
