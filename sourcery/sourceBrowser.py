@@ -152,10 +152,10 @@ class SourceBrowser(object):
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1 colour .jpgs
-        if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
-            label="PS1"
+        if "addPS1IRImage" in self.configDict.keys() and self.configDict['addPS1IRImage'] == True:
+            label="PS1IR"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (i, z, y) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # CFHTLS colour .jpgs
         if "addCFHTLSImage" in self.configDict.keys() and self.configDict['addCFHTLSImage'] == True:
             label="CFHTLS"
@@ -673,6 +673,46 @@ class SourceBrowser(object):
             PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
             
             urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=g&filter=r&filter=i&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
+            urllib.urlretrieve(urlString, filename = 'ps1tmp.html')
+            
+            inFile=file('ps1tmp.html', 'r')
+            lines=inFile.readlines()
+            inFile.close()
+            for line in lines:
+                if line.find("fitscut.cgi") != -1 and line.find("green") != -1:
+                    break
+            urlString='http://'+line.split('src="//')[-1].split('"')[0]
+            try:
+                urllib.urlretrieve(urlString, filename = outFileName)
+            except:
+                print "... WARNING: couldn't get PS1 image ..."
+                print urlString
+                outFileName=None
+
+
+    def fetchPS1IRImage(self, obj, refetch = False):
+        """Fetches Pan-STARRS izy .jpg using the cutout webservice.
+        
+        """
+       
+        ps1CacheDir=self.cacheDir+os.path.sep+"PS1IR"
+        if os.path.exists(ps1CacheDir) == False:
+            os.makedirs(ps1CacheDir)
+        
+        name=obj['name']
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']                
+        outFileName=ps1CacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        
+        if os.path.exists(outFileName) == False or refetch == True:
+        
+            if os.path.exists('ps1tmp.html') == True:
+                os.remove('ps1tmp.html')
+                
+            # 1920 pixels is 8 arcmin on PS1 scale
+            PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
+            
+            urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=i&filter=z&filter=y&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
             urllib.urlretrieve(urlString, filename = 'ps1tmp.html')
             
             inFile=file('ps1tmp.html', 'r')
@@ -2588,6 +2628,8 @@ class SourceBrowser(object):
                 self.fetchSDSSImage(obj)
             if self.configDict['addPS1Image'] == True:
                 self.fetchPS1Image(obj)
+            if self.configDict['addPS1IRImage'] == True:
+                self.fetchPS1IRImage(obj)
             if self.configDict['addCFHTLSImage'] == True:
                 if obj['name'] not in CFHTFailsList:
                     CFHTResult=self.fetchCFHTLSImage(obj)
