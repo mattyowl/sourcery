@@ -152,10 +152,15 @@ class SourceBrowser(object):
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1 colour .jpgs
+        if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
+            label="PS1"
+            self.imageLabels.append(label)
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+        # PS1IR colour .jpgs
         if "addPS1IRImage" in self.configDict.keys() and self.configDict['addPS1IRImage'] == True:
             label="PS1IR"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (i, z, y) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (i,z,y) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR13 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # CFHTLS colour .jpgs
         if "addCFHTLSImage" in self.configDict.keys() and self.configDict['addCFHTLSImage'] == True:
             label="CFHTLS"
