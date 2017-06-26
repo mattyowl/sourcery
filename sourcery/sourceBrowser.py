@@ -20,7 +20,7 @@
 """
 
 import os
-import atpy
+import astropy.table as atpy
 import operator
 import urllib
 import urllib2
@@ -244,7 +244,7 @@ class SourceBrowser(object):
         self.db.drop_collection('fieldTypes')
         
         # Table set up
-        tab=atpy.Table(self.configDict['catalogFileName'])
+        tab=atpy.Table().read(self.configDict['catalogFileName'])
         tab.sort(["RADeg", "decDeg"])
         
         # In case we don't have a 'name' column, we relabel a given column
@@ -256,7 +256,7 @@ class SourceBrowser(object):
         xTabsDict={}
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
             for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
-                xTabsDict[label]=atpy.Table(f)
+                xTabsDict[label]=atpy.Table().read(f)
         if 'crossMatchRadiusArcmin' in self.configDict.keys():
             crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
                 
@@ -326,7 +326,7 @@ class SourceBrowser(object):
                     xTab=xTabsDict[label]
                     r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
                     if r.min() < crossMatchRadiusDeg:
-                        xMatch=xTab.where(r == r.min())[0]
+                        xMatch=xTab[np.where(r == r.min())][0]
                         xKeysList=list(xTab.keys())
                         # Undocumentated feature - for the BCG position table, which only has positions
                         if xTab.keys() == ('name', 'RADeg', 'decDeg'):
@@ -622,7 +622,7 @@ class SourceBrowser(object):
         """
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
             for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
-                xTab=atpy.Table(f)
+                xTab=atpy.Table().read(f)
                 self.tab.add_column('%s_name' % (label), ['__________________________']*len(self.tab))
                 self.tab['%s_name' % (label)]=None
                 self.tab.add_column('%s_z' % (label), [np.nan]*len(self.tab))
@@ -642,7 +642,7 @@ class SourceBrowser(object):
                 for row in self.tab:
                     r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
                     if r.min() < crossMatchRadiusDeg:
-                        xMatch=xTab.where(r == r.min())[0]
+                        xMatch=xTab[np.where(r == r.min())][0]
                         for zKey in zKeys:
                             if zKey in xTab.keys():
                                 row['%s_z' % (label)]=float(xMatch[zKey])
@@ -861,21 +861,20 @@ class SourceBrowser(object):
                     yRefPix=ySizePix/2.0
                     xOutPixScale=xSizeDeg/xSizePix
                     yOutPixScale=ySizeDeg/ySizePix
-                    cardList=pyfits.CardList()
-                    cardList.append(pyfits.Card('NAXIS', 2))
-                    cardList.append(pyfits.Card('NAXIS1', xSizePix))
-                    cardList.append(pyfits.Card('NAXIS2', ySizePix))
-                    cardList.append(pyfits.Card('CTYPE1', 'RA---TAN'))
-                    cardList.append(pyfits.Card('CTYPE2', 'DEC--TAN'))
-                    cardList.append(pyfits.Card('CRVAL1', CRVAL1))
-                    cardList.append(pyfits.Card('CRVAL2', CRVAL2))
-                    cardList.append(pyfits.Card('CRPIX1', xRefPix+1))
-                    cardList.append(pyfits.Card('CRPIX2', yRefPix+1))
-                    cardList.append(pyfits.Card('CDELT1', xOutPixScale))
-                    cardList.append(pyfits.Card('CDELT2', xOutPixScale))    # Makes more sense to use same pix scale
-                    cardList.append(pyfits.Card('CUNIT1', 'DEG'))
-                    cardList.append(pyfits.Card('CUNIT2', 'DEG'))
-                    newHead=pyfits.Header(cards=cardList)
+                    newHead=pyfits.Header()
+                    newHead['NAXIS']=2
+                    newHead['NAXIS1']=xSizePix
+                    newHead['NAXIS2']=ySizePix
+                    newHead['CTYPE1']='RA---TAN'
+                    newHead['CTYPE2']='DEC--TAN'
+                    newHead['CRVAL1']=CRVAL1
+                    newHead['CRVAL2']=CRVAL2
+                    newHead['CRPIX1']=xRefPix+1
+                    newHead['CRPIX2']=yRefPix+1
+                    newHead['CDELT1']=xOutPixScale
+                    newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
+                    newHead['CUNIT1']='DEG'
+                    newHead['CUNIT2']='DEG'
                     wcs=astWCS.WCS(newHead, mode='pyfits')
                     outData=np.zeros([sizePix, sizePix])
                     imgFileNames=glob.glob(("*-%s-img-m.fits" % (band)))
@@ -991,21 +990,20 @@ class SourceBrowser(object):
         yRefPix=ySizePix/2.0
         xOutPixScale=xSizeDeg/xSizePix
         yOutPixScale=ySizeDeg/ySizePix
-        cardList=pyfits.CardList()
-        cardList.append(pyfits.Card('NAXIS', 2))
-        cardList.append(pyfits.Card('NAXIS1', xSizePix))
-        cardList.append(pyfits.Card('NAXIS2', ySizePix))
-        cardList.append(pyfits.Card('CTYPE1', 'RA---TAN'))
-        cardList.append(pyfits.Card('CTYPE2', 'DEC--TAN'))
-        cardList.append(pyfits.Card('CRVAL1', CRVAL1))
-        cardList.append(pyfits.Card('CRVAL2', CRVAL2))
-        cardList.append(pyfits.Card('CRPIX1', xRefPix+1))
-        cardList.append(pyfits.Card('CRPIX2', yRefPix+1))
-        cardList.append(pyfits.Card('CDELT1', xOutPixScale))
-        cardList.append(pyfits.Card('CDELT2', xOutPixScale))    # Makes more sense to use same pix scale
-        cardList.append(pyfits.Card('CUNIT1', 'DEG'))
-        cardList.append(pyfits.Card('CUNIT2', 'DEG'))
-        newHead=pyfits.Header(cards=cardList)
+        newHead=pyfits.Header()
+        newHead['NAXIS']=2
+        newHead['NAXIS1']=xSizePix
+        newHead['NAXIS2']=ySizePix
+        newHead['CTYPE1']='RA---TAN'
+        newHead['CTYPE2']='DEC--TAN'
+        newHead['CRVAL1']=CRVAL1
+        newHead['CRVAL2']=CRVAL2
+        newHead['CRPIX1']=xRefPix+1
+        newHead['CRPIX2']=yRefPix+1
+        newHead['CDELT1']=xOutPixScale
+        newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
+        newHead['CUNIT1']='DEG'
+        newHead['CUNIT2']='DEG'
         wcs=astWCS.WCS(newHead, mode='pyfits')
 
         cutLevels=[[R.min(), R.max()], [G.min(), G.max()], [B.min(), B.max()]]
@@ -1652,8 +1650,6 @@ class SourceBrowser(object):
                     try:
                         rowString=rowString.replace(htmlKey, fmt % (value))
                     except:
-                        IPython.embed()
-                        sys.exit()
                         raise Exception, """IndexError: check .config file tableDisplayColumns are actually in the .fits table, or for mixed '' "" inside [] """ 
                            
             tableData=tableData+rowString
@@ -1707,9 +1703,9 @@ class SourceBrowser(object):
         tab=atpy.Table()
         for key, typeName in zip(keysList, typeNamesList):
             if typeName == 'number':
-                tab.add_column(str(key), np.zeros(tabLength, dtype = float))
+                tab.add_column(atpy.Column(np.zeros(tabLength, dtype = float), str(key)))
             else:
-                tab.add_column(str(key), np.zeros(tabLength, dtype = 'S1000'))
+                tab.add_column(atpy.Column(np.zeros(tabLength, dtype = 'S1000'), str(key)))
         
         for i in range(tabLength):
             row=tab[i]
