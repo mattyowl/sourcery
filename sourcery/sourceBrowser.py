@@ -1718,9 +1718,9 @@ class SourceBrowser(object):
         
         tmpFileName=tempfile.mktemp()
         if fileFormat == 'cat':
-            tab.write(tmpFileName+".cat", type = 'ascii')
+            tab.write(tmpFileName+".cat", format = 'ascii')
         elif fileFormat == 'fits':
-            tab.write(tmpFileName+".fits", type = 'fits')
+            tab.write(tmpFileName+".fits", format = 'fits')
         elif fileFormat == 'reg':
             catalogTools.tab2DS9(tab, tmpFileName+".reg")
         
