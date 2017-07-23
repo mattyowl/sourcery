@@ -329,7 +329,7 @@ class SourceBrowser(object):
                         xMatch=xTab[np.where(r == r.min())][0]
                         xKeysList=list(xTab.keys())
                         # Undocumentated feature - for the BCG position table, which only has positions
-                        if xTab.keys() == ('name', 'RADeg', 'decDeg'):
+                        if xTab.keys() == ['name', 'RADeg', 'decDeg']:  # for atpy, this was a tuple - for astropy, a list?
                             zapPosKeys=False
                         else:
                             zapPosKeys=True
