@@ -2637,7 +2637,10 @@ class SourceBrowser(object):
                     if CFHTResult == False:
                         CFHTFailsList.append(obj['name'])
             if self.configDict['addUnWISEImage'] == True:
-                self.fetchUnWISEImage(obj)
+                try:
+                    self.fetchUnWISEImage(obj)
+                except:
+                    print("... problem with UnWISE image for %s - skipping ..." % (obj['name']))
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         

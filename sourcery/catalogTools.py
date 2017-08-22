@@ -28,7 +28,7 @@ import urllib
 import urllib2
 import sys
 import time
-import atpy
+import astropy.table as atpy
 import datetime
 import IPython
 
