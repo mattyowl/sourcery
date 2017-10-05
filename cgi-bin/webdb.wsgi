@@ -8,7 +8,7 @@ import os
 import sys
 import numpy
 import urllib
-os.environ['MPLCONFIGDIR'] = "/home/xcs/matplotlib"
+#os.environ['MPLCONFIGDIR'] = "/home/xcs/matplotlib"
 import matplotlib
 import matplotlib.cbook
 matplotlib.use("Agg")

@@ -1380,7 +1380,7 @@ class SourceBrowser(object):
             <title>$TITLE</title>
         </head>
         
-        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
 
         <script type="text/javascript">
         $(function(){
@@ -2159,7 +2159,7 @@ class SourceBrowser(object):
             </tbody>
         </table>
         
-        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
 
         <table frame=border cellspacing=0 cols=1 rules=None border=0 width=100%>
         <tbody>
