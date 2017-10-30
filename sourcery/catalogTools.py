@@ -254,7 +254,7 @@ def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg):
         
     if decDeg > -20:
         #url='http://skyserver.sdss3.org/dr10/en/tools/search/x_sql.aspx'
-        url='http://skyserver.sdss.org/dr13/en/tools/search/x_results.aspx'
+        url='http://skyserver.sdss.org/dr14/en/tools/search/x_results.aspx'
         outFileName=cacheDir+os.path.sep+"%s.csv" % (name.replace(" ", "_"))
         if os.path.exists(outFileName) == False:
             sql="""SELECT
