@@ -936,7 +936,7 @@ class SourceBrowser(object):
 
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", clipSizeArcmin = None):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", clipSizeArcmin = None, gamma = 1.0):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -962,6 +962,7 @@ class SourceBrowser(object):
         
         im=Image.open(inJPGPath)
         data=np.array(im)
+        data=np.power(data, 1.0/float(gamma))
         try:
             data=np.flipud(data)
             data=np.fliplr(data)
@@ -2113,7 +2114,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false"):
+    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2213,7 +2214,7 @@ class SourceBrowser(object):
             var y = document.getElementById(sliderID);
             x.value = y.value;
         }
-        window.onload = function() { printValue('sizeSlider', 'sizeSliderValue');}
+        window.onload = function() { printValue('sizeSlider', 'sizeSliderValue'); printValue('gammaSlider', 'gammaSliderValue');}
         </script>
 
         <script type="text/javascript">
@@ -2230,7 +2231,8 @@ class SourceBrowser(object):
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             noAxes: $('input:checkbox[name=noAxes]').prop('checked'),
-                            clipSizeArcmin: $("#clipSizeArcmin").val()}, 
+                            clipSizeArcmin: $("#clipSizeArcmin").val(),
+                            gamma: $("#gamma").val()}, 
                             function(data) {
                                 // directly insert the image
                                 $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
@@ -2264,7 +2266,8 @@ class SourceBrowser(object):
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             noAxes: $('input:checkbox[name=noAxes]').prop('checked'),
-                            clipSizeArcmin: $("#sizeSliderValue").val()}, 
+                            clipSizeArcmin: $("#sizeSliderValue").val(),
+                            gamma: $("#gammaSliderValue").val()}, 
                             function(data) {
                                 // directly insert the image
                                 $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
@@ -2289,9 +2292,15 @@ class SourceBrowser(object):
         <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR13 objects
         <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>Cross match objects
         </p>
+        
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
         <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
         <input id="sizeSliderValue" type="text" size="2"/>
+        
+        <label for="gamma">Gamma</label>
+        <input id="gammaSlider" name="gamma" type="range" min="0.2" max="3.0" step="0.2" value=$CURRENT_GAMMA onchange="printValue('gammaSlider','gammaSliderValue')">
+        <input id="gammaSliderValue" type="text" size="2"/>
+        
         <input type="submit" value="Apply">
         </fieldset>
         </form>
@@ -2346,6 +2355,8 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))
         else:
             plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(clipSizeArcmin))
+        
+        plotFormCode=plotFormCode.replace("$CURRENT_GAMMA", str(gamma))
         
         # Directly fetching .jpg images - now we rely on first running sourcery_build_cache
         #if imageType == 'SDSS':
