@@ -2624,7 +2624,8 @@ class SourceBrowser(object):
 
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
-            catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'], obj['decDeg'])
+            if self.configDict['addSDSSRedshifts'] == True:
+                catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'], obj['decDeg'])
             if self.configDict['addSDSSImage'] == True:
                 self.fetchSDSSImage(obj)
             if self.configDict['addPS1Image'] == True:
