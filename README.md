@@ -68,8 +68,8 @@ Note that this is quite clunky at present and may be tidied up...
 3. Install sourcery and build the MongoDB and cache
 
    ```
-   sourcery_build_db webserver-actpol-mfh-sourcery.config
-   sourcery_build_cache webserver-actpol-mfh-sourcery.config 
+   sourcery_build_db webserver-sourcery.config
+   sourcery_build_cache webserver-sourcery.config 
    ```
 
    An example .config and tutorial will be added later...
@@ -106,11 +106,14 @@ where you installed the webdb.wsgi file.
 above the `</VirtualHost>` line, add:
 
    ```
-   WSGIDaemonProcess actpol-sourcery
-   WSGIProcessGroup actpol-sourcery
+   WSGIDaemonProcess sourcery
+   WSGIProcessGroup sourcery
    WSGIApplicationGroup %{GLOBAL}
-   WSGIScriptAlias /actpol-sourcery /home/yourusername/public_html/sourcery/cgi-bin/webdb.wsgi
+   WSGIScriptAlias /sourcery /home/yourusername/public_html/sourcery/cgi-bin/webdb.wsgi
    ```
+
+   The last line here isn't essential, but will enable your database to be accessed as, e.g.,
+   http://www.example.com/sourcery (substituting your host name as appropriate).
 
 7. Optionally (to stop astropy complaining about missing config files, although this doesn't seem to 
 essential), edit /etc/apache2/envvars and add:
