@@ -1384,36 +1384,34 @@ class SourceBrowser(object):
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
 
         <script type="text/javascript">
+        
         $(function(){
            // Set cursor to pointer and add click function
            $("legend").css("cursor","pointer").click(function(){
                var legend = $(this);
                var value = $(this).children("span").html();
                if(value == "hide")
-                   value="show";
+                   value="expand";
                else
                    value="hide";
-               $(this).siblings().slideToggle(300, function() { legend.children("span").html(value); } );
+               $(this).siblings().slideToggle(0, function() { legend.children("span").html(value); } );
            });    
         });
-        </script>
-
-        <!-- 
-        <script type="text/javascript">
-        function hideShow() {
+        
+        $(document).ready(function() {
             var legends = document.getElementsByTagName("legend");
             for (var i=0; i<legends.length; i++)
             {
                 var spans = legends[i].getElementsByTagName("span");
                 var value=spans[0].innerHTML;
-                if (value == "show") {
+                if (value == "expand") {
                     spans[0].innerHTML="hide";
                     legends[i].click();
                 }
             }
-        };
+        });
+            
         </script>
-        --!>
         
         <body style="font-family: sans-serif; vertical align: top; justify: full;" onload="hideShow()">
         <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
@@ -1550,15 +1548,21 @@ class SourceBrowser(object):
         if 'catalogComments' not in self.configDict.keys():
             commentsString=classificationDesc
         else:
-            commentsString=self.configDict['catalogComments']+" "+classificationDesc
+            commentsString=self.configDict['catalogComments']+" <p>"+classificationDesc+"</p>"
+        
+        if 'newsItems' in self.configDict.keys() and len(self.configDict['newsItems']) > 0:
+            latestNewsStr="    &#8211;    Latest news: %s" % (self.configDict['newsItems'][-1].split(":")[0])
+        else:
+            latestNewsStr=""
+
         metaData="""<br><fieldset>
-        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
+        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>expand</span><b>Source List Information</b></legend>
+        Total number of %s: %d (original source list: %d) %s
         <p>Original source list = %s</p>
-        <p>Total number of %s = %d (original source list: %d)</p>
         <p>%s</p>
         $NEWS
-        </fieldset>""" % (os.path.split(self.configDict['catalogFileName'])[-1], self.configDict['objectTypeString'], 
-                          len(queryPosts), self.sourceCollection.count(), commentsString)
+        </fieldset>""" % (self.configDict['objectTypeString'], len(queryPosts), self.sourceCollection.count(), latestNewsStr, 
+                          os.path.split(self.configDict['catalogFileName'])[-1], commentsString)
         if 'newsItems' in self.configDict.keys():
             newsStr="<p>News:<ul>\n"
             for item in self.configDict['newsItems']:
