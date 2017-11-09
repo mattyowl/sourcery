@@ -2782,6 +2782,7 @@ class SourceBrowser(object):
             else:
                 self.mapPageEnabled=False
             
+            self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])  # Avoid 32 Mb limit
             objList=list(self.sourceCollection.find().sort('decDeg').sort('RADeg'))
 
             for obj in objList:
