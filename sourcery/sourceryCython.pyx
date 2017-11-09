@@ -12,7 +12,7 @@ import time
 import sys
 
 #-------------------------------------------------------------------------------------------------------------
-def makeDegreesDistanceMap(np.ndarray[np.float64_t, ndim=2] data, wcs, RADeg, decDeg, maxDistDegrees):
+def makeDegreesDistanceMap(np.ndarray[np.float32_t, ndim=2] data, wcs, RADeg, decDeg, maxDistDegrees):
     """Returns an array of distance in degrees from given position. maxDistDegrees sets the limit around
     the given RADeg, decDeg position to which the distance is calculated.
     
@@ -21,7 +21,7 @@ def makeDegreesDistanceMap(np.ndarray[np.float64_t, ndim=2] data, wcs, RADeg, de
     # Pixel distance grid            
     cdef float x0, y0, ra0, dec0, ra1, dec1, xPixScale, yPixScale
     cdef Py_ssize_t x, y, X, Y, minX, maxX, minY, maxY, xDistPix, yDistPix
-    cdef np.ndarray[np.float64_t, ndim=2] degreesMap
+    cdef np.ndarray[np.float32_t, ndim=2] degreesMap
     
     x0, y0=wcs.wcs2pix(RADeg, decDeg)
     ra0, dec0=RADeg, decDeg
@@ -36,7 +36,7 @@ def makeDegreesDistanceMap(np.ndarray[np.float64_t, ndim=2] data, wcs, RADeg, de
     X=data.shape[1]
     
     # Real space map of angular distance in degrees, but only consider values near x0, y0
-    degreesMap=np.ones([Y, X], dtype=np.float64)*1e6
+    degreesMap=np.ones([Y, X], dtype=np.float32)*1e6
     minX=int(round(x0))-xDistPix
     maxX=int(round(x0))+xDistPix
     minY=int(round(y0))-yDistPix
@@ -58,7 +58,7 @@ def makeDegreesDistanceMap(np.ndarray[np.float64_t, ndim=2] data, wcs, RADeg, de
     return degreesMap
 
 #-------------------------------------------------------------------------------------------------------------
-def makeXYDegreesDistanceMaps(np.ndarray[np.float64_t, ndim=2] data, wcs, RADeg, decDeg, maxDistDegrees):
+def makeXYDegreesDistanceMaps(np.ndarray[np.float32_t, ndim=2] data, wcs, RADeg, decDeg, maxDistDegrees):
     """Returns an array of distance along x, y axes in degrees from given position. maxDistDegrees sets the 
     limit around the given RADeg, decDeg position to which the distance is calculated.
     
@@ -67,8 +67,8 @@ def makeXYDegreesDistanceMaps(np.ndarray[np.float64_t, ndim=2] data, wcs, RADeg,
     # Pixel distance grid            
     cdef float x0, y0, ra0, dec0, ra1, dec1, xPixScale, yPixScale
     cdef Py_ssize_t x, y, X, Y, minX, maxX, minY, maxY, xDistPix, yDistPix
-    cdef np.ndarray[np.float64_t, ndim=2] xDegreesMap
-    cdef np.ndarray[np.float64_t, ndim=2] yDegreesMap
+    cdef np.ndarray[np.float32_t, ndim=2] xDegreesMap
+    cdef np.ndarray[np.float32_t, ndim=2] yDegreesMap
 
     x0, y0=wcs.wcs2pix(RADeg, decDeg)
     ra0, dec0=RADeg, decDeg
@@ -83,8 +83,8 @@ def makeXYDegreesDistanceMaps(np.ndarray[np.float64_t, ndim=2] data, wcs, RADeg,
     X=data.shape[1]
     
     # Real space map of angular distance in degrees, but only consider values near x0, y0
-    xDegreesMap=np.ones([Y, X], dtype=np.float64)*1e6
-    yDegreesMap=np.ones([Y, X], dtype=np.float64)*1e6
+    xDegreesMap=np.ones([Y, X], dtype=np.float32)*1e6
+    yDegreesMap=np.ones([Y, X], dtype=np.float32)*1e6
     minX=int(round(x0))-xDistPix
     maxX=int(round(x0))+xDistPix
     minY=int(round(y0))-yDistPix

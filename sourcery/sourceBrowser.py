@@ -49,6 +49,7 @@ from bson.son import SON
 import pyximport; pyximport.install()
 import sourceryCython
 import cherrypy
+import pickle
 import IPython
  
 #-------------------------------------------------------------------------------------------------------------
@@ -2740,7 +2741,40 @@ class SourceBrowser(object):
                             
             imgList=glob.glob(imageDir+os.path.sep+"*.fits")
             imgList=imgList+glob.glob(imageDir+os.path.sep+"*.fits.gz")
+
+            # Pickled dictionary of WCS headers, for speed
+            pickleFileName=imageDir+os.path.sep+"headerDict.pickled"
+            if os.path.exists(pickleFileName) == True:
+                pickleFile=file(pickleFileName, "rb")
+                unpickler=pickle.Unpickler(pickleFile)
+                headerDict=unpickler.load()
+                pickleFile.close()
+            else:
+                headerDict={}
+            # Takes ~160 sec to build the first time for ~10,000 images, ~2 sec for subsequent runs
+            print "... building headerDict pickle for .fits images under %s/ ..." % (imageDir)
+            t0=time.time()
+            origLength=len(headerDict.keys())
+            for imgFileName in imgList:
+                if imgFileName not in headerDict.keys():
+                    wcs=astWCS.WCS(imgFileName)
+                    headerDict[imgFileName]=wcs.header.copy()
+            t1=time.time()
+            # Write pickled headerDict, in case it was updated
+            if len(headerDict.keys()) > origLength:
+                print "... writing updated headerDict pickle to %s/ ..." % (imageDir)
+                pickleFile=file(pickleFileName, "wb")
+                pickler=pickle.Pickler(pickleFile)
+                pickler.dump(headerDict)
+                pickleFile.close()
             
+            # Convert headerDict to wcsDict - takes ~30 sec for ~10,000 images
+            t0=time.time()
+            wcsDict={}
+            for key in headerDict.keys():
+                wcsDict[key]=astWCS.WCS(headerDict[key], mode = 'pyfits')
+            t1=time.time()
+                        
             # If only one image, set flag so that we will enable map web page
             # This needs to go somewhere else...
             if len(imgList) == 1:
@@ -2760,7 +2794,8 @@ class SourceBrowser(object):
                                         
                     for imgFileName in imgList:
                         
-                        wcs=astWCS.WCS(imgFileName)
+                        wcs=wcsDict[imgFileName]
+                                                
                         data=None
                         # coordsAreInImage sometimes gives spurious results, not clear why...
                         # Replacement with below works - need to check and fix in astWCS
@@ -2792,7 +2827,7 @@ class SourceBrowser(object):
 
                             if os.path.exists(outFileName) == False:
                                 
-                                if data == None:
+                                if np.any(data) == None:
                                     img=pyfits.open(imgFileName)
                                     data=img[0].data
                                 clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
@@ -2803,6 +2838,9 @@ class SourceBrowser(object):
                                 # Should probably stick with this, but also add log option for optical
                                 if scaling == 'auto' and minMaxRadiusArcmin != None:
                                     clip['data']=catalogTools.byteSwapArr(clip['data'])
+                                    # Avoid cython type troubles
+                                    if clip['data'].dtype != np.float32:
+                                        clip['data']=np.array(clip['data'], dtype = np.float32)
                                     rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
                                     minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
                                     cuts=[clip['data'].min(), clip['data'].max()]
