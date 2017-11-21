@@ -2045,7 +2045,9 @@ class SourceBrowser(object):
         """
         
         if not cherrypy.session.loaded: cherrypy.session.load()
-       
+        
+        # To start with, match ONLY on object name... this assumes that objects with the same name will have sufficiently
+        # similar coordinates (we handle updating for objects in multiple source lists below)
         obj=self.sourceCollection.find_one({'name': name})
         
         # Bizarrely, legacy coordinates are given as degrees (lon, lat) but max distance has to be in radians...
@@ -2069,8 +2071,13 @@ class SourceBrowser(object):
         post['lastUpdated']=datetime.date.today().isoformat()
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
-        # Update source collection too
-        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+        # Update source collection too - here we will do this for all sources that share the same name (we can have multiple source lists)
+        # This could be done using cross matching based on coords instead, but this could cause confusion in the case of multiple sources
+        # that are not the same object, located at separations < MongoDBCrossMatchRadiusArcmin
+        # Example of this: erroneously deblended objects in the XCS list, where you only want to flag some objects as junk, and others not
+        objs=self.sourceCollection.find({'name': name})
+        for obj in objs:
+            self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
         # Would reset zoom level if changed
         if 'defaultImageType' in self.configDict.keys():
