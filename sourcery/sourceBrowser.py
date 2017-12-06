@@ -255,11 +255,15 @@ class SourceBrowser(object):
 
         # Only load tables once for cross matching
         xTabsDict={}
+        xMatchRadiusDeg={}
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
-            for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
+            for f, label, radiusArcmin in zip(self.configDict['crossMatchCatalogFileNames'], 
+                                              self.configDict['crossMatchCatalogLabels'], 
+                                              self.configDict['crossMatchRadiusArcmin']):
                 xTabsDict[label]=atpy.Table().read(f)
-        if 'crossMatchRadiusArcmin' in self.configDict.keys():
-            crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
+                xMatchRadiusDeg[label]=radiusArcmin/60.
+        #if 'crossMatchRadiusArcmin' in self.configDict.keys():
+            #crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
                 
         # Import each object into MongoDB, cross matching as we go...
         idCount=0
@@ -325,6 +329,7 @@ class SourceBrowser(object):
             if 'crossMatchCatalogFileNames' in self.configDict.keys():
                 for label in self.configDict['crossMatchCatalogLabels']:
                     xTab=xTabsDict[label]
+                    crossMatchRadiusDeg=xMatchRadiusDeg[label]
                     r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
                     if r.min() < crossMatchRadiusDeg:
                         xMatch=xTab[np.where(r == r.min())][0]
@@ -580,7 +585,7 @@ class SourceBrowser(object):
             
         # Flag matches against clusters - choose nearest one
         rMin=10000
-        crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
+        crossMatchRadiusDeg=self.configDict['NEDCrossMatchRadiusArcmin']/60.0
         clusterMatch={}
         if len(nedObjs['RAs']) > 0:
             for i in range(len(nedObjs['RAs'])):
@@ -616,44 +621,44 @@ class SourceBrowser(object):
             obj['NED_decDeg']=np.nan
             
             
-    def addCrossMatchTabs(self):
-        """Cross matches external catalog crossMatchTab to self.tab, adding matches in place.
-        If there is a column called 'redshift', we include that
+    #def addCrossMatchTabs(self):
+        #"""Cross matches external catalog crossMatchTab to self.tab, adding matches in place.
+        #If there is a column called 'redshift', we include that
         
-        """
-        if 'crossMatchCatalogFileNames' in self.configDict.keys():
-            for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
-                xTab=atpy.Table().read(f)
-                self.tab.add_column('%s_name' % (label), ['__________________________']*len(self.tab))
-                self.tab['%s_name' % (label)]=None
-                self.tab.add_column('%s_z' % (label), [np.nan]*len(self.tab))
-                self.tab.add_column('%s_distArcmin' % (label), [np.nan]*len(self.tab))
-                self.tab.add_column('%s_RADeg' % (label), [np.nan]*len(self.tab))
-                self.tab.add_column('%s_decDeg' % (label), [np.nan]*len(self.tab))
-                self.tab.add_column('%s_match' % (label), np.zeros(len(self.tab)))
-                self.tableDisplayColumns=self.tableDisplayColumns+["%s_name" % (label)]
-                self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["%s" % (label)]
-                self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
-                self.sourceDisplayColumns=self.sourceDisplayColumns+["%s_name" % (label), "%s_z" % (label), "%s_RADeg" % (label), "%s_decDeg" % (label), "%s_distArcmin" % (label)]
+        #"""
+        #if 'crossMatchCatalogFileNames' in self.configDict.keys():
+            #for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
+                #xTab=atpy.Table().read(f)
+                #self.tab.add_column('%s_name' % (label), ['__________________________']*len(self.tab))
+                #self.tab['%s_name' % (label)]=None
+                #self.tab.add_column('%s_z' % (label), [np.nan]*len(self.tab))
+                #self.tab.add_column('%s_distArcmin' % (label), [np.nan]*len(self.tab))
+                #self.tab.add_column('%s_RADeg' % (label), [np.nan]*len(self.tab))
+                #self.tab.add_column('%s_decDeg' % (label), [np.nan]*len(self.tab))
+                #self.tab.add_column('%s_match' % (label), np.zeros(len(self.tab)))
+                #self.tableDisplayColumns=self.tableDisplayColumns+["%s_name" % (label)]
+                #self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["%s" % (label)]
+                #self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
+                #self.sourceDisplayColumns=self.sourceDisplayColumns+["%s_name" % (label), "%s_z" % (label), "%s_RADeg" % (label), "%s_decDeg" % (label), "%s_distArcmin" % (label)]
 
-                # Flag matches against clusters - choose nearest one
-                zKeys=['z', 'redshift', 'Z', 'REDSHIFT']
-                nameKeys=['name', 'id', 'NAME', 'ID']
-                crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
-                for row in self.tab:
-                    r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
-                    if r.min() < crossMatchRadiusDeg:
-                        xMatch=xTab[np.where(r == r.min())][0]
-                        for zKey in zKeys:
-                            if zKey in xTab.keys():
-                                row['%s_z' % (label)]=float(xMatch[zKey])
-                        for nameKey in nameKeys:
-                            if nameKey in xTab.keys():
-                                row['%s_name' % (label)]=str(xMatch[nameKey])
-                        row['%s_RADeg' % (label)]=float(xMatch['RADeg'])
-                        row['%s_decDeg' % (label)]=float(xMatch['decDeg'])
-                        row['%s_distArcmin' % (label)]=r.min()*60.0
-                        row['%s_match' % (label)]=1
+                ## Flag matches against clusters - choose nearest one
+                #zKeys=['z', 'redshift', 'Z', 'REDSHIFT']
+                #nameKeys=['name', 'id', 'NAME', 'ID']
+                #crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
+                #for row in self.tab:
+                    #r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
+                    #if r.min() < crossMatchRadiusDeg:
+                        #xMatch=xTab[np.where(r == r.min())][0]
+                        #for zKey in zKeys:
+                            #if zKey in xTab.keys():
+                                #row['%s_z' % (label)]=float(xMatch[zKey])
+                        #for nameKey in nameKeys:
+                            #if nameKey in xTab.keys():
+                                #row['%s_name' % (label)]=str(xMatch[nameKey])
+                        #row['%s_RADeg' % (label)]=float(xMatch['RADeg'])
+                        #row['%s_decDeg' % (label)]=float(xMatch['decDeg'])
+                        #row['%s_distArcmin' % (label)]=r.min()*60.0
+                        #row['%s_match' % (label)]=1
             
 
     def fetchPS1Image(self, obj, refetch = False):
@@ -2869,7 +2874,10 @@ class SourceBrowser(object):
                                 #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
                                 plt.imshow(clip['data'], interpolation = "none", origin = 'lower', 
                                             cmap = colourMap, norm = plt.Normalize(cuts[0], cuts[1]))
-                                plt.savefig(outFileName, dpi = dpi)
+                                try:
+                                    plt.savefig(outFileName, dpi = dpi)
+                                except:
+                                    raise Exception, "if you see this, you probably need to update PIL/Pillow"
                                 plt.close()
                                 
                                 #IPython.embed()
