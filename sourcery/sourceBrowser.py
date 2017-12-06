@@ -716,7 +716,11 @@ class SourceBrowser(object):
         
         name=obj['name']
         RADeg=obj['RADeg']
-        decDeg=obj['decDeg']                
+        decDeg=obj['decDeg']  
+        if decDeg < -30:
+            print "... outside PS1 area - skipping ..."
+            return None
+        
         outFileName=ps1CacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
         
         if os.path.exists(outFileName) == False or refetch == True:
