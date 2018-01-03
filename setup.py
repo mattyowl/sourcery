@@ -5,6 +5,7 @@ import glob
 from distutils.core import setup
 from distutils.extension import Extension
 from Cython.Distutils import build_ext
+import numpy
 import popen2
 
 setup(name='sourcery',
@@ -19,5 +20,5 @@ setup(name='sourcery',
       package_data={'sourcery': ['data/*']},
       scripts=['bin/sourcery_build_cache', 'bin/sourcery_build_db', 'bin/sourcery_test', 'bin/sourcery_fast_tag', 'bin/sourcery_fetch_skyview'],
       cmdclass={'build_ext': build_ext},
-      ext_modules=[Extension("sourceryCython", ["sourcery/sourceryCython.pyx"])]
+      ext_modules=[Extension("sourceryCython", ["sourcery/sourceryCython.pyx"], include_dirs=[numpy.get_include()])]
 )
