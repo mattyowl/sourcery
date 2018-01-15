@@ -34,6 +34,8 @@ from scipy import ndimage
 import sourcery
 from sourcery import catalogTools
 from sourcery import specFeatures
+import ConfigParser
+import requests
 import sys
 import time
 import datetime
@@ -71,6 +73,18 @@ class SourceBrowser(object):
             # Disabled until find a better way of doing this for e.g., apache on webserver
             self.skyviewPath=None#os.environ['HOME']+os.path.sep+".sourcery"+os.path.sep+"skyview.jar"
 
+        # For DES usage - load credentials, if they are there...
+        if 'DESServicesConfigPath' in self.configDict.keys():
+            configParser=ConfigParser.RawConfigParser()   
+            DESConfigPath=self.configDict['DESServicesConfigPath']#os.environ['HOME']+os.path.sep+".desservices.ini"
+            configParser.read(DESConfigPath)
+            self.DESUser=configParser.get('db-dessci', 'user')
+            self.DESPasswd=configParser.get('db-dessci', 'passwd')
+        else:
+            self.DESUser=None
+            self.DESPasswd=None
+        self.DESTokenID=None    # Used for interacting with DESCuts server
+        
         # Below will be enabled if we have exactly one image in an imageDir
         self.mapPageEnabled=False
 
@@ -152,6 +166,11 @@ class SourceBrowser(object):
             label="SDSS"
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+        # DES colour .jpgs
+        if "addDESImage" in self.configDict.keys() and self.configDict['addDESImage'] == True:
+            label="DES"
+            self.imageLabels.append(label)
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) DES image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1 colour .jpgs
         if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
             label="PS1"
@@ -240,6 +259,9 @@ class SourceBrowser(object):
         
         """
         
+        print ">>> Building database ..."
+        t0=time.time()
+        
         # Delete any pre-existing entries
         self.db.drop_collection('sourceCollection')
         self.db.drop_collection('fieldTypes')
@@ -276,6 +298,8 @@ class SourceBrowser(object):
             newPost['name']=row['name']
             newPost['RADeg']=row['RADeg']
             newPost['decDeg']=row['decDeg']
+            
+            print "... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab))
             
             # MongoDB coords for spherical geometry
             if row['RADeg'] > 180:
@@ -393,7 +417,7 @@ class SourceBrowser(object):
                 newPost[key]=tagsDict[key]
             
             self.sourceCollection.insert(newPost)
-        
+
         # Add descriptions of field (displayed on help page only)
         descriptionsDict=self.parseColumnDescriptionsFile()
         
@@ -411,6 +435,9 @@ class SourceBrowser(object):
             self.fieldTypesCollection.insert(fieldDict)
             index=index+1
 
+        t1=time.time()
+        print "... building database complete: took %.1f sec ..." % (t1-t0)
+            
 
     def parseColumnDescriptionsFile(self):
         """Reads a text file containing column descriptions. The format of the file is:
@@ -781,6 +808,101 @@ class SourceBrowser(object):
                 outFileName=None
     
     
+    def fetchDESImage(self, obj, refetch = False, numRetries = 5):
+        """Fetches DES co-add .png using descuts server, and saves as a .jpg that we can work with.
+        
+        This will only work if you have DES data access rights - 'DESServicesConfigPath' in the
+        .config file should specify the path to the file containing these 
+        (e.g., $HOME/.desservices.ini if you are using easyaccess).
+        
+        """
+        
+        desCacheDir=self.cacheDir+os.path.sep+"DES"
+        if os.path.exists(desCacheDir) == False:
+            os.makedirs(desCacheDir)
+        
+        if obj['decDeg'] > 5:
+            print "... outside DES dec range - skipping ..."
+            return None
+        
+        name=obj['name']
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']                
+        outFileName=desCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        DESWidth=1200.0 # we will shrink DES .pngs to this size when saving as .jpg
+        DESScale=(self.configDict['plotSizeArcmin']*60.0)/DESWidth # 0.396127
+        if os.path.exists(outFileName) == False or refetch == True:
+            
+            # Do we have a valid token? If not, get one
+            req=requests.get('https://descut.cosmology.illinois.edu/api/token/?token=%s' % (self.DESTokenID), verify = False)
+            if req.json()['status'] != 'ok':
+                req=requests.post('https://descut.cosmology.illinois.edu/api/token/', 
+                                    data = {'username': self.DESUser, 'password': self.DESPasswd}, 
+                                    verify = False)
+                self.DESTokenID=req.json()['token']
+            
+            # Request the image
+            body={'token'        : self.DESTokenID,                             # required
+                  'ra'           : str([RADeg]),                                # required
+                  'dec'          : str([decDeg]),                               # required
+                  'job_type'     : 'coadd',                                     # required 'coadd' or 'single'   
+                  'xsize'        : str(self.configDict['plotSizeArcmin']),      # optional (default : 1.0)
+                  'ysize'        : str(self.configDict['plotSizeArcmin']),      # optional (default : 1.0)
+                  #'tag'          : 'Y3A1_COADD',                               # optional for 'coadd' jobs (default: Y3A1_COADD)
+                  'band'         : 'g,r,i',                                     # optional for 'single' epochs jobs (default: all bands)
+                  'no_blacklist' : 'false',                                     # optional for 'single' epochs jobs (default: 'false')
+                  'list_only'    : 'false',                                     # optional (default : 'false')
+                  'comment': 'blah'                                             # turns out this is NOT optional
+                  #'email'        : 'myemail@mmm.com'     # optional will send email when job is finished
+                 }
+            req=requests.post('https://descut.cosmology.illinois.edu/api/jobs/', data = body, verify = False)
+            if req.json()['status'] != 'ok':
+                print "DES image job has some problem"
+                IPython.embed()
+                sys.exit()
+            jobID=req.json()['job']
+
+            # Is job finished? If so, download the .png
+            for count in range(numRetries):
+                req=requests.get('https://descut.cosmology.illinois.edu/api/jobs/?token=%s&jobid=%s' % (self.DESTokenID, jobID), verify = False)
+                if req.json()['status'] == 'ok':
+                    if 'links' not in req.json().keys():
+                        print "no links"
+                        IPython.embed()
+                        sys.exit()
+                    links=req.json()['links']
+                    foundPNG=False
+                    for l in links:
+                        if l.find(".png") != -1:
+                            foundPNG=True
+                            break
+                    if foundPNG == False:
+                        print "... WARNING: couldn't find DES .png ..."
+                        return None
+                    else:
+                        req=requests.get(l, verify = False)
+                        if req.status_code == 200:
+                            with open('DES.png', 'wb') as f:
+                                for chunk in req.iter_content(1024):
+                                    f.write(chunk)
+                            f.close()
+                            # Now convert to sourcery-friendly .jpg
+                            im=Image.open("DES.png")
+                            if im.size[0] != im.size[1]:
+                                print "WARNING: DES image is not square"
+                            im=im.resize((int(DESWidth), int(DESWidth)))
+                            try:
+                                im.save(outFileName)
+                            except:
+                                if os.path.exists(outFileName) == True:
+                                    os.remove(outFileName)
+                                print "... WARNING: failed to save as .jpg ..."
+                                return None
+                            os.remove("DES.png")
+                else:
+                    time.sleep(1)   # wait and try again
+        
+    
     def fetchCFHTLSImage(self, obj, refetch = False):
         """Retrieves colour .jpg from CFHT legacy survey. Returns True if successful, False if not
         
@@ -824,6 +946,7 @@ class SourceBrowser(object):
                     #os.system("cp %s %s" % (noDataPath, outFileName))
         
         return foundCutoutInfo
+
 
     def fetchUnWISEImage(self, obj, refetch = False):
         """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
@@ -2636,8 +2759,6 @@ class SourceBrowser(object):
         those folders and also add 'image_<imageDirLabel>' tags in the MongoDB too. 
         
         """
-        if 'imageDirs' in self.configDict.keys():
-            self.makeImageDirJPEGs()
         
         # In the CFHT dir, we keep a file that lists objects that don't have data
         # Saves us pinging CFHT servers again if we rerun
@@ -2664,6 +2785,8 @@ class SourceBrowser(object):
                 catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'], obj['decDeg'])
             if self.configDict['addSDSSImage'] == True:
                 self.fetchSDSSImage(obj)
+            if self.configDict['addDESImage'] == True:
+                self.fetchDESImage(obj)
             if self.configDict['addPS1Image'] == True:
                 self.fetchPS1Image(obj)
             if self.configDict['addPS1IRImage'] == True:
@@ -2687,7 +2810,11 @@ class SourceBrowser(object):
         for objName in CFHTFailsList:
             outFile.write(objName+"\n")
         outFile.close()
-                
+        
+        # Make .jpg images from user-supplied .fits images
+        if 'imageDirs' in self.configDict.keys():
+            self.makeImageDirJPEGs()
+            
         # Now spin through cache imageDirs and add 'image_<imageDirLabel>' tags
         print ">>> Adding image_<imageDirLabel> tags to MongoDB ..."
         minSizeBytes=40000

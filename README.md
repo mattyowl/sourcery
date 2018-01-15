@@ -26,6 +26,7 @@ given in brackets, earlier and later versions may also work):
 * PIL (1.1.7; or Pillow 3.1.2)
 * pyfits (3.4; will eventually be replace by astropy.io)
 * pymongo (3.2)
+* requests (2.18.4)
 * SciPy (0.17.0)
 
 ## Installation
