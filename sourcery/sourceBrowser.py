@@ -52,6 +52,7 @@ import pyximport; pyximport.install()
 import sourceryCython
 import cherrypy
 import pickle
+import pyvips
 import IPython
  
 #-------------------------------------------------------------------------------------------------------------
@@ -809,7 +810,14 @@ class SourceBrowser(object):
     
     
     def fetchDESImage(self, obj, refetch = False, numRetries = 5):
-        """Fetches DES co-add .png using descuts server, and saves as a .jpg that we can work with.
+        """Make DES co-add .jpg using the publicly available DR1 .tiff files. 
+        
+        We avoid the descuts server, as currently that serves images which don't correspond to what we ask for.
+        
+        This will be monstrously slow because each tile image is ~160 Mb. But the code that takes the .tiff
+        and spits out a clipped .jpg. is fast enough.
+        
+        NOTE: The below is no longer true... but left here in case we need to write it again...
         
         This will only work if you have DES data access rights - 'DESServicesConfigPath' in the
         .config file should specify the path to the file containing these 
@@ -829,78 +837,94 @@ class SourceBrowser(object):
         RADeg=obj['RADeg']
         decDeg=obj['decDeg']                
         outFileName=desCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
-        DESWidth=1200.0 # we will shrink DES .pngs to this size when saving as .jpg
-        DESScale=(self.configDict['plotSizeArcmin']*60.0)/DESWidth # 0.396127
+        
+        # Procedure: spin through tile WCSs, find which tiles we need, download if necessary, paste pixels into low-res image (unWISE style)
         if os.path.exists(outFileName) == False or refetch == True:
+                       
+            # Blank WCS
+            CRVAL1, CRVAL2=obj['RADeg'], obj['decDeg']
+            sizePix=1024
+            sizeArcmin=self.configDict['plotSizeArcmin']
+            xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
+            xSizePix=sizePix
+            ySizePix=sizePix
+            xRefPix=xSizePix/2.0
+            yRefPix=ySizePix/2.0
+            xOutPixScale=xSizeDeg/xSizePix
+            yOutPixScale=ySizeDeg/ySizePix
+            newHead=pyfits.Header()
+            newHead['NAXIS']=2
+            newHead['NAXIS1']=xSizePix
+            newHead['NAXIS2']=ySizePix
+            newHead['CTYPE1']='RA---TAN'
+            newHead['CTYPE2']='DEC--TAN'
+            newHead['CRVAL1']=CRVAL1
+            newHead['CRVAL2']=CRVAL2
+            newHead['CRPIX1']=xRefPix+1
+            newHead['CRPIX2']=yRefPix+1
+            newHead['CDELT1']=xOutPixScale
+            newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
+            newHead['CUNIT1']='DEG'
+            newHead['CUNIT2']='DEG'
+            outWCS=astWCS.WCS(newHead, mode='pyfits')
+            outData=np.zeros([sizePix, sizePix, 3], dtype = np.uint8)
+            RAMin, RAMax, decMin, decMax=outWCS.getImageMinMaxWCSCoords()
+            if RAMax-RAMin > 1.0:   # simple check for 0h crossing... assuming no-one wants images > a degree across
+                RAMax=-(360-RAMax)
+                temp=RAMin
+                RAMin=RAMax
+                RAMax=temp
+            checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
             
-            # Do we have a valid token? If not, get one
-            req=requests.get('https://descut.cosmology.illinois.edu/api/token/?token=%s' % (self.DESTokenID), verify = False)
-            if req.json()['status'] != 'ok':
-                req=requests.post('https://descut.cosmology.illinois.edu/api/token/', 
-                                    data = {'username': self.DESUser, 'password': self.DESPasswd}, 
-                                    verify = False)
-                self.DESTokenID=req.json()['token']
-            
-            # Request the image
-            body={'token'        : self.DESTokenID,                             # required
-                  'ra'           : str([RADeg]),                                # required
-                  'dec'          : str([decDeg]),                               # required
-                  'job_type'     : 'coadd',                                     # required 'coadd' or 'single'   
-                  'xsize'        : str(self.configDict['plotSizeArcmin']),      # optional (default : 1.0)
-                  'ysize'        : str(self.configDict['plotSizeArcmin']),      # optional (default : 1.0)
-                  #'tag'          : 'Y3A1_COADD',                               # optional for 'coadd' jobs (default: Y3A1_COADD)
-                  'band'         : 'g,r,i',                                     # optional for 'single' epochs jobs (default: all bands)
-                  'no_blacklist' : 'false',                                     # optional for 'single' epochs jobs (default: 'false')
-                  'list_only'    : 'false',                                     # optional (default : 'false')
-                  'comment': 'blah'                                             # turns out this is NOT optional
-                  #'email'        : 'myemail@mmm.com'     # optional will send email when job is finished
-                 }
-            req=requests.post('https://descut.cosmology.illinois.edu/api/jobs/', data = body, verify = False)
-            if req.json()['status'] != 'ok':
-                print "DES image job has some problem"
-                IPython.embed()
-                sys.exit()
-            jobID=req.json()['job']
+            # Spin though all DES tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
+            matchTilesList=[]
+            for tileName in self.DESWCSDict.keys():
+                wcs=self.DESWCSDict[tileName]
+                for c in checkCoordsList:
+                    pixCoords=wcs.wcs2pix(c[0], c[1])
+                    if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
+                        if tileName not in matchTilesList:
+                            matchTilesList.append(tileName)
 
-            # Is job finished? If so, download the .png
-            for count in range(numRetries):
-                req=requests.get('https://descut.cosmology.illinois.edu/api/jobs/?token=%s&jobid=%s' % (self.DESTokenID, jobID), verify = False)
-                if req.json()['status'] == 'ok':
-                    if 'links' not in req.json().keys():
-                        print "no links"
-                        IPython.embed()
-                        sys.exit()
-                    links=req.json()['links']
-                    foundPNG=False
-                    for l in links:
-                        if l.find(".png") != -1:
-                            foundPNG=True
-                            break
-                    if foundPNG == False:
-                        print "... WARNING: couldn't find DES .png ..."
-                        return None
-                    else:
-                        req=requests.get(l, verify = False)
-                        if req.status_code == 200:
-                            with open('DES.png', 'wb') as f:
-                                for chunk in req.iter_content(1024):
-                                    f.write(chunk)
-                            f.close()
-                            # Now convert to sourcery-friendly .jpg
-                            im=Image.open("DES.png")
-                            if im.size[0] != im.size[1]:
-                                print "WARNING: DES image is not square"
-                            im=im.resize((int(DESWidth), int(DESWidth)))
-                            try:
-                                im.save(outFileName)
-                            except:
-                                if os.path.exists(outFileName) == True:
-                                    os.remove(outFileName)
-                                print "... WARNING: failed to save as .jpg ..."
-                                return None
-                            os.remove("DES.png")
-                else:
-                    time.sleep(1)   # wait and try again
+            if matchTilesList == []:
+                print "... object not in any DES tiles ..."
+                return None
+            else:
+
+                # We work with the .tiff files... downloading .fits images could be done similarly
+                for tileName in matchTilesList:
+                    matchTab=self.DESTileTab[np.where(self.DESTileTab['TILENAME'] == tileName)][0]
+                    tiffFileName=desCacheDir+os.path.sep+tileName+".tiff"
+                    if os.path.exists(tiffFileName) == False:
+                        print "... downloading .tiff image for tileName = %s ..." % (tileName)
+                        try:
+                            urllib.urlretrieve(str(matchTab['TIFF_COLOR_IMAGE']), tiffFileName)
+                        except:
+                            os.remove(tiffFileName)
+                            raise Exception, "downloading DES .tiff image failed"
+                    
+                    # Splat pixels from the .tiff into our small image WCS, from which we'll make the .jpg
+                    # NOTE: we use pyvips, because images are too big for PIL
+                    im=pyvips.Image.new_from_file(tiffFileName, access = 'sequential')
+                    d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
+                    d=np.flipud(d)
+                    inWCS=self.DESWCSDict[tileName]
+                    for y in range(sizePix):
+                        for x in range(sizePix):
+                            outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
+                            inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
+                            inX=int(round(inX))
+                            inY=int(round(inY))
+                            if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
+                                outData[y, x]=d[inY, inX]
+                
+                # Flips needed to get N at top, E at left
+                outData=np.flipud(outData)
+                outData=np.fliplr(outData)
+                
+                # We could do this with vips... but lazy...
+                outIm=Image.fromarray(outData)
+                outIm.save(outFileName)
         
     
     def fetchCFHTLSImage(self, obj, refetch = False):
@@ -2759,6 +2783,31 @@ class SourceBrowser(object):
         those folders and also add 'image_<imageDirLabel>' tags in the MongoDB too. 
         
         """
+        
+        # For DES public DR1 images access (we have to stitch together tiles if necessary anyway, as DESCuts has problems with objects near edge)
+        # This is the result of SELECT * FROM DR1_TILE_INFO and contains WCS info for all the tiles
+        if 'addDESImage' in self.configDict.keys() and self.configDict['addDESImage'] == True:
+            self.DESTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"DES_DR1_TILE_INFO.csv")
+            # Building the WCS dict here takes ~21 sec
+            self.DESWCSDict={}
+            for row in self.DESTileTab:
+                newHead=pyfits.Header()
+                newHead['NAXIS']=2
+                newHead['NAXIS1']=row['NAXIS1']
+                newHead['NAXIS2']=row['NAXIS2']
+                newHead['CTYPE1']=row['CTYPE1']
+                newHead['CTYPE2']=row['CTYPE2']
+                newHead['CRVAL1']=row['CRVAL1']
+                newHead['CRVAL2']=row['CRVAL2']
+                newHead['CRPIX1']=row['CRPIX1']
+                newHead['CRPIX2']=row['CRPIX2']
+                newHead['CD1_1']=row['CD1_1']
+                newHead['CD1_2']=row['CD1_2']    
+                newHead['CD2_1']=row['CD2_1']    
+                newHead['CD2_2']=row['CD2_2']    
+                newHead['CUNIT1']='DEG'
+                newHead['CUNIT2']='DEG'
+                self.DESWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits')  
         
         # In the CFHT dir, we keep a file that lists objects that don't have data
         # Saves us pinging CFHT servers again if we rerun
