@@ -166,12 +166,12 @@ class SourceBrowser(object):
         if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
             label="SDSS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR13 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # DES colour .jpgs
         if "addDESImage" in self.configDict.keys() and self.configDict['addDESImage'] == True:
             label="DES"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) DES image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) DES DR1 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1 colour .jpgs
         if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
             label="PS1"
@@ -2529,17 +2529,7 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(clipSizeArcmin))
         
         plotFormCode=plotFormCode.replace("$CURRENT_GAMMA", str(gamma))
-        
-        # Directly fetching .jpg images - now we rely on first running sourcery_build_cache
-        #if imageType == 'SDSS':
-            #self.fetchSDSSImage(obj)
-        #elif imageType == 'CFHTLS':
-            #self.fetchCFHTLSImage(obj)
-        #else:
-            #if 'skyviewLabels' in self.configDict.keys():
-                #skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
-                #self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], self.configDict['skyviewSurveyStrings'][skyviewIndex], imageType)
-        
+                
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
         if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
             tagFormCode="""
@@ -2619,37 +2609,7 @@ class SourceBrowser(object):
         #for label, caption in zip(self.imageLabels, self.imageCaptions):
             #if label == imageType:
                 #html=html.replace("$CAPTION", "%s" % (caption))
-                        
-        # Previous and next object page links
-        #if objTabIndex > 0:
-            #prevObjIndex=objTabIndex-1
-        #else:
-            #prevObjIndex=None
-        #if objTabIndex < len(viewTab)-1:
-            #nextObjIndex=objTabIndex+1
-        #else:
-            #nextObjIndex=None
-        #if prevObjIndex != None:
-            #prevObj=viewTab[prevObjIndex]            
-            #prevLinkCode="""<td style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
-            #color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
-            #<a href=$PREV_LINK><b><<</b></a></td>
-            #""" 
-            #prevLinkCode=prevLinkCode.replace("$PREV_LINK", "displaySourcePage?name=%s&imageType=%sclipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(prevObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
-        #else:
-            #prevLinkCode=""
-        #if nextObjIndex != None:
-            #nextObj=viewTab[nextObjIndex]
-            #nextLinkCode="""<td style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
-            #color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
-            #<a href=$NEXT_LINK><b>>></b></a></td>
-            #"""
-            #nextLinkCode=nextLinkCode.replace("$NEXT_LINK", "displaySourcePage?name=%s&imageType=%s&clipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(nextObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
-        #else:
-            #nextLinkCode=""
-        #html=html.replace("$PREV_LINK_CODE", prevLinkCode)
-        #html=html.replace("$NEXT_LINK_CODE", nextLinkCode)
-    
+                            
         # NED matches table
         self.fetchNEDInfo(obj)
         self.findNEDMatch(obj)
@@ -2826,7 +2786,8 @@ class SourceBrowser(object):
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
-        for obj in self.sourceCollection.find().batch_size(10).sort('decDeg').sort('RADeg'):
+        cursor=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+        for obj in cursor:
 
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
@@ -2853,7 +2814,8 @@ class SourceBrowser(object):
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
-
+        cursor.close()
+        
         # Update CFHT fails list
         outFile=file(failsFileName, "w")
         for objName in CFHTFailsList:
