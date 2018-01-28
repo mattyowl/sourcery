@@ -895,17 +895,25 @@ class SourceBrowser(object):
                 for tileName in matchTilesList:
                     matchTab=self.DESTileTab[np.where(self.DESTileTab['TILENAME'] == tileName)][0]
                     tiffFileName=desCacheDir+os.path.sep+tileName+".tiff"
-                    if os.path.exists(tiffFileName) == False:
-                        print "... downloading .tiff image for tileName = %s ..." % (tileName)
-                        try:
-                            urllib.urlretrieve(str(matchTab['TIFF_COLOR_IMAGE']), tiffFileName)
-                        except:
-                            os.remove(tiffFileName)
-                            raise Exception, "downloading DES .tiff image failed"
+                    tileJPGFileName=tiffFileName.replace(".tiff", ".jpg")
+                    if os.path.exists(tileJPGFileName) == False:
+                        if os.path.exists(tiffFileName) == False:
+                            print "... downloading .tiff image for tileName = %s ..." % (tileName)
+                            try:
+                                urllib.urlretrieve(str(matchTab['TIFF_COLOR_IMAGE']), tiffFileName)
+                            except:
+                                os.remove(tiffFileName)
+                                raise Exception, "downloading DES .tiff image failed"
+                        # NOTE: we use pyvips, because images are too big for PIL
+                        # We save disk space by caching a lower quality version of the entire tile
+                        print "... converting .tiff for tileName = %s to .jpg ..." % (tileName)
+                        im=pyvips.Image.new_from_file(tiffFileName, access = 'sequential')
+                        im.write_to_file(tileJPGFileName+'[Q=80]')
+                        os.remove(tiffFileName)
+                    else:
+                        im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
                     
                     # Splat pixels from the .tiff into our small image WCS, from which we'll make the .jpg
-                    # NOTE: we use pyvips, because images are too big for PIL
-                    im=pyvips.Image.new_from_file(tiffFileName, access = 'sequential')
                     d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
                     d=np.flipud(d)
                     inWCS=self.DESWCSDict[tileName]
@@ -925,7 +933,8 @@ class SourceBrowser(object):
                 # We could do this with vips... but lazy...
                 outIm=Image.fromarray(outData)
                 outIm.save(outFileName)
-        
+                print "... made cut-out .jpg ..."
+                
     
     def fetchCFHTLSImage(self, obj, refetch = False):
         """Retrieves colour .jpg from CFHT legacy survey. Returns True if successful, False if not
