@@ -34,6 +34,8 @@ from scipy import ndimage
 import sourcery
 from sourcery import catalogTools
 from sourcery import specFeatures
+import ConfigParser
+import requests
 import sys
 import time
 import datetime
@@ -50,6 +52,7 @@ import pyximport; pyximport.install()
 import sourceryCython
 import cherrypy
 import pickle
+import pyvips
 import IPython
  
 #-------------------------------------------------------------------------------------------------------------
@@ -71,6 +74,18 @@ class SourceBrowser(object):
             # Disabled until find a better way of doing this for e.g., apache on webserver
             self.skyviewPath=None#os.environ['HOME']+os.path.sep+".sourcery"+os.path.sep+"skyview.jar"
 
+        # For DES usage - load credentials, if they are there...
+        if 'DESServicesConfigPath' in self.configDict.keys():
+            configParser=ConfigParser.RawConfigParser()   
+            DESConfigPath=self.configDict['DESServicesConfigPath']#os.environ['HOME']+os.path.sep+".desservices.ini"
+            configParser.read(DESConfigPath)
+            self.DESUser=configParser.get('db-dessci', 'user')
+            self.DESPasswd=configParser.get('db-dessci', 'passwd')
+        else:
+            self.DESUser=None
+            self.DESPasswd=None
+        self.DESTokenID=None    # Used for interacting with DESCuts server
+        
         # Below will be enabled if we have exactly one image in an imageDir
         self.mapPageEnabled=False
 
@@ -151,7 +166,12 @@ class SourceBrowser(object):
         if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
             label="SDSS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR10 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR13 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+        # DES colour .jpgs
+        if "addDESImage" in self.configDict.keys() and self.configDict['addDESImage'] == True:
+            label="DES"
+            self.imageLabels.append(label)
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) DES DR1 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1 colour .jpgs
         if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
             label="PS1"
@@ -240,6 +260,9 @@ class SourceBrowser(object):
         
         """
         
+        print ">>> Building database ..."
+        t0=time.time()
+        
         # Delete any pre-existing entries
         self.db.drop_collection('sourceCollection')
         self.db.drop_collection('fieldTypes')
@@ -276,6 +299,8 @@ class SourceBrowser(object):
             newPost['name']=row['name']
             newPost['RADeg']=row['RADeg']
             newPost['decDeg']=row['decDeg']
+            
+            print "... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab))
             
             # MongoDB coords for spherical geometry
             if row['RADeg'] > 180:
@@ -393,7 +418,7 @@ class SourceBrowser(object):
                 newPost[key]=tagsDict[key]
             
             self.sourceCollection.insert(newPost)
-        
+
         # Add descriptions of field (displayed on help page only)
         descriptionsDict=self.parseColumnDescriptionsFile()
         
@@ -411,6 +436,9 @@ class SourceBrowser(object):
             self.fieldTypesCollection.insert(fieldDict)
             index=index+1
 
+        t1=time.time()
+        print "... building database complete: took %.1f sec ..." % (t1-t0)
+            
 
     def parseColumnDescriptionsFile(self):
         """Reads a text file containing column descriptions. The format of the file is:
@@ -781,6 +809,133 @@ class SourceBrowser(object):
                 outFileName=None
     
     
+    def fetchDESImage(self, obj, refetch = False, numRetries = 5):
+        """Make DES co-add .jpg using the publicly available DR1 .tiff files. 
+        
+        We avoid the descuts server, as currently that serves images which don't correspond to what we ask for.
+        
+        This will be monstrously slow because each tile image is ~160 Mb. But the code that takes the .tiff
+        and spits out a clipped .jpg. is fast enough.
+        
+        NOTE: The below is no longer true... but left here in case we need to write it again...
+        
+        This will only work if you have DES data access rights - 'DESServicesConfigPath' in the
+        .config file should specify the path to the file containing these 
+        (e.g., $HOME/.desservices.ini if you are using easyaccess).
+        
+        """
+        
+        desCacheDir=self.cacheDir+os.path.sep+"DES"
+        if os.path.exists(desCacheDir) == False:
+            os.makedirs(desCacheDir)
+        
+        if obj['decDeg'] > 5:
+            print "... outside DES dec range - skipping ..."
+            return None
+        
+        name=obj['name']
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']                
+        outFileName=desCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        
+        # Procedure: spin through tile WCSs, find which tiles we need, download if necessary, paste pixels into low-res image (unWISE style)
+        if os.path.exists(outFileName) == False or refetch == True:
+                       
+            # Blank WCS
+            CRVAL1, CRVAL2=obj['RADeg'], obj['decDeg']
+            sizePix=1024
+            sizeArcmin=self.configDict['plotSizeArcmin']
+            xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
+            xSizePix=sizePix
+            ySizePix=sizePix
+            xRefPix=xSizePix/2.0
+            yRefPix=ySizePix/2.0
+            xOutPixScale=xSizeDeg/xSizePix
+            yOutPixScale=ySizeDeg/ySizePix
+            newHead=pyfits.Header()
+            newHead['NAXIS']=2
+            newHead['NAXIS1']=xSizePix
+            newHead['NAXIS2']=ySizePix
+            newHead['CTYPE1']='RA---TAN'
+            newHead['CTYPE2']='DEC--TAN'
+            newHead['CRVAL1']=CRVAL1
+            newHead['CRVAL2']=CRVAL2
+            newHead['CRPIX1']=xRefPix+1
+            newHead['CRPIX2']=yRefPix+1
+            newHead['CDELT1']=xOutPixScale
+            newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
+            newHead['CUNIT1']='DEG'
+            newHead['CUNIT2']='DEG'
+            outWCS=astWCS.WCS(newHead, mode='pyfits')
+            outData=np.zeros([sizePix, sizePix, 3], dtype = np.uint8)
+            RAMin, RAMax, decMin, decMax=outWCS.getImageMinMaxWCSCoords()
+            if RAMax-RAMin > 1.0:   # simple check for 0h crossing... assuming no-one wants images > a degree across
+                RAMax=-(360-RAMax)
+                temp=RAMin
+                RAMin=RAMax
+                RAMax=temp
+            checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
+            
+            # Spin though all DES tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
+            matchTilesList=[]
+            for tileName in self.DESWCSDict.keys():
+                wcs=self.DESWCSDict[tileName]
+                for c in checkCoordsList:
+                    pixCoords=wcs.wcs2pix(c[0], c[1])
+                    if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
+                        if tileName not in matchTilesList:
+                            matchTilesList.append(tileName)
+
+            if matchTilesList == []:
+                print "... object not in any DES tiles ..."
+                return None
+            else:
+
+                # We work with the .tiff files... downloading .fits images could be done similarly
+                for tileName in matchTilesList:
+                    matchTab=self.DESTileTab[np.where(self.DESTileTab['TILENAME'] == tileName)][0]
+                    tiffFileName=desCacheDir+os.path.sep+tileName+".tiff"
+                    tileJPGFileName=tiffFileName.replace(".tiff", ".jpg")
+                    if os.path.exists(tileJPGFileName) == False:
+                        if os.path.exists(tiffFileName) == False:
+                            print "... downloading .tiff image for tileName = %s ..." % (tileName)
+                            try:
+                                urllib.urlretrieve(str(matchTab['TIFF_COLOR_IMAGE']), tiffFileName)
+                            except:
+                                os.remove(tiffFileName)
+                                raise Exception, "downloading DES .tiff image failed"
+                        # NOTE: we use pyvips, because images are too big for PIL
+                        # We save disk space by caching a lower quality version of the entire tile
+                        print "... converting .tiff for tileName = %s to .jpg ..." % (tileName)
+                        im=pyvips.Image.new_from_file(tiffFileName, access = 'sequential')
+                        im.write_to_file(tileJPGFileName+'[Q=80]')
+                        os.remove(tiffFileName)
+                    else:
+                        im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
+                    
+                    # Splat pixels from the .tiff into our small image WCS, from which we'll make the .jpg
+                    d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
+                    d=np.flipud(d)
+                    inWCS=self.DESWCSDict[tileName]
+                    for y in range(sizePix):
+                        for x in range(sizePix):
+                            outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
+                            inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
+                            inX=int(round(inX))
+                            inY=int(round(inY))
+                            if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
+                                outData[y, x]=d[inY, inX]
+                
+                # Flips needed to get N at top, E at left
+                outData=np.flipud(outData)
+                outData=np.fliplr(outData)
+                
+                # We could do this with vips... but lazy...
+                outIm=Image.fromarray(outData)
+                outIm.save(outFileName)
+                print "... made cut-out .jpg ..."
+                
+    
     def fetchCFHTLSImage(self, obj, refetch = False):
         """Retrieves colour .jpg from CFHT legacy survey. Returns True if successful, False if not
         
@@ -824,6 +979,7 @@ class SourceBrowser(object):
                     #os.system("cp %s %s" % (noDataPath, outFileName))
         
         return foundCutoutInfo
+
 
     def fetchUnWISEImage(self, obj, refetch = False):
         """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
@@ -2382,17 +2538,7 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(clipSizeArcmin))
         
         plotFormCode=plotFormCode.replace("$CURRENT_GAMMA", str(gamma))
-        
-        # Directly fetching .jpg images - now we rely on first running sourcery_build_cache
-        #if imageType == 'SDSS':
-            #self.fetchSDSSImage(obj)
-        #elif imageType == 'CFHTLS':
-            #self.fetchCFHTLSImage(obj)
-        #else:
-            #if 'skyviewLabels' in self.configDict.keys():
-                #skyviewIndex=self.configDict['skyviewLabels'].index(imageType)
-                #self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], self.configDict['skyviewSurveyStrings'][skyviewIndex], imageType)
-        
+                
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
         if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
             tagFormCode="""
@@ -2472,37 +2618,7 @@ class SourceBrowser(object):
         #for label, caption in zip(self.imageLabels, self.imageCaptions):
             #if label == imageType:
                 #html=html.replace("$CAPTION", "%s" % (caption))
-                        
-        # Previous and next object page links
-        #if objTabIndex > 0:
-            #prevObjIndex=objTabIndex-1
-        #else:
-            #prevObjIndex=None
-        #if objTabIndex < len(viewTab)-1:
-            #nextObjIndex=objTabIndex+1
-        #else:
-            #nextObjIndex=None
-        #if prevObjIndex != None:
-            #prevObj=viewTab[prevObjIndex]            
-            #prevLinkCode="""<td style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
-            #color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
-            #<a href=$PREV_LINK><b><<</b></a></td>
-            #""" 
-            #prevLinkCode=prevLinkCode.replace("$PREV_LINK", "displaySourcePage?name=%s&imageType=%sclipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(prevObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
-        #else:
-            #prevLinkCode=""
-        #if nextObjIndex != None:
-            #nextObj=viewTab[nextObjIndex]
-            #nextLinkCode="""<td style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
-            #color: rgb(255, 255, 255); text-align: center; vertical-align: middle; font-size: 125%;">
-            #<a href=$NEXT_LINK><b>>></b></a></td>
-            #"""
-            #nextLinkCode=nextLinkCode.replace("$NEXT_LINK", "displaySourcePage?name=%s&imageType=%s&clipSizeArcmin=%.2f&plotNEDObjects=%s&plotSDSSObjects=%s&plotSourcePos=%s" % (self.sourceNameToURL(nextObj['name']), self.sourceNameToURL(imageType), self.configDict['plotSizeArcmin'], plotNEDObjects, plotSDSSObjects, plotSourcePos))
-        #else:
-            #nextLinkCode=""
-        #html=html.replace("$PREV_LINK_CODE", prevLinkCode)
-        #html=html.replace("$NEXT_LINK_CODE", nextLinkCode)
-    
+                            
         # NED matches table
         self.fetchNEDInfo(obj)
         self.findNEDMatch(obj)
@@ -2636,8 +2752,31 @@ class SourceBrowser(object):
         those folders and also add 'image_<imageDirLabel>' tags in the MongoDB too. 
         
         """
-        if 'imageDirs' in self.configDict.keys():
-            self.makeImageDirJPEGs()
+        
+        # For DES public DR1 images access (we have to stitch together tiles if necessary anyway, as DESCuts has problems with objects near edge)
+        # This is the result of SELECT * FROM DR1_TILE_INFO and contains WCS info for all the tiles
+        if 'addDESImage' in self.configDict.keys() and self.configDict['addDESImage'] == True:
+            self.DESTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"DES_DR1_TILE_INFO.csv")
+            # Building the WCS dict here takes ~21 sec
+            self.DESWCSDict={}
+            for row in self.DESTileTab:
+                newHead=pyfits.Header()
+                newHead['NAXIS']=2
+                newHead['NAXIS1']=row['NAXIS1']
+                newHead['NAXIS2']=row['NAXIS2']
+                newHead['CTYPE1']=row['CTYPE1']
+                newHead['CTYPE2']=row['CTYPE2']
+                newHead['CRVAL1']=row['CRVAL1']
+                newHead['CRVAL2']=row['CRVAL2']
+                newHead['CRPIX1']=row['CRPIX1']
+                newHead['CRPIX2']=row['CRPIX2']
+                newHead['CD1_1']=row['CD1_1']
+                newHead['CD1_2']=row['CD1_2']    
+                newHead['CD2_1']=row['CD2_1']    
+                newHead['CD2_2']=row['CD2_2']    
+                newHead['CUNIT1']='DEG'
+                newHead['CUNIT2']='DEG'
+                self.DESWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits')  
         
         # In the CFHT dir, we keep a file that lists objects that don't have data
         # Saves us pinging CFHT servers again if we rerun
@@ -2656,7 +2795,8 @@ class SourceBrowser(object):
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
-        for obj in self.sourceCollection.find().batch_size(10).sort('decDeg').sort('RADeg'):
+        cursor=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+        for obj in cursor:
 
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
@@ -2664,6 +2804,8 @@ class SourceBrowser(object):
                 catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'], obj['decDeg'])
             if self.configDict['addSDSSImage'] == True:
                 self.fetchSDSSImage(obj)
+            if self.configDict['addDESImage'] == True:
+                self.fetchDESImage(obj)
             if self.configDict['addPS1Image'] == True:
                 self.fetchPS1Image(obj)
             if self.configDict['addPS1IRImage'] == True:
@@ -2681,13 +2823,18 @@ class SourceBrowser(object):
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
-
+        cursor.close()
+        
         # Update CFHT fails list
         outFile=file(failsFileName, "w")
         for objName in CFHTFailsList:
             outFile.write(objName+"\n")
         outFile.close()
-                
+        
+        # Make .jpg images from user-supplied .fits images
+        if 'imageDirs' in self.configDict.keys():
+            self.makeImageDirJPEGs()
+            
         # Now spin through cache imageDirs and add 'image_<imageDirLabel>' tags
         print ">>> Adding image_<imageDirLabel> tags to MongoDB ..."
         minSizeBytes=40000
