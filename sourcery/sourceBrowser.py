@@ -100,6 +100,7 @@ class SourceBrowser(object):
         self.sdssRedshiftsDir=self.cacheDir+os.path.sep+"SDSSRedshifts"
         if os.path.exists(self.sdssRedshiftsDir) == False:
             os.makedirs(self.sdssRedshiftsDir)
+        self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
             
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
@@ -894,7 +895,7 @@ class SourceBrowser(object):
                 # We work with the .tiff files... downloading .fits images could be done similarly
                 for tileName in matchTilesList:
                     matchTab=self.DESTileTab[np.where(self.DESTileTab['TILENAME'] == tileName)][0]
-                    tiffFileName=desCacheDir+os.path.sep+tileName+".tiff"
+                    tiffFileName=self.DESTilesCacheDir+os.path.sep+tileName+".tiff"
                     tileJPGFileName=tiffFileName.replace(".tiff", ".jpg")
                     if os.path.exists(tileJPGFileName) == False:
                         if os.path.exists(tiffFileName) == False:
@@ -1055,6 +1056,8 @@ class SourceBrowser(object):
                             for x in range(sizePix):
                                 outRADeg, outDecDeg=wcs.pix2wcs(x, y)
                                 inX, inY=imgWCS.wcs2pix(outRADeg, outDecDeg)
+                                inX=int(round(inX))
+                                inY=int(round(inY))
                                 if inX >= 0 and inX < img[0].data.shape[1]-1 and inY >= 0 and inY < img[0].data.shape[0]-1:
                                     outData[y, x]=img[0].data[inY, inX]
                     if band == 'w1':
@@ -2816,10 +2819,10 @@ class SourceBrowser(object):
                     if CFHTResult == False:
                         CFHTFailsList.append(obj['name'])
             if self.configDict['addUnWISEImage'] == True:
-                try:
-                    self.fetchUnWISEImage(obj)
-                except:
-                    print("... problem with UnWISE image for %s - skipping ..." % (obj['name']))
+                #try:
+                self.fetchUnWISEImage(obj)
+                #except:
+                    #print("... problem with UnWISE image for %s - skipping ..." % (obj['name']))
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
