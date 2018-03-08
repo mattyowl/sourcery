@@ -306,10 +306,11 @@ class SourceBrowser(object):
                             tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
                         tab[key]=xTab[key][xIndices]
         
-        # Import each object into MongoDB
+        # Import each object into MongoDB - now doing this in bulk (slightly quicker)
         idCount=0
         fieldTypesList=[]   # Used for making sensible column order later
         fieldTypesDict={}   # Used for tracking types for help page
+        postsList=[]
         for row in tab:
             #t0=time.time()
             # Need an id number for table display
@@ -371,8 +372,11 @@ class SourceBrowser(object):
             tagsDict=self.matchTags(newPost)
             for key in tagsDict:
                 newPost[key]=tagsDict[key]
-            
-            self.sourceCollection.insert(newPost)
+                
+            postsList.append(newPost)
+        
+        # Insert all posts at once
+        self.sourceCollection.insert_many(postsList)
 
         # Add descriptions of field (displayed on help page only)
         descriptionsDict=self.parseColumnDescriptionsFile()
