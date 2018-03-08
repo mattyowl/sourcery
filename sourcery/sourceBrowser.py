@@ -26,7 +26,7 @@ import urllib
 import urllib2
 import glob
 from astLib import *
-import pyfits
+import astropy.io.fits as pyfits
 import numpy as np
 import pylab as plt
 import matplotlib.patches as patches
@@ -276,24 +276,42 @@ class SourceBrowser(object):
         if 'nameColumn' in self.configDict.keys() and self.configDict['nameColumn'] != "":
             if 'name' not in tab.keys():
                 tab.rename_column(self.configDict['nameColumn'], 'name')
-
-        # Only load tables once for cross matching
-        xTabsDict={}
-        xMatchRadiusDeg={}
+        
+        # Cross match all tables in turn... quicker than object by object...
+        # NOTE: we've lost the _distArcmin keys here, add back later if wanted...
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
+            from astropy.coordinates import SkyCoord
+            from astropy.coordinates import match_coordinates_sky
+            tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
+            origLen=len(tab)
+            cat1=SkyCoord(ra = tab['RADeg'], dec = tab['decDeg'], unit = 'deg')
             for f, label, radiusArcmin in zip(self.configDict['crossMatchCatalogFileNames'], 
                                               self.configDict['crossMatchCatalogLabels'], 
                                               self.configDict['crossMatchRadiusArcmin']):
-                xTabsDict[label]=atpy.Table().read(f)
-                xMatchRadiusDeg[label]=radiusArcmin/60.
-        #if 'crossMatchRadiusArcmin' in self.configDict.keys():
-            #crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
-                
-        # Import each object into MongoDB, cross matching as we go...
+                xTab=atpy.Table().read(f)
+                xMatchRadiusDeg=radiusArcmin/60.
+                cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
+                xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
+                mask=np.less(rDeg.value, xMatchRadiusDeg)
+                for key in xTab.keys():
+                    xTab.rename_column(key, '%s_%s' % (label, key))
+                tab['matchIndices'][:]=-1
+                tab['matchIndices']=xIndices
+                # Could not get join to work
+                for key in xTab.keys():
+                    if key not in tab.keys():
+                        if xTab[key].dtype.kind == 'S':
+                            tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
+                        else:
+                            tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
+                        tab[key]=xTab[key][xIndices]
+        
+        # Import each object into MongoDB
         idCount=0
         fieldTypesList=[]   # Used for making sensible column order later
         fieldTypesDict={}   # Used for tracking types for help page
         for row in tab:
+            #t0=time.time()
             # Need an id number for table display
             idCount=idCount+1
             newPost={'index': idCount}
@@ -301,7 +319,7 @@ class SourceBrowser(object):
             newPost['RADeg']=row['RADeg']
             newPost['decDeg']=row['decDeg']
             
-            print "... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab))
+            #print "... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab))
             
             # MongoDB coords for spherical geometry
             if row['RADeg'] > 180:
@@ -349,70 +367,6 @@ class SourceBrowser(object):
                             fieldTypesList.append(key)
                             fieldTypesDict[key]=t
             
-            # All other cross matches
-            # We won't add name, RADeg, decDeg, if name matches our source catalog name
-            # This is an easy/lazy way to add extra columns like SZ properties or photo-zs
-            if 'crossMatchCatalogFileNames' in self.configDict.keys():
-                for label in self.configDict['crossMatchCatalogLabels']:
-                    xTab=xTabsDict[label]
-                    crossMatchRadiusDeg=xMatchRadiusDeg[label]
-                    r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
-                    if r.min() < crossMatchRadiusDeg:
-                        xMatch=xTab[np.where(r == r.min())][0]
-                        xKeysList=list(xTab.keys())
-                        # Undocumentated feature - for the BCG position table, which only has positions
-                        if xTab.keys() == ['name', 'RADeg', 'decDeg']:  # for atpy, this was a tuple - for astropy, a list?
-                            zapPosKeys=False
-                        else:
-                            zapPosKeys=True
-                        if 'name' in xKeysList and xMatch['name'] == newPost['name']:
-                            del xKeysList[xKeysList.index('name')]
-                            if zapPosKeys == True:
-                                del xKeysList[xKeysList.index('RADeg')]
-                                del xKeysList[xKeysList.index('decDeg')]
-                        for key in xKeysList:
-                            newKey='%s_%s' % (label, key)
-                            # Just to make sure MongoDB happy with data types
-                            # e.g., redmapper .fits table doesn't play nicely by default
-                            if xTab.columns[key].dtype.name.find("int") != -1:
-                                newPost[newKey]=int(xMatch[key])
-                                if newKey not in fieldTypesList:
-                                    fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="number"
-                            elif xTab.columns[key].dtype.name.find("string") != -1:
-                                newPost[newKey]=str(xMatch[key])
-                                if newKey not in fieldTypesList:
-                                    fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="text"
-                            elif xTab.columns[key].dtype.name.find("float") != -1:
-                                newPost[newKey]=float(xMatch[key])
-                                if newKey not in fieldTypesList:
-                                    fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="number"
-                            elif xTab.columns[key].dtype.name.find("bool") != -1:
-                                newPost[newKey]=bool(xMatch[key])
-                                if newKey not in fieldTypesList:
-                                    fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="number"
-                            else:
-                                raise Exception, "Unknown data type in column '%s' of table cross match table '%s'" % (key, label)
-                        skipMatchKeys=False
-                        newPost['%s_match' % (label)]=1
-                        numberKeys=['match']
-                        if 'name' in xTab.keys() and xMatch['name'] == newPost['name']:
-                            skipMatchKeys=True    
-                        if skipMatchKeys == False:
-                            newPost['%s_RADeg' % (label)]=float(xMatch['RADeg'])
-                            newPost['%s_decDeg' % (label)]=float(xMatch['decDeg'])
-                            newPost['%s_distArcmin' % (label)]=r.min()*60.0
-                            numberKeys=numberKeys+['RADeg', 'decDeg', 'distArcmin']
-                        for key in numberKeys:
-                            if '%s_%s' % (label, key) not in fieldTypesList:
-                                fieldTypesList.append('%s_%s' % (label, key))
-                                fieldTypesDict['%s_%s' % (label, key)]="number"                        
-                    else:
-                        newPost['%s_match' % (label)]=0
-
             # Match with tagsCollection
             tagsDict=self.matchTags(newPost)
             for key in tagsDict:
@@ -1004,7 +958,6 @@ class SourceBrowser(object):
             print "... fetching unWISE data for %s ..." % (name) 
             
             urllib.urlretrieve("http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix), targzPath)
-            
             os.system("tar -zxvf %s" % (targzPath))
             wiseFiles=glob.glob("unwise-*-img-m.fits")
             w1FileName=None
@@ -1056,8 +1009,12 @@ class SourceBrowser(object):
                             for x in range(sizePix):
                                 outRADeg, outDecDeg=wcs.pix2wcs(x, y)
                                 inX, inY=imgWCS.wcs2pix(outRADeg, outDecDeg)
-                                inX=int(round(inX))
-                                inY=int(round(inY))
+                                # Once, this returned infinity...
+                                try:
+                                    inX=int(round(inX))
+                                    inY=int(round(inY))
+                                except:
+                                    continue
                                 if inX >= 0 and inX < img[0].data.shape[1]-1 and inY >= 0 and inY < img[0].data.shape[0]-1:
                                     outData[y, x]=img[0].data[inY, inX]
                     if band == 'w1':
