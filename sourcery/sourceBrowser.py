@@ -278,7 +278,6 @@ class SourceBrowser(object):
                 tab.rename_column(self.configDict['nameColumn'], 'name')
         
         # Cross match all tables in turn... quicker than object by object...
-        # NOTE: we've lost the _distArcmin keys here, add back later if wanted...
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
             from astropy.coordinates import SkyCoord
             from astropy.coordinates import match_coordinates_sky
@@ -304,7 +303,11 @@ class SourceBrowser(object):
                             tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
                         else:
                             tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
-                        tab[key]=xTab[key][xIndices]
+                        tab[key][mask]=xTab[key][xIndices[mask]]
+                tab.add_column(atpy.Column(np.zeros(len(tab), dtype = int), '%s_match' % (label)))
+                tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
+                tab['%s_match' % (label)][mask]=1
+                tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]
         
         # Import each object into MongoDB - now doing this in bulk (slightly quicker)
         idCount=0
