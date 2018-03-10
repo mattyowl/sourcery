@@ -21,6 +21,8 @@
 
 import os
 import astropy.table as atpy
+from astropy.coordinates import SkyCoord
+from astropy.coordinates import match_coordinates_sky
 import operator
 import urllib
 import urllib2
@@ -277,10 +279,21 @@ class SourceBrowser(object):
             if 'name' not in tab.keys():
                 tab.rename_column(self.configDict['nameColumn'], 'name')
         
+        # NOTE: sourceList is now a special column: if present, we use that to make a hidden sourceryID column
+        # We need this to ensure that on displaySourcePage, we show the right properties table for the selected object
+        # However, we don't want to put this info in the tags table... as that need to be based on positional matching
+        sourceryIDs=[]
+        if 'sourceList' in tab.keys():
+            # Takes < 1 sec for 36,000 sources
+            for row in tab:
+                sourceryIDs.append(row['sourceList']+"_"+row['name'].replace(" ", "_"))           
+        else:
+            for row in tab:
+                sourceryIDs.append(row['name'].replace(" ", "_"))
+        tab.add_column(atpy.Column(sourceryIDs, "sourceryID"))
+        
         # Cross match all tables in turn... quicker than object by object...
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
-            from astropy.coordinates import SkyCoord
-            from astropy.coordinates import match_coordinates_sky
             tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
             origLen=len(tab)
             cat1=SkyCoord(ra = tab['RADeg'], dec = tab['decDeg'], unit = 'deg')
@@ -308,7 +321,15 @@ class SourceBrowser(object):
                 tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
                 tab['%s_match' % (label)][mask]=1
                 tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]
+        tab.remove_column("matchIndices")
         
+        # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
+        # Otherwise, for large catalogs, we're hitting memory issues
+        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        if os.path.exists(cachedTabFileName) == True:
+            os.remove(cachedTabFileName)
+        tab.write(cachedTabFileName)
+
         # Import each object into MongoDB - now doing this in bulk (slightly quicker)
         idCount=0
         fieldTypesList=[]   # Used for making sensible column order later
@@ -609,47 +630,7 @@ class SourceBrowser(object):
             obj['NED_distArcmin']=np.nan
             obj['NED_RADeg']=np.nan
             obj['NED_decDeg']=np.nan
-            
-            
-    #def addCrossMatchTabs(self):
-        #"""Cross matches external catalog crossMatchTab to self.tab, adding matches in place.
-        #If there is a column called 'redshift', we include that
-        
-        #"""
-        #if 'crossMatchCatalogFileNames' in self.configDict.keys():
-            #for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
-                #xTab=atpy.Table().read(f)
-                #self.tab.add_column('%s_name' % (label), ['__________________________']*len(self.tab))
-                #self.tab['%s_name' % (label)]=None
-                #self.tab.add_column('%s_z' % (label), [np.nan]*len(self.tab))
-                #self.tab.add_column('%s_distArcmin' % (label), [np.nan]*len(self.tab))
-                #self.tab.add_column('%s_RADeg' % (label), [np.nan]*len(self.tab))
-                #self.tab.add_column('%s_decDeg' % (label), [np.nan]*len(self.tab))
-                #self.tab.add_column('%s_match' % (label), np.zeros(len(self.tab)))
-                #self.tableDisplayColumns=self.tableDisplayColumns+["%s_name" % (label)]
-                #self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["%s" % (label)]
-                #self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
-                #self.sourceDisplayColumns=self.sourceDisplayColumns+["%s_name" % (label), "%s_z" % (label), "%s_RADeg" % (label), "%s_decDeg" % (label), "%s_distArcmin" % (label)]
 
-                ## Flag matches against clusters - choose nearest one
-                #zKeys=['z', 'redshift', 'Z', 'REDSHIFT']
-                #nameKeys=['name', 'id', 'NAME', 'ID']
-                #crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
-                #for row in self.tab:
-                    #r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
-                    #if r.min() < crossMatchRadiusDeg:
-                        #xMatch=xTab[np.where(r == r.min())][0]
-                        #for zKey in zKeys:
-                            #if zKey in xTab.keys():
-                                #row['%s_z' % (label)]=float(xMatch[zKey])
-                        #for nameKey in nameKeys:
-                            #if nameKey in xTab.keys():
-                                #row['%s_name' % (label)]=str(xMatch[nameKey])
-                        #row['%s_RADeg' % (label)]=float(xMatch['RADeg'])
-                        #row['%s_decDeg' % (label)]=float(xMatch['decDeg'])
-                        #row['%s_distArcmin' % (label)]=r.min()*60.0
-                        #row['%s_match' % (label)]=1
-            
 
     def fetchPS1Image(self, obj, refetch = False):
         """Fetches Pan-STARRS gri .jpg using the cutout webservice.
@@ -1776,7 +1757,7 @@ class SourceBrowser(object):
                 htmlKey="$"+string.upper(key)+"_KEY"
                 if key == "name":
                     #linksDir="dummy"
-                    linkURL="displaySourcePage?name=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['name']), self.configDict['plotSizeArcmin'])
+                    linkURL="displaySourcePage?sourceryID=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['sourceryID']), self.configDict['plotSizeArcmin'])
                     if 'defaultImageType' in self.configDict.keys():
                         linkURL=linkURL+"&imageType=%s" % (self.configDict['defaultImageType'])
                     nameLink="<a href=\"%s\" target=new>%s</a>" % \
@@ -1833,17 +1814,30 @@ class SourceBrowser(object):
         
         """
         
-        posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
+        # Fetch the cached table and update that with any changed classifications info
+        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        xTab=atpy.Table().read(cachedTabFileName)
+        
+        t0=time.time()
+        posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)                
+        t1=time.time()
+        #posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, "", collection = 'tags')      
 
         #if not cherrypy.session.loaded: cherrypy.session.load()
-    
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
+        keysToAdd=['RADeg', 'decDeg']
+        typeNamesToAdd=['number', 'number']
+        for k, t in zip(keysList, typeNamesList):
+            if k not in xTab.keys():
+                keysToAdd.append(k)
+                typeNamesToAdd.append(t)
         
         #posts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))    # Current view, including classification info
         tabLength=len(posts)
         
+        t2=time.time()
         tab=atpy.Table()
-        for key, typeName in zip(keysList, typeNamesList):
+        for key, typeName in zip(keysToAdd, typeNamesToAdd):
             if typeName == 'number':
                 tab.add_column(atpy.Column(np.zeros(tabLength, dtype = float), str(key)))
             else:
@@ -1852,12 +1846,42 @@ class SourceBrowser(object):
         for i in range(tabLength):
             row=tab[i]
             post=posts[i]
-            for key in keysList:
+            for key in keysToAdd:
                 if key in post.keys():
                     row[key]=post[key]
+        tab.rename_column('RADeg', 'tag_RADeg')
+        tab.rename_column('decDeg', 'tag_decDeg')
 
-        tab.table_name=self.configDict['catalogDownloadFileName']
+        newOrder=xTab.keys()+tab.keys()
         
+        tab.table_name=self.configDict['catalogDownloadFileName']
+        t3=time.time()
+        
+        t4=time.time()
+        tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
+        origLen=len(tab)
+        cat1=SkyCoord(ra = tab['tag_RADeg'], dec = tab['tag_decDeg'], unit = 'deg')
+        xMatchRadiusDeg=self.configDict['MongoDBCrossMatchRadiusArcmin']/60.
+        cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
+        xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
+        mask=np.less(rDeg.value, xMatchRadiusDeg)
+        tab['matchIndices'][:]=-1
+        tab['matchIndices']=xIndices
+        # Could not get join to work
+        for key in xTab.keys():
+            if key not in tab.keys():
+                if xTab[key].dtype.kind == 'S':
+                    tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
+                else:
+                    tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
+                tab[key][mask]=xTab[key][xIndices[mask]]
+        t5=time.time()
+        tab=tab[newOrder]
+        tab.remove_columns(['tag_RADeg', 'tag_decDeg', 'sourceryID'])
+        t6=time.time()
+        
+        print "time taken: %.3f, %.3f, %.3f, %.3f" % (t1-t0, t3-t1, t5-t4, t6-t5)
+
         tmpFileName=tempfile.mktemp()
         if fileFormat == 'cat':
             tab.write(tmpFileName+".cat", format = 'ascii')
@@ -1888,8 +1912,12 @@ class SourceBrowser(object):
         return url.replace("%2b", "+").replace("%20", " ")
 
 
-    def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints):           
+    def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints, collection = 'source'):           
         """Runs a query, returns the posts found.
+        
+        If collection = 'source', runs on self.sourceCollection (default, whole catalog).
+        
+        If collection = 'tags', runs on self.tagsCollection
         
         """
 
@@ -1926,8 +1954,14 @@ class SourceBrowser(object):
             queryDict[key]=constraintsDict[key]
         
         # Execute query
-        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
-        queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+        if collection == 'source':
+            self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+            queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+        elif collection == 'tags':
+            self.tagsCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+            queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')) 
+        else:
+            raise Exception, "collection should be 'source' or 'tags' only"
         
         # If we wanted to store all this in its own collection
         #self.makeSessionCollection(queryPosts)
@@ -2221,7 +2255,7 @@ class SourceBrowser(object):
         else:
             imageType="SDSS"
                         
-        return self.displaySourcePage(name, clipSizeArcmin = self.configDict['plotSizeArcmin'],
+        return self.displaySourcePage(obj['sourceryID'], clipSizeArcmin = self.configDict['plotSizeArcmin'],
                                       imageType = imageType)
 
 
@@ -2262,7 +2296,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
+    def displaySourcePage(self, sourceryID, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2287,7 +2321,7 @@ class SourceBrowser(object):
         querySearchBoxArcmin=cherrypy.session.get('querySearchBoxArcmin')
         queryOtherConstraints=cherrypy.session.get('queryOtherConstraints')
 
-        name=self.URLToSourceName(name)
+        sourceryID=self.URLToSourceName(sourceryID)
         
         templatePage="""<html>
         <head>
@@ -2351,8 +2385,9 @@ class SourceBrowser(object):
         # Taken this out from above the caption line
         #<tr><td align=center><b>$SIZE_ARC_MIN' x $SIZE_ARC_MIN'</b></td></tr>
 
-        obj=self.sourceCollection.find_one({'name': name})
+        obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
         mongoDict=self.matchTags(obj)
+        name=obj['name']
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
         plotFormCode="""
@@ -2456,7 +2491,7 @@ class SourceBrowser(object):
         """ 
         # Taken out: onChange="this.form.submit();" from all checkboxes ^^^
         plotFormCode=plotFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
-        plotFormCode=plotFormCode.replace("$OBJECT_NAME", name)
+        plotFormCode=plotFormCode.replace("$OBJECT_NAME", obj['name'])
         plotFormCode=plotFormCode.replace("$OBJECT_RADEG", str(obj['RADeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
@@ -2686,7 +2721,7 @@ class SourceBrowser(object):
         """
         fieldTypes=self.fieldTypesCollection.find().sort('index')
         for f in fieldTypes:
-            if f['name'] in obj.keys():
+            if f['name'] in obj.keys() and f['name'] != 'sourceryID':
                 pkey=f['name']
                 rowString="""<tr><td align=left width=50%><b>$KEY_LABEL</b></td>
                 <td align=center width=50%>$KEY_VALUE</td></tr>
