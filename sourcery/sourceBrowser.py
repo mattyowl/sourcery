@@ -64,7 +64,13 @@ class SourceBrowser(object):
         
         # Parse config file
         self.parseConfig(configFileName)
-        
+
+        # Image choices
+        if 'defaultImageType' not in self.configDict.keys():
+            self.configDict['defaultImageType']='best'
+        if 'imagePrefs' not in self.configDict.keys():
+            self.configDict['imagePrefs']=['DES', 'SDSS', 'unWISE']
+
         # Add news into self.configDict, if there is any...
         if 'newsFileName' in self.configDict.keys():
             self.addNews()
@@ -2296,7 +2302,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, sourceryID, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
+    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2322,7 +2328,7 @@ class SourceBrowser(object):
         queryOtherConstraints=cherrypy.session.get('queryOtherConstraints')
 
         sourceryID=self.URLToSourceName(sourceryID)
-        
+                
         templatePage="""<html>
         <head>
             <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
@@ -2388,6 +2394,16 @@ class SourceBrowser(object):
         obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
         mongoDict=self.matchTags(obj)
         name=obj['name']
+        
+        # Pick the best available image given the preference given in the config file
+        if imageType == 'best':
+            for key in self.configDict['imagePrefs']:
+                if 'image_%s' % (key) in obj.keys() and obj['image_%s' % (key)] == 1:
+                    imageType=key
+                    break
+            if imageType == 'best':
+                # Fall back option
+                imageType='unWISE'
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
         plotFormCode="""
