@@ -2500,7 +2500,7 @@ class SourceBrowser(object):
         <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
         <input id="sizeSliderValue" type="text" size="2"/>
         
-        <label for="gamma">Gamma</label>
+        <label for="gamma">Brightness (&gamma;)</label>
         <input id="gammaSlider" name="gamma" type="range" min="0.2" max="3.0" step="0.2" value=$CURRENT_GAMMA onchange="printValue('gammaSlider','gammaSliderValue')">
         <input id="gammaSliderValue" type="text" size="2"/>
         
