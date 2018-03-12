@@ -1622,7 +1622,8 @@ class SourceBrowser(object):
         
         # First need to apply query parameters here
         queryPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
-
+        numPosts=queryPosts.count()
+        
         # Then cut to number of rows to view as below
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
         
@@ -1632,7 +1633,7 @@ class SourceBrowser(object):
         html=html.replace("$QUERY_SEARCHBOXARCMIN", querySearchBoxArcmin)
         html=html.replace("$QUERY_OTHERCONSTRAINTS", queryOtherConstraints)
         html=html.replace("$OBJECT_TYPE_STRING", self.configDict['objectTypeString'])
-        html=html.replace("$NUMBER_SOURCES", str(len(queryPosts)))
+        html=html.replace("$NUMBER_SOURCES", str(numPosts))#str(len(queryPosts)))
         html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
@@ -1647,7 +1648,7 @@ class SourceBrowser(object):
             for c in constraints:
                 for o in operators:
                     colName=c.split(o)[0].lstrip().rstrip()
-                    if len(viewPosts) > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
+                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
                         displayColumns.append(colName)
                         displayColumnLabels.append(colName)
                         fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
@@ -1685,7 +1686,7 @@ class SourceBrowser(object):
         <p>Original source list = %s</p>
         <p>%s</p>
         $NEWS
-        </fieldset>""" % (self.configDict['objectTypeString'], len(queryPosts), self.sourceCollection.count(), latestNewsStr, 
+        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), latestNewsStr, 
                           os.path.split(self.configDict['catalogFileName'])[-1], commentsString)
         if 'newsItems' in self.configDict.keys():
             newsStr="<p>News:<ul>\n"
@@ -1926,7 +1927,7 @@ class SourceBrowser(object):
         If collection = 'tags', runs on self.tagsCollection
         
         """
-
+        
         #if not cherrypy.session.loaded: cherrypy.session.load()
             
         ## Store results of query in another collection (empty it first if documents are in it)
@@ -1960,18 +1961,21 @@ class SourceBrowser(object):
             queryDict[key]=constraintsDict[key]
         
         # Execute query
+        # NOTE: converting to list here is very slow
         if collection == 'source':
             self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
-            queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+            #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+            queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')  
         elif collection == 'tags':
             self.tagsCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
-            queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')) 
+            #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')) 
+            queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')
         else:
             raise Exception, "collection should be 'source' or 'tags' only"
         
         # If we wanted to store all this in its own collection
         #self.makeSessionCollection(queryPosts)
-        
+                
         return queryPosts
         
 
