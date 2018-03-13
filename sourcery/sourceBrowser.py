@@ -70,7 +70,7 @@ class SourceBrowser(object):
             self.configDict['defaultImageType']='best'
         if 'imagePrefs' not in self.configDict.keys():
             self.configDict['imagePrefs']=['DES', 'SDSS', 'unWISE']
-
+        
         # Add news into self.configDict, if there is any...
         if 'newsFileName' in self.configDict.keys():
             self.addNews()
@@ -109,7 +109,10 @@ class SourceBrowser(object):
         if os.path.exists(self.sdssRedshiftsDir) == False:
             os.makedirs(self.sdssRedshiftsDir)
         self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
-            
+
+        # So we can display a status message on the index page in other processes if the cache is being rebuilt
+        self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
+        
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
         self.client=pymongo.MongoClient('localhost', 27017)
@@ -1679,15 +1682,21 @@ class SourceBrowser(object):
             latestNewsStr="    &#8211;    Latest news: %s" % (self.configDict['newsItems'][-1].split(":")[0])
         else:
             latestNewsStr=""
-
+        
+        # We now display a message if cache rebuild is in progress
+        if os.path.exists(self.lockFileName) == True:
+            cacheRebuildStr="    &#8211;    [REBUILDING IMAGE CACHE]"
+        else:
+            cacheRebuildStr=""
+        
         metaData="""<br><fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>expand</span><b>Source List Information</b></legend>
-        Total number of %s: %d (original source list: %d) %s
+        Total number of %s: %d (original source list: %d) %s %s
         <p>Original source list = %s</p>
         <p>%s</p>
         $NEWS
-        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), latestNewsStr, 
-                          os.path.split(self.configDict['catalogFileName'])[-1], commentsString)
+        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), latestNewsStr,
+                          cacheRebuildStr, os.path.split(self.configDict['catalogFileName'])[-1], commentsString)
         if 'newsItems' in self.configDict.keys():
             newsStr="<p>News:<ul>\n"
             for item in self.configDict['newsItems']:
@@ -2775,6 +2784,10 @@ class SourceBrowser(object):
         
         """
         
+        # So we can display a status message on the index page in other processes if the cache is being rebuilt
+        outFile=file(self.lockFileName, "wb")
+        outFile.close()
+        
         # For DES public DR1 images access (we have to stitch together tiles if necessary anyway, as DESCuts has problems with objects near edge)
         # This is the result of SELECT * FROM DR1_TILE_INFO and contains WCS info for all the tiles
         if 'addDESImage' in self.configDict.keys() and self.configDict['addDESImage'] == True:
@@ -2813,7 +2826,11 @@ class SourceBrowser(object):
             inFile.close()
             for line in lines:
                 CFHTFailsList.append(line.replace("\n", ""))
-        
+
+        # Make .jpg images from user-supplied .fits images
+        if 'imageDirs' in self.configDict.keys():
+            self.makeImageDirJPEGs()
+            
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
@@ -2852,11 +2869,7 @@ class SourceBrowser(object):
         for objName in CFHTFailsList:
             outFile.write(objName+"\n")
         outFile.close()
-        
-        # Make .jpg images from user-supplied .fits images
-        if 'imageDirs' in self.configDict.keys():
-            self.makeImageDirJPEGs()
-            
+                    
         # Now spin through cache imageDirs and add 'image_<imageDirLabel>' tags
         print ">>> Adding image_<imageDirLabel> tags to MongoDB ..."
         minSizeBytes=40000
@@ -2891,6 +2904,10 @@ class SourceBrowser(object):
                         fieldDict['description']='1 if object has image in the database; 0 otherwise'
                         fieldDict['index']=len(keysList)+1
                         self.fieldTypesCollection.insert(fieldDict)
+        
+        # This will stop index displaying "cache rebuilding" message
+        if os.path.exists(self.lockFileName) == True:
+            os.remove(self.lockFileName)
 
 
     def makeImageDirJPEGs(self):
@@ -2909,13 +2926,14 @@ class SourceBrowser(object):
                 
         """
         print ">>> Making imageDir .jpgs ..."
-        for imageDir, label, colourMap, sizePix, minMaxRadiusArcmin, scaling in zip(
+        for imageDir, label, colourMap, sizePix, minMaxRadiusArcmin, scaling, matchKey in zip(
                  self.configDict['imageDirs'], 
                  self.configDict['imageDirsLabels'],
                  self.configDict['imageDirsColourMaps'],
                  self.configDict['imageDirsSizesPix'],
                  self.configDict['imageDirsMinMaxRadiusArcmin'],
-                 self.configDict['imageDirsScaling']):
+                 self.configDict['imageDirsScaling'],
+                 self.configDict['imageDirsMatchKey']):
             
             print "... %s ..." % (label)
 
@@ -2972,7 +2990,7 @@ class SourceBrowser(object):
                 self.mapPageEnabled=False
             
             self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])  # Avoid 32 Mb limit
-            objList=list(self.sourceCollection.find().sort('decDeg').sort('RADeg'))
+            objList=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
 
             for obj in objList:
                 outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
@@ -2983,14 +3001,21 @@ class SourceBrowser(object):
                     print "... making image for %s ..." % (obj['name'])
                                         
                     for imgFileName in imgList:
-                        
+
                         wcs=wcsDict[imgFileName]
-                                                
+                        
+                        useThisImage=False
+                        if matchKey != None:
+                            if imgFileName.find(obj[matchKey]) != -1:
+                                useThisImage=True
+                        else:
+                            pixCoords=wcs.wcs2pix(obj['RADeg'], obj['decDeg'])
+                            if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']:
+                                useThisImage=True
+                                   
                         data=None
-                        # coordsAreInImage sometimes gives spurious results, not clear why...
-                        # Replacement with below works - need to check and fix in astWCS
-                        pixCoords=wcs.wcs2pix(obj['RADeg'], obj['decDeg'])
-                        if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']:                           
+                        
+                        if useThisImage == True:                           
                                 
                             # Add to mongodb - we now do this in preprocess
                             #post={'image_%s' % (label): 1}
@@ -3014,7 +3039,6 @@ class SourceBrowser(object):
                                 clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
                                                                 self.configDict['plotSizeArcmin']/60.0)
                                 astImages.saveFITS(fitsOutFileName, clip['data'], clip['wcs'])
-
                             if os.path.exists(outFileName) == False:
                                 
                                 if np.any(data) == None:
