@@ -538,7 +538,7 @@ class SourceBrowser(object):
         # Add root path where necessary in place
         if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
             rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogFileNames"]
+            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogFileNames", "DESTilesCacheDir"]
             for k in keysToFix:
                 if type(self.configDict[k]) == list:
                     for i in range(len(self.configDict[k])):
