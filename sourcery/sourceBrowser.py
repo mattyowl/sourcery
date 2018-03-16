@@ -301,6 +301,12 @@ class SourceBrowser(object):
                 sourceryIDs.append(row['name'].replace(" ", "_"))
         tab.add_column(atpy.Column(sourceryIDs, "sourceryID"))
         
+        # NOTE: another special column - this is for tracking whether the cache files (images, redshifts) have been
+        # fetched or not, for a given object. We set this to 0 each time we rebuild the database, and set to 1 each
+        # in preprocess after we process each object. This allows the cache building process to re-start from where
+        # it left off without checking every single object again
+        tab.add_column(atpy.Column(np.zeros(len(tab)), "cacheBuilt"))
+        
         # Cross match all tables in turn... quicker than object by object...
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
             tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
@@ -885,7 +891,7 @@ class SourceBrowser(object):
                 # We could do this with vips... but lazy...
                 outIm=Image.fromarray(outData)
                 outIm.save(outFileName)
-                print "... made cut-out .jpg ..."
+                print "... made DES cut-out .jpg ..."
                 
     
     def fetchCFHTLSImage(self, obj, refetch = False):
@@ -1829,17 +1835,16 @@ class SourceBrowser(object):
         """Provide user with the current table view as a downloadable catalog.
         
         """
-        
+                
         # Fetch the cached table and update that with any changed classifications info
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
         xTab=atpy.Table().read(cachedTabFileName)
         
         t0=time.time()
         posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)                
+        tabLength=posts.count()
         t1=time.time()
-        #posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, "", collection = 'tags')      
 
-        #if not cherrypy.session.loaded: cherrypy.session.load()
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
         keysToAdd=['RADeg', 'decDeg']
         typeNamesToAdd=['number', 'number']
@@ -1847,33 +1852,27 @@ class SourceBrowser(object):
             if k not in xTab.keys():
                 keysToAdd.append(k)
                 typeNamesToAdd.append(t)
-        
-        #posts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))    # Current view, including classification info
-        tabLength=len(posts)
-        
+                
         t2=time.time()
         tab=atpy.Table()
+        tab.table_name=self.configDict['catalogDownloadFileName']
         for key, typeName in zip(keysToAdd, typeNamesToAdd):
             if typeName == 'number':
                 tab.add_column(atpy.Column(np.zeros(tabLength, dtype = float), str(key)))
             else:
                 tab.add_column(atpy.Column(np.zeros(tabLength, dtype = 'S1000'), str(key)))
         
-        for i in range(tabLength):
-            row=tab[i]
-            post=posts[i]
+        count=0
+        for post in posts:
             for key in keysToAdd:
-                if key in post.keys():
-                    row[key]=post[key]
+                tab[key][count]=post[key]
+            count=count+1
         tab.rename_column('RADeg', 'tag_RADeg')
         tab.rename_column('decDeg', 'tag_decDeg')
-
-        newOrder=xTab.keys()+tab.keys()
-        
-        tab.table_name=self.configDict['catalogDownloadFileName']
         t3=time.time()
         
-        t4=time.time()
+        newOrder=xTab.keys()+tab.keys()
+        
         tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
         origLen=len(tab)
         cat1=SkyCoord(ra = tab['tag_RADeg'], dec = tab['tag_decDeg'], unit = 'deg')
@@ -1891,12 +1890,12 @@ class SourceBrowser(object):
                 else:
                     tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
                 tab[key][mask]=xTab[key][xIndices[mask]]
-        t5=time.time()
+        t4=time.time()
         tab=tab[newOrder]
-        tab.remove_columns(['tag_RADeg', 'tag_decDeg', 'sourceryID'])
-        t6=time.time()
+        tab.remove_columns(['tag_RADeg', 'tag_decDeg', 'sourceryID', 'cacheBuilt'])
+        t5=time.time()
         
-        print "time taken: %.3f, %.3f, %.3f, %.3f" % (t1-t0, t3-t1, t5-t4, t6-t5)
+        print "time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4)
 
         tmpFileName=tempfile.mktemp()
         if fileFormat == 'cat':
@@ -2414,9 +2413,9 @@ class SourceBrowser(object):
                 if 'image_%s' % (key) in obj.keys() and obj['image_%s' % (key)] == 1:
                     imageType=key
                     break
+            # Fall back option
             if imageType == 'best':
-                # Fall back option
-                imageType='unWISE'
+                imageType='SDSS'
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
         plotFormCode="""
@@ -2750,7 +2749,7 @@ class SourceBrowser(object):
         """
         fieldTypes=self.fieldTypesCollection.find().sort('index')
         for f in fieldTypes:
-            if f['name'] in obj.keys() and f['name'] != 'sourceryID':
+            if f['name'] in obj.keys() and f['name'] not in ['sourceryID', 'cacheBuilt']:
                 pkey=f['name']
                 rowString="""<tr><td align=left width=50%><b>$KEY_LABEL</b></td>
                 <td align=center width=50%>$KEY_VALUE</td></tr>
@@ -2827,16 +2826,16 @@ class SourceBrowser(object):
             for line in lines:
                 CFHTFailsList.append(line.replace("\n", ""))
 
-        # Make .jpg images from user-supplied .fits images
+        # Make .jpg images from local, user-supplied .fits images
         if 'imageDirs' in self.configDict.keys():
             self.makeImageDirJPEGs()
-            
+        
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
-        cursor=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+        cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
         for obj in cursor:
-
+            
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
             if self.configDict['addSDSSRedshifts'] == True:
@@ -2861,7 +2860,10 @@ class SourceBrowser(object):
                     #print("... problem with UnWISE image for %s - skipping ..." % (obj['name']))
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
-                    self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
+                    self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)
+                    
+            # Flag this as done
+            self.sourceCollection.update({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
         cursor.close()
         
         # Update CFHT fails list
