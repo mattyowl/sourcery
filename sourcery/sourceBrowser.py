@@ -1865,7 +1865,8 @@ class SourceBrowser(object):
         count=0
         for post in posts:
             for key in keysToAdd:
-                tab[key][count]=post[key]
+                if key in post.keys():           # NOTE: this handles image_ tags, which are 1 if present, and absent otherwise
+                    tab[key][count]=post[key]
             count=count+1
         tab.rename_column('RADeg', 'tag_RADeg')
         tab.rename_column('decDeg', 'tag_decDeg')
