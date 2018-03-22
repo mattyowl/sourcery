@@ -2878,35 +2878,36 @@ class SourceBrowser(object):
         minSizeBytes=40000
         imageDirs=glob.glob(self.cacheDir+os.path.sep+"*")
         for imageDir in imageDirs:
-            label=os.path.split(imageDir)[-1]
-            print "... %s ..." % (label)
-            fileNames=glob.glob(imageDir+os.path.sep+"*.jpg")
-            for f in fileNames:
-                
-                # image size check: don't include SDSS if image size is tiny as no data
-                skipImage=False
-                if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
-                    skipImage=True
-                
-                objName=os.path.split(f)[-1].replace(".jpg", "")
-                namesToTry=[objName, objName.replace("_", " ")]
-                obj=None
-                for n in namesToTry:
-                    obj=self.sourceCollection.find_one({'name': n})
-                    if obj != None:
-                        break
-                
-                if obj != None and skipImage == False:
-                    post={'image_%s' % (label): 1}
-                    self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
-                    if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                        keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
-                        fieldDict={}
-                        fieldDict['name']='image_%s' % (label)
-                        fieldDict['type']='number'
-                        fieldDict['description']='1 if object has image in the database; 0 otherwise'
-                        fieldDict['index']=len(keysList)+1
-                        self.fieldTypesCollection.insert(fieldDict)
+            if os.path.isdir(imageDir) == True:         # skip cross-matched tab .fits and .lock file
+                label=os.path.split(imageDir)[-1]
+                print "... %s ..." % (label)
+                fileNames=glob.glob(imageDir+os.path.sep+"*.jpg")
+                for f in fileNames:
+                    
+                    # image size check: don't include SDSS if image size is tiny as no data
+                    skipImage=False
+                    if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
+                        skipImage=True
+                    
+                    objName=os.path.split(f)[-1].replace(".jpg", "")
+                    namesToTry=[objName, objName.replace("_", " ")]
+                    obj=None
+                    for n in namesToTry:
+                        obj=self.sourceCollection.find_one({'name': n})
+                        if obj != None:
+                            break
+                    
+                    if obj != None and skipImage == False:
+                        post={'image_%s' % (label): 1}
+                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+                        if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
+                            keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
+                            fieldDict={}
+                            fieldDict['name']='image_%s' % (label)
+                            fieldDict['type']='number'
+                            fieldDict['description']='1 if object has image in the database; 0 otherwise'
+                            fieldDict['index']=len(keysList)+1
+                            self.fieldTypesCollection.insert(fieldDict)
         
         # This will stop index displaying "cache rebuilding" message
         if os.path.exists(self.lockFileName) == True:
