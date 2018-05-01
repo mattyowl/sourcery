@@ -21,12 +21,14 @@
 
 import os
 import astropy.table as atpy
+from astropy.coordinates import SkyCoord
+from astropy.coordinates import match_coordinates_sky
 import operator
 import urllib
 import urllib2
 import glob
 from astLib import *
-import pyfits
+import astropy.io.fits as pyfits
 import numpy as np
 import pylab as plt
 import matplotlib.patches as patches
@@ -62,6 +64,12 @@ class SourceBrowser(object):
         
         # Parse config file
         self.parseConfig(configFileName)
+
+        # Image choices
+        if 'defaultImageType' not in self.configDict.keys():
+            self.configDict['defaultImageType']='best'
+        if 'imagePrefs' not in self.configDict.keys():
+            self.configDict['imagePrefs']=['DES', 'SDSS', 'unWISE']
         
         # Add news into self.configDict, if there is any...
         if 'newsFileName' in self.configDict.keys():
@@ -100,7 +108,11 @@ class SourceBrowser(object):
         self.sdssRedshiftsDir=self.cacheDir+os.path.sep+"SDSSRedshifts"
         if os.path.exists(self.sdssRedshiftsDir) == False:
             os.makedirs(self.sdssRedshiftsDir)
-            
+        self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
+
+        # So we can display a status message on the index page in other processes if the cache is being rebuilt
+        self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
+        
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
         self.client=pymongo.MongoClient('localhost', 27017)
@@ -275,24 +287,71 @@ class SourceBrowser(object):
         if 'nameColumn' in self.configDict.keys() and self.configDict['nameColumn'] != "":
             if 'name' not in tab.keys():
                 tab.rename_column(self.configDict['nameColumn'], 'name')
-
-        # Only load tables once for cross matching
-        xTabsDict={}
-        xMatchRadiusDeg={}
+        
+        # NOTE: sourceList is now a special column: if present, we use that to make a hidden sourceryID column
+        # We need this to ensure that on displaySourcePage, we show the right properties table for the selected object
+        # However, we don't want to put this info in the tags table... as that need to be based on positional matching
+        sourceryIDs=[]
+        if 'sourceList' in tab.keys():
+            # Takes < 1 sec for 36,000 sources
+            for row in tab:
+                sourceryIDs.append(row['sourceList']+"_"+row['name'].replace(" ", "_"))           
+        else:
+            for row in tab:
+                sourceryIDs.append(row['name'].replace(" ", "_"))
+        tab.add_column(atpy.Column(sourceryIDs, "sourceryID"))
+        
+        # NOTE: another special column - this is for tracking whether the cache files (images, redshifts) have been
+        # fetched or not, for a given object. We set this to 0 each time we rebuild the database, and set to 1 each
+        # in preprocess after we process each object. This allows the cache building process to re-start from where
+        # it left off without checking every single object again
+        tab.add_column(atpy.Column(np.zeros(len(tab)), "cacheBuilt"))
+        
+        # Cross match all tables in turn... quicker than object by object...
         if 'crossMatchCatalogFileNames' in self.configDict.keys():
+            tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
+            origLen=len(tab)
+            cat1=SkyCoord(ra = tab['RADeg'], dec = tab['decDeg'], unit = 'deg')
             for f, label, radiusArcmin in zip(self.configDict['crossMatchCatalogFileNames'], 
                                               self.configDict['crossMatchCatalogLabels'], 
                                               self.configDict['crossMatchRadiusArcmin']):
-                xTabsDict[label]=atpy.Table().read(f)
-                xMatchRadiusDeg[label]=radiusArcmin/60.
-        #if 'crossMatchRadiusArcmin' in self.configDict.keys():
-            #crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
-                
-        # Import each object into MongoDB, cross matching as we go...
+                xTab=atpy.Table().read(f)
+                xMatchRadiusDeg=radiusArcmin/60.
+                cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
+                xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
+                mask=np.less(rDeg.value, xMatchRadiusDeg)
+                for key in xTab.keys():
+                    xTab.rename_column(key, '%s_%s' % (label, key))
+                tab['matchIndices'][:]=-1
+                tab['matchIndices']=xIndices
+                # Could not get join to work
+                for key in xTab.keys():
+                    if key not in tab.keys():
+                        if xTab[key].dtype.kind == 'S':
+                            tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
+                        else:
+                            tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
+                        tab[key][mask]=xTab[key][xIndices[mask]]
+                tab.add_column(atpy.Column(np.zeros(len(tab), dtype = int), '%s_match' % (label)))
+                tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
+                tab['%s_match' % (label)][mask]=1
+                tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]
+        tab.remove_column("matchIndices")
+        
+        # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
+        # Otherwise, for large catalogs, we're hitting memory issues
+        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        if os.path.exists(cachedTabFileName) == True:
+            os.remove(cachedTabFileName)
+        tab.write(cachedTabFileName)
+
+        # Import each object into MongoDB - now doing this in bulk (slightly quicker)
         idCount=0
         fieldTypesList=[]   # Used for making sensible column order later
         fieldTypesDict={}   # Used for tracking types for help page
+        postsList=[]
         for row in tab:
+            #t0=time.time()
             # Need an id number for table display
             idCount=idCount+1
             newPost={'index': idCount}
@@ -300,7 +359,7 @@ class SourceBrowser(object):
             newPost['RADeg']=row['RADeg']
             newPost['decDeg']=row['decDeg']
             
-            print "... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab))
+            #print "... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab))
             
             # MongoDB coords for spherical geometry
             if row['RADeg'] > 180:
@@ -348,76 +407,15 @@ class SourceBrowser(object):
                             fieldTypesList.append(key)
                             fieldTypesDict[key]=t
             
-            # All other cross matches
-            # We won't add name, RADeg, decDeg, if name matches our source catalog name
-            # This is an easy/lazy way to add extra columns like SZ properties or photo-zs
-            if 'crossMatchCatalogFileNames' in self.configDict.keys():
-                for label in self.configDict['crossMatchCatalogLabels']:
-                    xTab=xTabsDict[label]
-                    crossMatchRadiusDeg=xMatchRadiusDeg[label]
-                    r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
-                    if r.min() < crossMatchRadiusDeg:
-                        xMatch=xTab[np.where(r == r.min())][0]
-                        xKeysList=list(xTab.keys())
-                        # Undocumentated feature - for the BCG position table, which only has positions
-                        if xTab.keys() == ['name', 'RADeg', 'decDeg']:  # for atpy, this was a tuple - for astropy, a list?
-                            zapPosKeys=False
-                        else:
-                            zapPosKeys=True
-                        if 'name' in xKeysList and xMatch['name'] == newPost['name']:
-                            del xKeysList[xKeysList.index('name')]
-                            if zapPosKeys == True:
-                                del xKeysList[xKeysList.index('RADeg')]
-                                del xKeysList[xKeysList.index('decDeg')]
-                        for key in xKeysList:
-                            newKey='%s_%s' % (label, key)
-                            # Just to make sure MongoDB happy with data types
-                            # e.g., redmapper .fits table doesn't play nicely by default
-                            if xTab.columns[key].dtype.name.find("int") != -1:
-                                newPost[newKey]=int(xMatch[key])
-                                if newKey not in fieldTypesList:
-                                    fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="number"
-                            elif xTab.columns[key].dtype.name.find("string") != -1:
-                                newPost[newKey]=str(xMatch[key])
-                                if newKey not in fieldTypesList:
-                                    fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="text"
-                            elif xTab.columns[key].dtype.name.find("float") != -1:
-                                newPost[newKey]=float(xMatch[key])
-                                if newKey not in fieldTypesList:
-                                    fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="number"
-                            elif xTab.columns[key].dtype.name.find("bool") != -1:
-                                newPost[newKey]=bool(xMatch[key])
-                                if newKey not in fieldTypesList:
-                                    fieldTypesList.append(newKey)
-                                    fieldTypesDict[newKey]="number"
-                            else:
-                                raise Exception, "Unknown data type in column '%s' of table cross match table '%s'" % (key, label)
-                        skipMatchKeys=False
-                        newPost['%s_match' % (label)]=1
-                        numberKeys=['match']
-                        if 'name' in xTab.keys() and xMatch['name'] == newPost['name']:
-                            skipMatchKeys=True    
-                        if skipMatchKeys == False:
-                            newPost['%s_RADeg' % (label)]=float(xMatch['RADeg'])
-                            newPost['%s_decDeg' % (label)]=float(xMatch['decDeg'])
-                            newPost['%s_distArcmin' % (label)]=r.min()*60.0
-                            numberKeys=numberKeys+['RADeg', 'decDeg', 'distArcmin']
-                        for key in numberKeys:
-                            if '%s_%s' % (label, key) not in fieldTypesList:
-                                fieldTypesList.append('%s_%s' % (label, key))
-                                fieldTypesDict['%s_%s' % (label, key)]="number"                        
-                    else:
-                        newPost['%s_match' % (label)]=0
-
             # Match with tagsCollection
             tagsDict=self.matchTags(newPost)
             for key in tagsDict:
                 newPost[key]=tagsDict[key]
-            
-            self.sourceCollection.insert(newPost)
+                
+            postsList.append(newPost)
+        
+        # Insert all posts at once
+        self.sourceCollection.insert_many(postsList)
 
         # Add descriptions of field (displayed on help page only)
         descriptionsDict=self.parseColumnDescriptionsFile()
@@ -546,7 +544,7 @@ class SourceBrowser(object):
         # Add root path where necessary in place
         if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
             rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogFileNames"]
+            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogFileNames", "DESTilesCacheDir"]
             for k in keysToFix:
                 if type(self.configDict[k]) == list:
                     for i in range(len(self.configDict[k])):
@@ -647,47 +645,7 @@ class SourceBrowser(object):
             obj['NED_distArcmin']=np.nan
             obj['NED_RADeg']=np.nan
             obj['NED_decDeg']=np.nan
-            
-            
-    #def addCrossMatchTabs(self):
-        #"""Cross matches external catalog crossMatchTab to self.tab, adding matches in place.
-        #If there is a column called 'redshift', we include that
-        
-        #"""
-        #if 'crossMatchCatalogFileNames' in self.configDict.keys():
-            #for f, label in zip(self.configDict['crossMatchCatalogFileNames'], self.configDict['crossMatchCatalogLabels']):
-                #xTab=atpy.Table().read(f)
-                #self.tab.add_column('%s_name' % (label), ['__________________________']*len(self.tab))
-                #self.tab['%s_name' % (label)]=None
-                #self.tab.add_column('%s_z' % (label), [np.nan]*len(self.tab))
-                #self.tab.add_column('%s_distArcmin' % (label), [np.nan]*len(self.tab))
-                #self.tab.add_column('%s_RADeg' % (label), [np.nan]*len(self.tab))
-                #self.tab.add_column('%s_decDeg' % (label), [np.nan]*len(self.tab))
-                #self.tab.add_column('%s_match' % (label), np.zeros(len(self.tab)))
-                #self.tableDisplayColumns=self.tableDisplayColumns+["%s_name" % (label)]
-                #self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["%s" % (label)]
-                #self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
-                #self.sourceDisplayColumns=self.sourceDisplayColumns+["%s_name" % (label), "%s_z" % (label), "%s_RADeg" % (label), "%s_decDeg" % (label), "%s_distArcmin" % (label)]
 
-                ## Flag matches against clusters - choose nearest one
-                #zKeys=['z', 'redshift', 'Z', 'REDSHIFT']
-                #nameKeys=['name', 'id', 'NAME', 'ID']
-                #crossMatchRadiusDeg=self.configDict['crossMatchRadiusArcmin']/60.0
-                #for row in self.tab:
-                    #r=astCoords.calcAngSepDeg(row['RADeg'], row['decDeg'], xTab['RADeg'], xTab['decDeg'])
-                    #if r.min() < crossMatchRadiusDeg:
-                        #xMatch=xTab[np.where(r == r.min())][0]
-                        #for zKey in zKeys:
-                            #if zKey in xTab.keys():
-                                #row['%s_z' % (label)]=float(xMatch[zKey])
-                        #for nameKey in nameKeys:
-                            #if nameKey in xTab.keys():
-                                #row['%s_name' % (label)]=str(xMatch[nameKey])
-                        #row['%s_RADeg' % (label)]=float(xMatch['RADeg'])
-                        #row['%s_decDeg' % (label)]=float(xMatch['decDeg'])
-                        #row['%s_distArcmin' % (label)]=r.min()*60.0
-                        #row['%s_match' % (label)]=1
-            
 
     def fetchPS1Image(self, obj, refetch = False):
         """Fetches Pan-STARRS gri .jpg using the cutout webservice.
@@ -894,7 +852,7 @@ class SourceBrowser(object):
                 # We work with the .tiff files... downloading .fits images could be done similarly
                 for tileName in matchTilesList:
                     matchTab=self.DESTileTab[np.where(self.DESTileTab['TILENAME'] == tileName)][0]
-                    tiffFileName=desCacheDir+os.path.sep+tileName+".tiff"
+                    tiffFileName=self.DESTilesCacheDir+os.path.sep+tileName+".tiff"
                     tileJPGFileName=tiffFileName.replace(".tiff", ".jpg")
                     if os.path.exists(tileJPGFileName) == False:
                         if os.path.exists(tiffFileName) == False:
@@ -933,7 +891,7 @@ class SourceBrowser(object):
                 # We could do this with vips... but lazy...
                 outIm=Image.fromarray(outData)
                 outIm.save(outFileName)
-                print "... made cut-out .jpg ..."
+                print "... made DES cut-out .jpg ..."
                 
     
     def fetchCFHTLSImage(self, obj, refetch = False):
@@ -1003,7 +961,6 @@ class SourceBrowser(object):
             print "... fetching unWISE data for %s ..." % (name) 
             
             urllib.urlretrieve("http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix), targzPath)
-            
             os.system("tar -zxvf %s" % (targzPath))
             wiseFiles=glob.glob("unwise-*-img-m.fits")
             w1FileName=None
@@ -1055,6 +1012,12 @@ class SourceBrowser(object):
                             for x in range(sizePix):
                                 outRADeg, outDecDeg=wcs.pix2wcs(x, y)
                                 inX, inY=imgWCS.wcs2pix(outRADeg, outDecDeg)
+                                # Once, this returned infinity...
+                                try:
+                                    inX=int(round(inX))
+                                    inY=int(round(inY))
+                                except:
+                                    continue
                                 if inX >= 0 and inX < img[0].data.shape[1]-1 and inY >= 0 and inY < img[0].data.shape[0]-1:
                                     outData[y, x]=img[0].data[inY, inX]
                     if band == 'w1':
@@ -1668,7 +1631,8 @@ class SourceBrowser(object):
         
         # First need to apply query parameters here
         queryPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
-
+        numPosts=queryPosts.count()
+        
         # Then cut to number of rows to view as below
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
         
@@ -1678,7 +1642,7 @@ class SourceBrowser(object):
         html=html.replace("$QUERY_SEARCHBOXARCMIN", querySearchBoxArcmin)
         html=html.replace("$QUERY_OTHERCONSTRAINTS", queryOtherConstraints)
         html=html.replace("$OBJECT_TYPE_STRING", self.configDict['objectTypeString'])
-        html=html.replace("$NUMBER_SOURCES", str(len(queryPosts)))
+        html=html.replace("$NUMBER_SOURCES", str(numPosts))#str(len(queryPosts)))
         html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
@@ -1693,7 +1657,7 @@ class SourceBrowser(object):
             for c in constraints:
                 for o in operators:
                     colName=c.split(o)[0].lstrip().rstrip()
-                    if len(viewPosts) > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
+                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
                         displayColumns.append(colName)
                         displayColumnLabels.append(colName)
                         fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
@@ -1724,15 +1688,21 @@ class SourceBrowser(object):
             latestNewsStr="    &#8211;    Latest news: %s" % (self.configDict['newsItems'][-1].split(":")[0])
         else:
             latestNewsStr=""
-
+        
+        # We now display a message if cache rebuild is in progress
+        if os.path.exists(self.lockFileName) == True:
+            cacheRebuildStr="    &#8211;    [REBUILDING IMAGE CACHE]"
+        else:
+            cacheRebuildStr=""
+        
         metaData="""<br><fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>expand</span><b>Source List Information</b></legend>
-        Total number of %s: %d (original source list: %d) %s
+        Total number of %s: %d (original source list: %d) %s %s
         <p>Original source list = %s</p>
         <p>%s</p>
         $NEWS
-        </fieldset>""" % (self.configDict['objectTypeString'], len(queryPosts), self.sourceCollection.count(), latestNewsStr, 
-                          os.path.split(self.configDict['catalogFileName'])[-1], commentsString)
+        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), latestNewsStr,
+                          cacheRebuildStr, os.path.split(self.configDict['catalogFileName'])[-1], commentsString)
         if 'newsItems' in self.configDict.keys():
             newsStr="<p>News:<ul>\n"
             for item in self.configDict['newsItems']:
@@ -1809,7 +1779,7 @@ class SourceBrowser(object):
                 htmlKey="$"+string.upper(key)+"_KEY"
                 if key == "name":
                     #linksDir="dummy"
-                    linkURL="displaySourcePage?name=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['name']), self.configDict['plotSizeArcmin'])
+                    linkURL="displaySourcePage?sourceryID=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['sourceryID']), self.configDict['plotSizeArcmin'])
                     if 'defaultImageType' in self.configDict.keys():
                         linkURL=linkURL+"&imageType=%s" % (self.configDict['defaultImageType'])
                     nameLink="<a href=\"%s\" target=new>%s</a>" % \
@@ -1865,32 +1835,69 @@ class SourceBrowser(object):
         """Provide user with the current table view as a downloadable catalog.
         
         """
+                
+        # Fetch the cached table and update that with any changed classifications info
+        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        xTab=atpy.Table().read(cachedTabFileName)
         
-        posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
+        t0=time.time()
+        posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)                
+        tabLength=posts.count()
+        t1=time.time()
 
-        #if not cherrypy.session.loaded: cherrypy.session.load()
-    
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
-        
-        #posts=list(self.db.collection[cherrypy.session.id].find().sort('decDeg').sort('RADeg'))    # Current view, including classification info
-        tabLength=len(posts)
-        
+        keysToAdd=['RADeg', 'decDeg']
+        typeNamesToAdd=['number', 'number']
+        for k, t in zip(keysList, typeNamesList):
+            if k not in xTab.keys():
+                keysToAdd.append(k)
+                typeNamesToAdd.append(t)
+                
+        t2=time.time()
         tab=atpy.Table()
-        for key, typeName in zip(keysList, typeNamesList):
+        tab.table_name=self.configDict['catalogDownloadFileName']
+        for key, typeName in zip(keysToAdd, typeNamesToAdd):
             if typeName == 'number':
                 tab.add_column(atpy.Column(np.zeros(tabLength, dtype = float), str(key)))
             else:
                 tab.add_column(atpy.Column(np.zeros(tabLength, dtype = 'S1000'), str(key)))
         
-        for i in range(tabLength):
-            row=tab[i]
-            post=posts[i]
-            for key in keysList:
-                if key in post.keys():
-                    row[key]=post[key]
-
-        tab.table_name=self.configDict['catalogDownloadFileName']
+        count=0
+        for post in posts:
+            for key in keysToAdd:
+                if key in post.keys():           # NOTE: this handles image_ tags, which are 1 if present, and absent otherwise
+                    tab[key][count]=post[key]
+            count=count+1
+        tab.rename_column('RADeg', 'tag_RADeg')
+        tab.rename_column('decDeg', 'tag_decDeg')
+        t3=time.time()
         
+        newOrder=xTab.keys()+tab.keys()
+        
+        tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
+        origLen=len(tab)
+        cat1=SkyCoord(ra = tab['tag_RADeg'], dec = tab['tag_decDeg'], unit = 'deg')
+        xMatchRadiusDeg=self.configDict['MongoDBCrossMatchRadiusArcmin']/60.
+        cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
+        xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
+        mask=np.less(rDeg.value, xMatchRadiusDeg)
+        tab['matchIndices'][:]=-1
+        tab['matchIndices']=xIndices
+        # Could not get join to work
+        for key in xTab.keys():
+            if key not in tab.keys():
+                if xTab[key].dtype.kind == 'S':
+                    tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
+                else:
+                    tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
+                tab[key][mask]=xTab[key][xIndices[mask]]
+        t4=time.time()
+        tab=tab[newOrder]
+        tab.remove_columns(['tag_RADeg', 'tag_decDeg', 'sourceryID', 'cacheBuilt'])
+        t5=time.time()
+        
+        print "time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4)
+
         tmpFileName=tempfile.mktemp()
         if fileFormat == 'cat':
             tab.write(tmpFileName+".cat", format = 'ascii')
@@ -1921,11 +1928,15 @@ class SourceBrowser(object):
         return url.replace("%2b", "+").replace("%20", " ")
 
 
-    def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints):           
+    def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints, collection = 'source'):           
         """Runs a query, returns the posts found.
         
+        If collection = 'source', runs on self.sourceCollection (default, whole catalog).
+        
+        If collection = 'tags', runs on self.tagsCollection
+        
         """
-
+        
         #if not cherrypy.session.loaded: cherrypy.session.load()
             
         ## Store results of query in another collection (empty it first if documents are in it)
@@ -1959,12 +1970,21 @@ class SourceBrowser(object):
             queryDict[key]=constraintsDict[key]
         
         # Execute query
-        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
-        queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+        # NOTE: converting to list here is very slow
+        if collection == 'source':
+            self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+            #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+            queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')  
+        elif collection == 'tags':
+            self.tagsCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+            #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')) 
+            queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')
+        else:
+            raise Exception, "collection should be 'source' or 'tags' only"
         
         # If we wanted to store all this in its own collection
         #self.makeSessionCollection(queryPosts)
-        
+                
         return queryPosts
         
 
@@ -2254,7 +2274,7 @@ class SourceBrowser(object):
         else:
             imageType="SDSS"
                         
-        return self.displaySourcePage(name, clipSizeArcmin = self.configDict['plotSizeArcmin'],
+        return self.displaySourcePage(obj['sourceryID'], clipSizeArcmin = self.configDict['plotSizeArcmin'],
                                       imageType = imageType)
 
 
@@ -2295,7 +2315,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
-    def displaySourcePage(self, name, imageType = 'SDSS', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
+    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2320,8 +2340,8 @@ class SourceBrowser(object):
         querySearchBoxArcmin=cherrypy.session.get('querySearchBoxArcmin')
         queryOtherConstraints=cherrypy.session.get('queryOtherConstraints')
 
-        name=self.URLToSourceName(name)
-        
+        sourceryID=self.URLToSourceName(sourceryID)
+                
         templatePage="""<html>
         <head>
             <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
@@ -2384,8 +2404,19 @@ class SourceBrowser(object):
         # Taken this out from above the caption line
         #<tr><td align=center><b>$SIZE_ARC_MIN' x $SIZE_ARC_MIN'</b></td></tr>
 
-        obj=self.sourceCollection.find_one({'name': name})
+        obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
         mongoDict=self.matchTags(obj)
+        name=obj['name']
+        
+        # Pick the best available image given the preference given in the config file
+        if imageType == 'best':
+            for key in self.configDict['imagePrefs']:
+                if 'image_%s' % (key) in obj.keys() and obj['image_%s' % (key)] == 1:
+                    imageType=key
+                    break
+            # Fall back option
+            if imageType == 'best':
+                imageType='SDSS'
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
         plotFormCode="""
@@ -2478,7 +2509,7 @@ class SourceBrowser(object):
         <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
         <input id="sizeSliderValue" type="text" size="2"/>
         
-        <label for="gamma">Gamma</label>
+        <label for="gamma">Brightness (&gamma;)</label>
         <input id="gammaSlider" name="gamma" type="range" min="0.2" max="3.0" step="0.2" value=$CURRENT_GAMMA onchange="printValue('gammaSlider','gammaSliderValue')">
         <input id="gammaSliderValue" type="text" size="2"/>
         
@@ -2489,7 +2520,7 @@ class SourceBrowser(object):
         """ 
         # Taken out: onChange="this.form.submit();" from all checkboxes ^^^
         plotFormCode=plotFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
-        plotFormCode=plotFormCode.replace("$OBJECT_NAME", name)
+        plotFormCode=plotFormCode.replace("$OBJECT_NAME", obj['name'])
         plotFormCode=plotFormCode.replace("$OBJECT_RADEG", str(obj['RADeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
@@ -2719,7 +2750,7 @@ class SourceBrowser(object):
         """
         fieldTypes=self.fieldTypesCollection.find().sort('index')
         for f in fieldTypes:
-            if f['name'] in obj.keys():
+            if f['name'] in obj.keys() and f['name'] not in ['sourceryID', 'cacheBuilt']:
                 pkey=f['name']
                 rowString="""<tr><td align=left width=50%><b>$KEY_LABEL</b></td>
                 <td align=center width=50%>$KEY_VALUE</td></tr>
@@ -2752,6 +2783,10 @@ class SourceBrowser(object):
         those folders and also add 'image_<imageDirLabel>' tags in the MongoDB too. 
         
         """
+        
+        # So we can display a status message on the index page in other processes if the cache is being rebuilt
+        outFile=file(self.lockFileName, "wb")
+        outFile.close()
         
         # For DES public DR1 images access (we have to stitch together tiles if necessary anyway, as DESCuts has problems with objects near edge)
         # This is the result of SELECT * FROM DR1_TILE_INFO and contains WCS info for all the tiles
@@ -2791,13 +2826,17 @@ class SourceBrowser(object):
             inFile.close()
             for line in lines:
                 CFHTFailsList.append(line.replace("\n", ""))
+
+        # Make .jpg images from local, user-supplied .fits images
+        if 'imageDirs' in self.configDict.keys():
+            self.makeImageDirJPEGs()
         
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
-        cursor=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+        cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
         for obj in cursor:
-
+            
             print ">>> Fetching data to cache for object %s" % (obj['name'])            
             self.fetchNEDInfo(obj)
             if self.configDict['addSDSSRedshifts'] == True:
@@ -2816,13 +2855,16 @@ class SourceBrowser(object):
                     if CFHTResult == False:
                         CFHTFailsList.append(obj['name'])
             if self.configDict['addUnWISEImage'] == True:
-                try:
-                    self.fetchUnWISEImage(obj)
-                except:
-                    print("... problem with UnWISE image for %s - skipping ..." % (obj['name']))
+                #try:
+                self.fetchUnWISEImage(obj)
+                #except:
+                    #print("... problem with UnWISE image for %s - skipping ..." % (obj['name']))
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
-                    self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)         
+                    self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)
+                    
+            # Flag this as done
+            self.sourceCollection.update({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
         cursor.close()
         
         # Update CFHT fails list
@@ -2830,45 +2872,46 @@ class SourceBrowser(object):
         for objName in CFHTFailsList:
             outFile.write(objName+"\n")
         outFile.close()
-        
-        # Make .jpg images from user-supplied .fits images
-        if 'imageDirs' in self.configDict.keys():
-            self.makeImageDirJPEGs()
-            
+                    
         # Now spin through cache imageDirs and add 'image_<imageDirLabel>' tags
         print ">>> Adding image_<imageDirLabel> tags to MongoDB ..."
         minSizeBytes=40000
         imageDirs=glob.glob(self.cacheDir+os.path.sep+"*")
         for imageDir in imageDirs:
-            label=os.path.split(imageDir)[-1]
-            print "... %s ..." % (label)
-            fileNames=glob.glob(imageDir+os.path.sep+"*.jpg")
-            for f in fileNames:
-                
-                # image size check: don't include SDSS if image size is tiny as no data
-                skipImage=False
-                if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
-                    skipImage=True
-                
-                objName=os.path.split(f)[-1].replace(".jpg", "")
-                namesToTry=[objName, objName.replace("_", " ")]
-                obj=None
-                for n in namesToTry:
-                    obj=self.sourceCollection.find_one({'name': n})
-                    if obj != None:
-                        break
-                
-                if obj != None and skipImage == False:
-                    post={'image_%s' % (label): 1}
-                    self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
-                    if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                        keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
-                        fieldDict={}
-                        fieldDict['name']='image_%s' % (label)
-                        fieldDict['type']='number'
-                        fieldDict['description']='1 if object has image in the database; 0 otherwise'
-                        fieldDict['index']=len(keysList)+1
-                        self.fieldTypesCollection.insert(fieldDict)
+            if os.path.isdir(imageDir) == True:         # skip cross-matched tab .fits and .lock file
+                label=os.path.split(imageDir)[-1]
+                print "... %s ..." % (label)
+                fileNames=glob.glob(imageDir+os.path.sep+"*.jpg")
+                for f in fileNames:
+                    
+                    # image size check: don't include SDSS if image size is tiny as no data
+                    skipImage=False
+                    if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
+                        skipImage=True
+                    
+                    objName=os.path.split(f)[-1].replace(".jpg", "")
+                    namesToTry=[objName, objName.replace("_", " ")]
+                    obj=None
+                    for n in namesToTry:
+                        obj=self.sourceCollection.find_one({'name': n})
+                        if obj != None:
+                            break
+                    
+                    if obj != None and skipImage == False:
+                        post={'image_%s' % (label): 1}
+                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+                        if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
+                            keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
+                            fieldDict={}
+                            fieldDict['name']='image_%s' % (label)
+                            fieldDict['type']='number'
+                            fieldDict['description']='1 if object has image in the database; 0 otherwise'
+                            fieldDict['index']=len(keysList)+1
+                            self.fieldTypesCollection.insert(fieldDict)
+        
+        # This will stop index displaying "cache rebuilding" message
+        if os.path.exists(self.lockFileName) == True:
+            os.remove(self.lockFileName)
 
 
     def makeImageDirJPEGs(self):
@@ -2887,13 +2930,14 @@ class SourceBrowser(object):
                 
         """
         print ">>> Making imageDir .jpgs ..."
-        for imageDir, label, colourMap, sizePix, minMaxRadiusArcmin, scaling in zip(
+        for imageDir, label, colourMap, sizePix, minMaxRadiusArcmin, scaling, matchKey in zip(
                  self.configDict['imageDirs'], 
                  self.configDict['imageDirsLabels'],
                  self.configDict['imageDirsColourMaps'],
                  self.configDict['imageDirsSizesPix'],
                  self.configDict['imageDirsMinMaxRadiusArcmin'],
-                 self.configDict['imageDirsScaling']):
+                 self.configDict['imageDirsScaling'],
+                 self.configDict['imageDirsMatchKey']):
             
             print "... %s ..." % (label)
 
@@ -2950,7 +2994,7 @@ class SourceBrowser(object):
                 self.mapPageEnabled=False
             
             self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])  # Avoid 32 Mb limit
-            objList=list(self.sourceCollection.find().sort('decDeg').sort('RADeg'))
+            objList=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
 
             for obj in objList:
                 outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
@@ -2961,14 +3005,21 @@ class SourceBrowser(object):
                     print "... making image for %s ..." % (obj['name'])
                                         
                     for imgFileName in imgList:
-                        
+
                         wcs=wcsDict[imgFileName]
-                                                
+                        
+                        useThisImage=False
+                        if matchKey != None:
+                            if imgFileName.find(obj[matchKey]) != -1:
+                                useThisImage=True
+                        else:
+                            pixCoords=wcs.wcs2pix(obj['RADeg'], obj['decDeg'])
+                            if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']:
+                                useThisImage=True
+                                   
                         data=None
-                        # coordsAreInImage sometimes gives spurious results, not clear why...
-                        # Replacement with below works - need to check and fix in astWCS
-                        pixCoords=wcs.wcs2pix(obj['RADeg'], obj['decDeg'])
-                        if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']:                           
+                        
+                        if useThisImage == True:                           
                                 
                             # Add to mongodb - we now do this in preprocess
                             #post={'image_%s' % (label): 1}
@@ -2992,7 +3043,6 @@ class SourceBrowser(object):
                                 clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
                                                                 self.configDict['plotSizeArcmin']/60.0)
                                 astImages.saveFITS(fitsOutFileName, clip['data'], clip['wcs'])
-
                             if os.path.exists(outFileName) == False:
                                 
                                 if np.any(data) == None:
