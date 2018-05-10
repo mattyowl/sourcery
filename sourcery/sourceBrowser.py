@@ -1564,6 +1564,7 @@ class SourceBrowser(object):
         <br>
         <form method="get" action="updateQueryParams">
         <fieldset>
+        $QUICK_QUERY_LINKS
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Constraints</b></legend>
         <p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative RA values to wrap around 0 degrees (e.g., -60:60).</p>
         <p>
@@ -1636,6 +1637,17 @@ class SourceBrowser(object):
         # Then cut to number of rows to view as below
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
         
+        # Quick query link(s) - at top of 'constraints' box
+        if 'quickLinkQueryURLs' in self.configDict.keys() and 'quickLinkQueryLabels' in self.configDict.keys():
+            quickLinkStr="<p><i>Quick links:</i> "
+            for link, label in zip(self.configDict['quickLinkQueryURLs'], self.configDict['quickLinkQueryLabels']):
+                quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (link, label)
+                quickLinkStr=quickLinkStr+" - "
+            quickLinkStr=quickLinkStr[:-3]+"</p>"
+        else:
+            quickLinkStr=""
+        html=html.replace("$QUICK_QUERY_LINKS", quickLinkStr)
+            
         # Fill in query params
         html=html.replace("$QUERY_RADEG", queryRADeg)
         html=html.replace("$QUERY_DECDEG", queryDecDeg)
