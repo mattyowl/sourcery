@@ -108,7 +108,12 @@ class SourceBrowser(object):
         self.sdssRedshiftsDir=self.cacheDir+os.path.sep+"SDSSRedshifts"
         if os.path.exists(self.sdssRedshiftsDir) == False:
             os.makedirs(self.sdssRedshiftsDir)
-        self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
+        
+        # Dirs that could contain big .jpg images from which we will cut
+        if 'DESTilesCacheDir' in self.configDict.keys():
+            self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
+        if 'KiDSTilesCacheDir' in self.configDict.keys():
+            self.KiDSTilesCacheDir=self.configDict['KiDSTilesCacheDir']
 
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
         self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
@@ -892,6 +897,109 @@ class SourceBrowser(object):
                 outIm=Image.fromarray(outData)
                 outIm.save(outFileName)
                 print "... made DES cut-out .jpg ..."
+
+
+    def fetchKiDSImage(self, obj, refetch = False):
+        """Make KiDS co-add .jpg from survey's 1 x 1 deg tiles that we turned into gri .jpgs 
+        
+        This can probably be generalised to handle both KiDS and DES
+        
+        """
+        
+        kidsCacheDir=self.cacheDir+os.path.sep+"KiDS"
+        if os.path.exists(kidsCacheDir) == False:
+            os.makedirs(kidsCacheDir)
+        
+        # Could put a footprint check in here
+        #if obj['decDeg'] > 5:
+            #print "... outside DES dec range - skipping ..."
+            #return None
+        
+        name=obj['name']
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']                
+        outFileName=kidsCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        
+        # Procedure: spin through tile WCSs, find which tiles we need, download if necessary, paste pixels into low-res image (unWISE style)
+        if os.path.exists(outFileName) == False or refetch == True:
+                       
+            # Blank WCS
+            CRVAL1, CRVAL2=obj['RADeg'], obj['decDeg']
+            sizePix=1024
+            sizeArcmin=self.configDict['plotSizeArcmin']
+            xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
+            xSizePix=sizePix
+            ySizePix=sizePix
+            xRefPix=xSizePix/2.0
+            yRefPix=ySizePix/2.0
+            xOutPixScale=xSizeDeg/xSizePix
+            yOutPixScale=ySizeDeg/ySizePix
+            newHead=pyfits.Header()
+            newHead['NAXIS']=2
+            newHead['NAXIS1']=xSizePix
+            newHead['NAXIS2']=ySizePix
+            newHead['CTYPE1']='RA---TAN'
+            newHead['CTYPE2']='DEC--TAN'
+            newHead['CRVAL1']=CRVAL1
+            newHead['CRVAL2']=CRVAL2
+            newHead['CRPIX1']=xRefPix+1
+            newHead['CRPIX2']=yRefPix+1
+            newHead['CDELT1']=xOutPixScale
+            newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
+            newHead['CUNIT1']='DEG'
+            newHead['CUNIT2']='DEG'
+            outWCS=astWCS.WCS(newHead, mode='pyfits')
+            outData=np.zeros([sizePix, sizePix, 3], dtype = np.uint8)
+            RAMin, RAMax, decMin, decMax=outWCS.getImageMinMaxWCSCoords()
+            if RAMax-RAMin > 1.0:   # simple check for 0h crossing... assuming no-one wants images > a degree across
+                RAMax=-(360-RAMax)
+                temp=RAMin
+                RAMin=RAMax
+                RAMax=temp
+            checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
+            
+            # Spin though all DES tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
+            matchTilesList=[]
+            for tileName in self.KiDSWCSDict.keys():
+                wcs=self.KiDSWCSDict[tileName]
+                for c in checkCoordsList:
+                    pixCoords=wcs.wcs2pix(c[0], c[1])
+                    if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
+                        if tileName not in matchTilesList:
+                            matchTilesList.append(tileName)
+
+            if matchTilesList == []:
+                print "... object not in any KiDS tiles ..."
+                return None
+            else:
+
+                # We work with .jpg preview files that we made with STIFF
+                for tileName in matchTilesList:
+                    matchTab=self.KiDSTileTab[np.where(self.KiDSTileTab['TILENAME'] == tileName)][0]
+                    tileJPGFileName=self.KiDSTilesCacheDir+os.path.sep+tileName+".jpg"
+                    im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
+                    
+                    # Splat pixels from the .jpg into our small image WCS, from which we'll make a new .jpg
+                    d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
+                    d=np.flipud(d)
+                    inWCS=self.KiDSWCSDict[tileName]
+                    for y in range(sizePix):
+                        for x in range(sizePix):
+                            outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
+                            inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
+                            inX=int(round(inX))
+                            inY=int(round(inY))
+                            if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
+                                outData[y, x]=d[inY, inX]
+                
+                # Flips needed to get N at top, E at left
+                outData=np.flipud(outData)
+                outData=np.fliplr(outData)
+                
+                # We could do this with vips... but lazy...
+                outIm=Image.fromarray(outData)
+                outIm.save(outFileName)
+                print "... made KiDS cut-out .jpg ..."
                 
     
     def fetchCFHTLSImage(self, obj, refetch = False):
@@ -2806,24 +2914,28 @@ class SourceBrowser(object):
             self.DESTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"DES_DR1_TILE_INFO.csv")
             # Building the WCS dict here takes ~21 sec
             self.DESWCSDict={}
+            keyWordsToGet=['NAXIS1', 'NAXIS2', 'CTYPE1', 'CTYPE2', 'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 
+                           'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2']
             for row in self.DESTileTab:
                 newHead=pyfits.Header()
                 newHead['NAXIS']=2
-                newHead['NAXIS1']=row['NAXIS1']
-                newHead['NAXIS2']=row['NAXIS2']
-                newHead['CTYPE1']=row['CTYPE1']
-                newHead['CTYPE2']=row['CTYPE2']
-                newHead['CRVAL1']=row['CRVAL1']
-                newHead['CRVAL2']=row['CRVAL2']
-                newHead['CRPIX1']=row['CRPIX1']
-                newHead['CRPIX2']=row['CRPIX2']
-                newHead['CD1_1']=row['CD1_1']
-                newHead['CD1_2']=row['CD1_2']    
-                newHead['CD2_1']=row['CD2_1']    
-                newHead['CD2_2']=row['CD2_2']    
+                for key in keyWordsToGet:
+                    newHead[key]=row[key] 
                 newHead['CUNIT1']='DEG'
                 newHead['CUNIT2']='DEG'
                 self.DESWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits')  
+        
+        # For KiDS DR3 images that we have regridded and STIFFed
+        if 'addKiDSImage' in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
+            self.KiDSTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"KiDSDR3_regridded_WCSTab.fits")
+            self.KiDSWCSDict={}
+            keyWordsToGet=['NAXIS', 'NAXIS1', 'NAXIS2', 'CTYPE1', 'CTYPE2', 'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 
+                           'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2', 'CUNIT1', 'CUNIT2']
+            for row in self.KiDSTileTab:
+                newHead=pyfits.Header()
+                for key in keyWordsToGet:
+                    newHead[key]=row[key]
+                self.KiDSWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits') 
         
         # In the CFHT dir, we keep a file that lists objects that don't have data
         # Saves us pinging CFHT servers again if we rerun
@@ -2857,6 +2969,8 @@ class SourceBrowser(object):
                 self.fetchSDSSImage(obj)
             if self.configDict['addDESImage'] == True:
                 self.fetchDESImage(obj)
+            if self.configDict['addKiDSImage'] == True:
+                self.fetchKiDSImage(obj)
             if self.configDict['addPS1Image'] == True:
                 self.fetchPS1Image(obj)
             if self.configDict['addPS1IRImage'] == True:
