@@ -977,8 +977,11 @@ class SourceBrowser(object):
                 for tileName in matchTilesList:
                     matchTab=self.KiDSTileTab[np.where(self.KiDSTileTab['TILENAME'] == tileName)][0]
                     tileJPGFileName=self.KiDSTilesCacheDir+os.path.sep+tileName+".jpg"
-                    im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
-                    
+                    if os.path.exists(tileJPGFileName) == True:
+                        im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
+                    else:
+                        print "... tile %s missing from KiDS tiles .jpg preview directory (probably missing i or g-band coverage) ..." % (tileName)
+                        continue
                     # Splat pixels from the .jpg into our small image WCS, from which we'll make a new .jpg
                     d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
                     d=np.flipud(d)
