@@ -189,6 +189,11 @@ class SourceBrowser(object):
             label="DES"
             self.imageLabels.append(label)
             self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) DES DR1 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+        # KiDS colour .jpgs
+        if "addKiDSImage" in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
+            label="KiDS"
+            self.imageLabels.append(label)
+            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) KiDS DR3 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1 colour .jpgs
         if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
             label="PS1"
