@@ -37,6 +37,7 @@ import sourcery
 from sourcery import catalogTools
 from sourcery import specFeatures
 import ConfigParser
+import yaml
 import requests
 import sys
 import time
@@ -132,9 +133,14 @@ class SourceBrowser(object):
 
         # Column to display info
         # Table pages
-        self.tableDisplayColumns=['name', 'RADeg', 'decDeg']+self.configDict['tableDisplayColumns']
-        self.tableDisplayColumnLabels=['Name', 'RA (degrees)', 'Dec. (degrees)']+self.configDict['tableDisplayColumns']
-        self.tableDisplayColumnFormats=['%s', '%.6f', '%.6f']+self.configDict['tableDisplayColumnFormats']
+        self.tableDisplayColumns=['name', 'RADeg', 'decDeg']
+        self.tableDisplayColumnLabels=['Name', 'RA (deg)', 'Dec. (deg)']
+        self.tableDisplayColumnFormats=['%s', '%.6f', '%.6f']
+        for colDict in self.configDict['tableDisplayColumns']:
+            for key in colDict.keys():
+                self.tableDisplayColumns.append(key)
+                self.tableDisplayColumnLabels.append(key)
+                self.tableDisplayColumnFormats.append(colDict[key])
         # Source pages
         self.sourceDisplayColumns=[]
 
@@ -151,14 +157,18 @@ class SourceBrowser(object):
             #self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['tags']
         if 'fields' in self.configDict.keys():
             formatsList=[]
-            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
-                if t == 'number':
+            fieldsList=[]
+            for fieldDict in self.configDict['fields']:
+                if fieldDict['type'] == 'number':
                     formatsList.append('%.3f')
-                elif t == 'text':
+                elif fieldDict['type'] == 'text':
                     formatsList.append('%s')
-            self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['fields']
-            self.tableDisplayColumns=self.tableDisplayColumns+self.configDict['fields']
-            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+self.configDict['fields']
+                else:
+                    raise Exception, "only valid field types are 'number' and 'text'"
+                fieldsList.append(fieldDict['name'])
+            self.sourceDisplayColumns=self.sourceDisplayColumns+fieldsList
+            self.tableDisplayColumns=self.tableDisplayColumns+fieldsList
+            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+fieldsList
             self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+formatsList
         if 'classifications' in self.configDict.keys():
             self.sourceDisplayColumns=self.sourceDisplayColumns+["classification"]
@@ -174,51 +184,41 @@ class SourceBrowser(object):
                                
         # We will generate images dynamically... here we set up info like labels and captions
         self.imageLabels=[]      # labels at top of each source page that allow us to select image to view
-        self.imageCaptions=[]    # caption that goes under image shown on the source pages
-        if "imageDirsLabels" in self.configDict.keys():
-            for label in self.configDict['imageDirsLabels']:
-                self.imageLabels.append(label)
-                self.imageCaptions.append("I don't think we're using this any more")
+        if "imageDirs" in self.configDict.keys():
+            for imDirDict in self.configDict['imageDirs']:
+                self.imageLabels.append(imDirDict['label'])
+        
         # SDSS colour .jpgs
         if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
             label="SDSS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR13 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # DES colour .jpgs
         if "addDESImage" in self.configDict.keys() and self.configDict['addDESImage'] == True:
             label="DES"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) DES DR1 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
-        # KiDS colour .jpgs
         if "addKiDSImage" in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
             label="KiDS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) KiDS DR3 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1 colour .jpgs
         if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
             label="PS1"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1IR colour .jpgs
         if "addPS1IRImage" in self.configDict.keys() and self.configDict['addPS1IRImage'] == True:
             label="PS1IR"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (i,z,y) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # CFHTLS colour .jpgs
         if "addCFHTLSImage" in self.configDict.keys() and self.configDict['addCFHTLSImage'] == True:
             label="CFHTLS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) CFHT Legacy Survey image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # unWISE colour .jpgs
         if "addUnWISEImage" in self.configDict.keys() and self.configDict['addUnWISEImage'] == True:
             label="unWISE"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (W1, W2) unWISE image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
         if 'skyviewLabels' in self.configDict.keys():
             for label in self.configDict['skyviewLabels']:
                 self.imageLabels.append(label)
-                self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
        
         # Pre-processing
         # NOTE: this includes generating .jpgs from user-specified, probably proprietary, image dirs
@@ -253,12 +253,12 @@ class SourceBrowser(object):
         if 'classifications' in self.configDict.keys() and 'classification' not in mongoDict.keys():
             mongoDict['classification']=""
         if 'fields' in self.configDict.keys():
-            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
-                if f not in mongoDict.keys():
-                    if t == 'number':
-                        mongoDict[f]=0.0
-                    elif t == 'text':
-                        mongoDict[f]=""
+            for fieldDict in self.configDict['fields']:
+                if fieldDict['name'] not in mongoDict.keys():
+                    if fieldDict['type'] == 'number':
+                        mongoDict[fieldDict['name']]=0.0
+                    elif fieldDict['type'] == 'text':
+                        mongoDict[fieldDict['name']]=""
         
         # Strip out _id and loc, because whatever is calling this routine won't want them
         if '_id' in mongoDict.keys():
@@ -318,13 +318,14 @@ class SourceBrowser(object):
         tab.add_column(atpy.Column(np.zeros(len(tab)), "cacheBuilt"))
         
         # Cross match all tables in turn... quicker than object by object...
-        if 'crossMatchCatalogFileNames' in self.configDict.keys():
+        if 'crossMatchCatalogs' in self.configDict.keys():
             tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
             origLen=len(tab)
             cat1=SkyCoord(ra = tab['RADeg'], dec = tab['decDeg'], unit = 'deg')
-            for f, label, radiusArcmin in zip(self.configDict['crossMatchCatalogFileNames'], 
-                                              self.configDict['crossMatchCatalogLabels'], 
-                                              self.configDict['crossMatchRadiusArcmin']):
+            for xMatchDict in self.configDict['crossMatchCatalogs']:
+                f=xMatchDict['fileName']
+                label=xMatchDict['label']
+                radiusArcmin=xMatchDict['crossMatchRadiusArcmin']
                 xTab=atpy.Table().read(f)
                 xMatchRadiusDeg=radiusArcmin/60.
                 cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
@@ -476,89 +477,20 @@ class SourceBrowser(object):
     def parseConfig(self, configFileName):
         """Parse config file, unpacking parameters into the SourceBrowser object.
         
+        NOTE: config file format is now yaml
         """
-        self.configDict={}
-        inFile=file(configFileName, "r")
-        lines=inFile.readlines()
-        inFile.close()
-        for line in lines:
-            if line[0] != "#" and len(line) > 3 and line.find("=") != -1:
-                # We do things this way to allow = in values
-                equalIndex=line.find('=')
-                value=line[equalIndex+1:]
-                key=line[:equalIndex]
-                value=value.rstrip().lstrip()
-                key=key.rstrip()
-                if value == 'True':
-                    value=True
-                elif value == 'False':
-                    value=False
-                elif value[0] == '[':
-                    # This is now complicated by having to handle , inside "" or ''
-                    lst=[]
-                    items=value.replace("[", "").replace("]", "")#.split(",")
-                    if len(items) == 0:
-                        continue
-                    if items[0] == '"':
-                        delim='"'
-                    elif items[0] == "'":
-                        delim="'"
-                    else:
-                        delim=""
-                    if delim != "":
-                        delimIndices=[]
-                        for i in range(len(items)):
-                            if items[i] == delim:
-                                delimIndices.append(i)
-                        extractedItems=[]
-                        for i in range(len(delimIndices)-1):
-                            extractedItems.append(items[delimIndices[i]:delimIndices[i+1]+1])                   
-                        validItems=[]
-                        for b in extractedItems:
-                            if b[0] == delim and b[-1] == delim:
-                                candidateItem=b.replace(delim, "").lstrip().rstrip()
-                                if candidateItem != ',':
-                                    validItems.append(candidateItem)
-                        value=validItems
-                    else:
-                        # In this case, a list of numbers or True, False
-                        value=[]
-                        extractedItems=items.split(",")
-                        for b in extractedItems:
-                            if b.lstrip().rstrip() == 'True':
-                                value.append(True)
-                            elif b.lstrip().rstrip() == 'False':
-                                value.append(False)
-                            elif b.lstrip().rstrip() == 'None':
-                                value.append(None)
-                            else:
-                                value.append(float(b))
-                elif value[0] == '(':
-                    items=value.replace("(", "").replace(")", "").split(",")
-                    lst=[]
-                    for i in items:
-                        lst.append(float(i))
-                    value=tuple(lst)
-                elif value[0] == "'" or value[0] == '"':
-                    value=str(value.replace("'", "").replace('"', ""))
-                self.configDict[key]=value
-                
-        # Not sure of a better way to force things which look like numbers to be floats, not strings
-        for key in self.configDict.keys():
-            if type(self.configDict[key]) == str:
-                try:
-                    self.configDict[key]=float(self.configDict[key])
-                except:
-                    continue
-        
+        with open(configFileName, "r") as stream:
+            self.configDict=yaml.safe_load(stream)
+
         # Add root path where necessary in place
         if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
             rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogFileNames", "DESTilesCacheDir"]
+            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogs", 
+                       "DESTilesCacheDir", "KiDSTilesCacheDir"]
             for k in keysToFix:
                 if type(self.configDict[k]) == list:
                     for i in range(len(self.configDict[k])):
-                        self.configDict[k][i]=rootDir+os.path.sep+self.configDict[k][i]
+                        self.configDict[k][i]['fileName']=rootDir+os.path.sep+self.configDict[k][i]['fileName']
                 else:
                     self.configDict[k]=rootDir+os.path.sep+self.configDict[k]
         
@@ -1185,7 +1117,8 @@ class SourceBrowser(object):
 
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", clipSizeArcmin = None, gamma = 1.0):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", 
+                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", clipSizeArcmin = None, gamma = 1.0):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -1323,7 +1256,8 @@ class SourceBrowser(object):
             xMatchRAs=[]
             xMatchDecs=[]
             xMatchLabels=[]
-            for label in self.configDict['crossMatchCatalogLabels']:
+            for xMatchDict in self.configDict['crossMatchCatalogs']:
+                label=xMatchDict['label']
                 RAKey='%s_RADeg' % (label)
                 decKey='%s_decDeg' % (label)
                 if RAKey in obj.keys() and decKey in obj.keys():
@@ -1754,10 +1688,10 @@ class SourceBrowser(object):
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
         
         # Quick query link(s) - at top of 'constraints' box
-        if 'quickLinkQueryURLs' in self.configDict.keys() and 'quickLinkQueryLabels' in self.configDict.keys():
+        if 'quickLinks' in self.configDict.keys():
             quickLinkStr="<p><i>Quick links:</i> "
-            for link, label in zip(self.configDict['quickLinkQueryURLs'], self.configDict['quickLinkQueryLabels']):
-                quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (link, label)
+            for linkDict in self.configDict['quickLinks']:
+                quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (linkDict['url'], linkDict['label'])
                 quickLinkStr=quickLinkStr+" - "
             quickLinkStr=quickLinkStr[:-3]+"</p>"
         else:
@@ -1923,6 +1857,8 @@ class SourceBrowser(object):
                     try:
                         rowString=rowString.replace(htmlKey, fmt % (value))
                     except:
+                        IPython.embed()
+                        sys.exit()
                         raise Exception, """IndexError: check .config file tableDisplayColumns are actually in the .fits table, or for mixed '' "" inside [] """ 
                            
             tableData=tableData+rowString
@@ -2346,11 +2282,10 @@ class SourceBrowser(object):
             typeNamesList.append("text")
             descList.append(self.configDict['classificationDescription'])
         if 'fields' in self.configDict.keys():
-            for f, t, d in zip(self.configDict['fields'], self.configDict['fieldTypes'], 
-                               self.configDict['fieldDescriptions']):
-                keysList.append(f)
-                typeNamesList.append(t)
-                descList.append(d)
+            for fieldDict in self.configDict['fields']:
+                keysList.append(fieldDict['name'])
+                typeNamesList.append(fieldDict['type'])
+                descList.append(fieldDict['description'])
         
         return keysList, typeNamesList, descList
                 
@@ -2378,12 +2313,13 @@ class SourceBrowser(object):
         
         post={}
         for key in kwargs.keys():
-            if key in self.configDict['fields']:
-                if self.configDict['fieldTypes'][self.configDict['fields'].index(key)] == 'number':
-                    post[key]=float(kwargs[key])
-                else:
-                    post[key]=kwargs[key]
-            else:
+            for fieldDict in self.configDict['fields']:
+                if key == fieldDict['name']:
+                    if fieldDict['type'] == 'number':
+                        post[key]=float(kwargs[key])
+                    else:
+                        post[key]=kwargs[key]
+            if key == 'classification':
                 post[key]=kwargs[key]
         post['lastUpdated']=datetime.date.today().isoformat()
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
@@ -2424,13 +2360,15 @@ class SourceBrowser(object):
         
         post={}
         for key in tagsToInsertDict.keys():
-            if key in self.configDict['fields']:
-                if self.configDict['fieldTypes'][self.configDict['fields'].index(key)] == 'number':
-                    post[key]=float(tagsToInsertDict[key])
-                else:
-                    post[key]=tagsToInsertDict[key]
-            else:
-                post[key]=tagsToInsertDict[key]
+            for fieldDict in self.configDict['fields']:
+                if key == fieldDict['name']:
+                    if fieldDict['type'] == 'number':
+                        post[key]=float(kwargs[key])
+                    else:
+                        post[key]=kwargs[key]
+            if key == 'classification':
+                post[key]=kwargs[key]
+        post['lastUpdated']=datetime.date.today().isoformat()
         
         #print "How to avoid overwrites of things we shouldn't?"
         #IPython.embed()
@@ -2729,9 +2667,11 @@ class SourceBrowser(object):
             tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
             if 'fields' in self.configDict.keys():
                 fieldsCode=""
-                for f, s in zip(self.configDict['fields'], self.configDict['fieldDisplaySizes']):
-                    fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (f, f)
-                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d/>\n' % (str(mongoDict[f]), f, s)
+                for fieldDict in self.configDict['fields']:
+                    fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (fieldDict['name'], fieldDict['name'])
+                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d/>\n' % (str(mongoDict[fieldDict['name']]), 
+                                                                                                   fieldDict['name'], 
+                                                                                                   fieldDict['displaySize'])
                 if 'lastUpdated' in mongoDict.keys():
                     lastUpdated=mongoDict['lastUpdated']
                 else:
@@ -3075,14 +3015,15 @@ class SourceBrowser(object):
                 
         """
         print ">>> Making imageDir .jpgs ..."
-        for imageDir, label, colourMap, sizePix, minMaxRadiusArcmin, scaling, matchKey in zip(
-                 self.configDict['imageDirs'], 
-                 self.configDict['imageDirsLabels'],
-                 self.configDict['imageDirsColourMaps'],
-                 self.configDict['imageDirsSizesPix'],
-                 self.configDict['imageDirsMinMaxRadiusArcmin'],
-                 self.configDict['imageDirsScaling'],
-                 self.configDict['imageDirsMatchKey']):
+        for imDirDict in self.configDict['imageDirs']:
+            
+            imageDir=imDirDict['path']
+            label=imDirDict['label']
+            colorMap=imDirDict['colorMap']
+            sizePix=imDirDict['sizePix']
+            minMaxRadiusArcmin=imDirDict['minMaxRadiusArcmin']
+            scaling=imDirDict['scaling']
+            matchKey=imDirDict['matchKey']
             
             print "... %s ..." % (label)
 
@@ -3223,7 +3164,7 @@ class SourceBrowser(object):
                                 plt.axes([0, 0, 1, 1])
                                 #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
                                 plt.imshow(clip['data'], interpolation = "none", origin = 'lower', 
-                                            cmap = colourMap, norm = plt.Normalize(cuts[0], cuts[1]))
+                                            cmap = colorMap, norm = plt.Normalize(cuts[0], cuts[1]))
                                 try:
                                     plt.savefig(outFileName, dpi = dpi)
                                 except:
