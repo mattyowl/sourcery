@@ -3024,6 +3024,8 @@ class SourceBrowser(object):
             minMaxRadiusArcmin=imDirDict['minMaxRadiusArcmin']
             scaling=imDirDict['scaling']
             matchKey=imDirDict['matchKey']
+            if colorMap == "None":
+                colorMap=None
             
             print "... %s ..." % (label)
 
@@ -3095,7 +3097,7 @@ class SourceBrowser(object):
                         wcs=wcsDict[imgFileName]
                         
                         useThisImage=False
-                        if matchKey != None:
+                        if matchKey != "None":
                             if imgFileName.find(obj[matchKey]) != -1:
                                 useThisImage=True
                         else:
@@ -3140,7 +3142,7 @@ class SourceBrowser(object):
                                 # Try to pick sensible cut levels
                                 # Min-Max scaling
                                 # Should probably stick with this, but also add log option for optical
-                                if scaling == 'auto' and minMaxRadiusArcmin != None:
+                                if scaling == 'auto' and minMaxRadiusArcmin != "None":
                                     clip['data']=catalogTools.byteSwapArr(clip['data'])
                                     # Avoid cython type troubles
                                     if clip['data'].dtype != np.float32:
@@ -3164,7 +3166,7 @@ class SourceBrowser(object):
                                 plt.axes([0, 0, 1, 1])
                                 #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
                                 plt.imshow(clip['data'], interpolation = "none", origin = 'lower', 
-                                            cmap = colorMap, norm = plt.Normalize(cuts[0], cuts[1]))
+                                           cmap = colorMap, norm = plt.Normalize(cuts[0], cuts[1]))
                                 try:
                                     plt.savefig(outFileName, dpi = dpi)
                                 except:
