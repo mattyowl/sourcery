@@ -2536,6 +2536,14 @@ class SourceBrowser(object):
         mongoDict=self.matchTags(obj)
         name=obj['name']
         
+        # For avoiding display of e.g. catalogs in which we don't have a cross match
+        skipColumnPrefixList=[]
+        for key in obj.keys():
+            prefix=key.split("_")[0]
+            matchKey="%s_match" % (prefix)
+            if matchKey in obj.keys() and obj[matchKey] == 0 and prefix not in skipColumnPrefixList:
+                skipColumnPrefixList.append(prefix)
+        
         # Pick the best available image given the preference given in the config file
         if imageType == 'best':
             for key in self.configDict['imagePrefs']:
@@ -2893,7 +2901,10 @@ class SourceBrowser(object):
                         rowString=rowString.replace("$KEY_VALUE", "<a href=%s>%s</a>" % (nedLinkURL, nedName))
                     else:
                         rowString=rowString.replace("$KEY_VALUE", str(obj[pkey]))
-                propTable=propTable+rowString
+                # Skip over cross-matched tables with no matches
+                prefix=pkey.split("_")[0]
+                if prefix not in skipColumnPrefixList:
+                    propTable=propTable+rowString
         propTable=propTable+"</td></tr></tbody></table>"
         html=html.replace("$PROPERTIES_TABLE", propTable)
                 
