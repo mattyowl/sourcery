@@ -207,10 +207,6 @@ class SourceBrowser(object):
         if "addPS1IRImage" in self.configDict.keys() and self.configDict['addPS1IRImage'] == True:
             label="PS1IR"
             self.imageLabels.append(label)
-        # CFHTLS colour .jpgs
-        if "addCFHTLSImage" in self.configDict.keys() and self.configDict['addCFHTLSImage'] == True:
-            label="CFHTLS"
-            self.imageLabels.append(label)
         # unWISE colour .jpgs
         if "addUnWISEImage" in self.configDict.keys() and self.configDict['addUnWISEImage'] == True:
             label="unWISE"
@@ -941,51 +937,6 @@ class SourceBrowser(object):
                 outIm.save(outFileName)
                 print "... made KiDS cut-out .jpg ..."
                 
-    
-    def fetchCFHTLSImage(self, obj, refetch = False):
-        """Retrieves colour .jpg from CFHT legacy survey. Returns True if successful, False if not
-        
-        NOTE: Broken since CADC removed this service (I can't find it any more)
-        """
-
-        cfhtCacheDir=self.cacheDir+os.path.sep+"CFHTLS"
-        if os.path.exists(cfhtCacheDir) == False:
-            os.makedirs(cfhtCacheDir)
-        
-        name=obj['name']
-        RADeg=obj['RADeg']
-        decDeg=obj['decDeg']
-                
-        outFileName=cfhtCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
-        
-        #http://www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/en/megapipe/access/cut.html
-        
-        url="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/community/CFHTLS-SG/cgi/cutcfhtls.pl?ra=$RA&dec=$DEC&size=$SIZE_ARCMIN&units=arcminutes&wide=true&deep=true&preview=colour"
-        url=url.replace("$RA", str(RADeg))
-        url=url.replace("$DEC", str(decDeg))
-        url=url.replace("$SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))
-        print url
-        foundCutoutInfo=False
-        if os.path.exists(outFileName) == False or refetch == True:
-            response=urllib2.urlopen(url)
-            lines=response.read()
-            lines=lines.split("\n")
-            for line in lines:
-                if line.find("cutout preview") != -1:
-                    foundCutoutInfo=True
-                    break
-            # This happens if outside of footprint
-            if line == '<img src="/community/CFHTLS-SG/cgi/CFHTLScolcut.pl?field=&amp;section=" alt="cutout preview">':
-                foundCutoutInfo=False
-            if foundCutoutInfo == True:
-                imageURL="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/"+line[line.find("src=")+4:].split('"')[1]
-                urllib.urlretrieve(imageURL, outFileName)
-                #except:
-                    #noDataPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
-                    #os.system("cp %s %s" % (noDataPath, outFileName))
-        
-        return foundCutoutInfo
-
 
     def fetchUnWISEImage(self, obj, refetch = False):
         """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
@@ -1979,7 +1930,7 @@ class SourceBrowser(object):
     
         
     def sourceNameToURL(self, name):
-        """Replaces + and spaces in source names so that they will be valid urls.
+        """Replaces + and spaces in source names so that they will be valid URLs.
         
         """
         return name.replace("+", "%2b").replace(" ", "%20")
@@ -2001,11 +1952,6 @@ class SourceBrowser(object):
         
         """
         
-        #if not cherrypy.session.loaded: cherrypy.session.load()
-            
-        ## Store results of query in another collection (empty it first if documents are in it)
-        #self.db.collection[cherrypy.session.id].remove({})
-
         # Build query document piece by piece...
         queryDict={}
 
@@ -2855,7 +2801,7 @@ class SourceBrowser(object):
     def preprocess(self):
         """This re-runs pre-processing steps (e.g., NED matching, SDSS image fetching etc.).
         
-        If the use specified their own imageDirs, then the .jpg images from these are constructed here
+        If the user specified their own imageDirs, then the .jpg images from these are constructed here
         
         Directories containing ready-made .jpgs can also be directly added into the cacheDir folder. So long
         as these have a corresponding entry in the .config file they will be picked up. We spin through
@@ -2896,20 +2842,6 @@ class SourceBrowser(object):
                     newHead[key]=row[key]
                 self.KiDSWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits') 
         
-        # In the CFHT dir, we keep a file that lists objects that don't have data
-        # Saves us pinging CFHT servers again if we rerun
-        cfhtCacheDir=self.cacheDir+os.path.sep+"CFHTLS"
-        if os.path.exists(cfhtCacheDir) == False:
-            os.makedirs(cfhtCacheDir)
-        failsFileName=cfhtCacheDir+os.path.sep+"objectsNotFound.txt"
-        CFHTFailsList=[]
-        if os.path.exists(failsFileName) == True:
-            inFile=file(failsFileName, "r")
-            lines=inFile.readlines()
-            inFile.close()
-            for line in lines:
-                CFHTFailsList.append(line.replace("\n", ""))
-
         # Make .jpg images from local, user-supplied .fits images
         if 'imageDirs' in self.configDict.keys():
             self.makeImageDirJPEGs()
@@ -2934,65 +2866,40 @@ class SourceBrowser(object):
                 self.fetchPS1Image(obj)
             if self.configDict['addPS1IRImage'] == True:
                 self.fetchPS1IRImage(obj)
-            if self.configDict['addCFHTLSImage'] == True:
-                if obj['name'] not in CFHTFailsList:
-                    CFHTResult=self.fetchCFHTLSImage(obj)
-                    if CFHTResult == False:
-                        CFHTFailsList.append(obj['name'])
             if self.configDict['addUnWISEImage'] == True:
-                #try:
                 self.fetchUnWISEImage(obj)
-                #except:
-                    #print("... problem with UnWISE image for %s - skipping ..." % (obj['name']))
             if 'skyviewLabels' in self.configDict.keys():
                 for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)
-                    
+            
+            # Add imageDir tags
+            minSizeBytes=40000
+            for imDirDict in self.configDict['imageDirs']:
+                f=self.configDict['cacheDir']+os.path.sep+imDirDict['label']+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
+                if os.path.exists(f) == True:
+                    # image size check: don't include SDSS if image size is tiny as no data
+                    skipImage=False
+                    if os.stat(f).st_size < minSizeBytes and imDirDict['label'] == 'SDSS':
+                        skipImage=True
+                    if skipImage == False:
+                        post={'image_%s' % (imDirDict['label']): 1}
+                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+            
             # Flag this as done
             self.sourceCollection.update({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
         cursor.close()
         
-        # Update CFHT fails list
-        outFile=file(failsFileName, "w")
-        for objName in CFHTFailsList:
-            outFile.write(objName+"\n")
-        outFile.close()
-                    
-        # Now spin through cache imageDirs and add 'image_<imageDirLabel>' tags
-        print ">>> Adding image_<imageDirLabel> tags to MongoDB ..."
-        minSizeBytes=40000
-        imageDirs=glob.glob(self.cacheDir+os.path.sep+"*")
-        for imageDir in imageDirs:
-            if os.path.isdir(imageDir) == True:         # skip cross-matched tab .fits and .lock file
-                label=os.path.split(imageDir)[-1]
-                print "... %s ..." % (label)
-                fileNames=glob.glob(imageDir+os.path.sep+"*.jpg")
-                for f in fileNames:
-                    
-                    # image size check: don't include SDSS if image size is tiny as no data
-                    skipImage=False
-                    if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
-                        skipImage=True
-                    
-                    objName=os.path.split(f)[-1].replace(".jpg", "")
-                    namesToTry=[objName, objName.replace("_", " ")]
-                    obj=None
-                    for n in namesToTry:
-                        obj=self.sourceCollection.find_one({'name': n})
-                        if obj != None:
-                            break
-                    
-                    if obj != None and skipImage == False:
-                        post={'image_%s' % (label): 1}
-                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
-                        if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                            keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
-                            fieldDict={}
-                            fieldDict['name']='image_%s' % (label)
-                            fieldDict['type']='number'
-                            fieldDict['description']='1 if object has image in the database; 0 otherwise'
-                            fieldDict['index']=len(keysList)+1
-                            self.fieldTypesCollection.insert(fieldDict)
+        # Now add imageDir tags to field types database
+        for imDirDict in self.configDict['imageDirs']:
+            label=imDirDict['label']
+            if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
+                keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
+                fieldDict={}
+                fieldDict['name']='image_%s' % (label)
+                fieldDict['type']='number'
+                fieldDict['description']='1 if object has image in the database; 0 otherwise'
+                fieldDict['index']=len(keysList)+1
+                self.fieldTypesCollection.insert(fieldDict)
         
         # This will stop index displaying "cache rebuilding" message
         if os.path.exists(self.lockFileName) == True:
@@ -3000,19 +2907,16 @@ class SourceBrowser(object):
 
 
     def makeImageDirJPEGs(self):
-        """Actual makes .jpg images from .fits images in given directories. We figure out which image to use
+        """Actually makes .jpg images from .fits images in given directories. We figure out which image to use
         from spinning through the headers. 
         
-        For XCS, there may be more than one image... will need to think how to handle that. For now we will 
-        take the first match.
+        For cases where there may be more than one suitable image, you can use matchKey in the config file to
+        specify a field in the sources database to match on (e.g., obsID in the case of XCS). Otherwise, the
+        first image in which the object is found will be taken.
         
-        If there is only one image in a directory (like an ACT map say), and all objects fall in it, we will
-        flag to make a clickable map page.
-        
-        For tracking e.g. follow-up (and using it), we add a key to object if it has an imageDir image,
-        with name image_<imageDirLabel> (e.g., 'image_NICFPS-Ks'). So would be able to search on
-        'image_NICFPS-Ks = 1'
-                
+        If we were going to add a clickable map image (e.g., for ACT), this would be the place to put it
+        in...
+                        
         """
         print ">>> Making imageDir .jpgs ..."
         for imDirDict in self.configDict['imageDirs']:
@@ -3109,17 +3013,6 @@ class SourceBrowser(object):
                         
                         if useThisImage == True:                           
                                 
-                            # Add to mongodb - we now do this in preprocess
-                            #post={'image_%s' % (label): 1}
-                            #self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
-                            #if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                                #keysList, typeNamesList=self.getFieldNamesAndTypes()
-                                #fieldDict={}
-                                #fieldDict['name']='image_%s' % (label)
-                                #fieldDict['type']='number'
-                                #fieldDict['index']=len(keysList)+1
-                                #self.fieldTypesCollection.insert(fieldDict)
-
                             if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
                                 fitsOutFileName=outFileName.replace(".jpg", ".fits")
                             else:
@@ -3164,7 +3057,6 @@ class SourceBrowser(object):
                                 dpi=96.0
                                 f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
                                 plt.axes([0, 0, 1, 1])
-                                #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
                                 plt.imshow(clip['data'], interpolation = "none", origin = 'lower', 
                                            cmap = colorMap, norm = plt.Normalize(cuts[0], cuts[1]))
                                 try:
@@ -3172,9 +3064,6 @@ class SourceBrowser(object):
                                 except:
                                     raise Exception, "if you see this, you probably need to update PIL/Pillow"
                                 plt.close()
-                                
-                                #IPython.embed()
-                                #sys.exit()
 
         
         

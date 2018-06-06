@@ -21,5 +21,6 @@
 
 import catalogTools
 import sourceBrowser
+import specFeatures
 
 __version__ = "git"
