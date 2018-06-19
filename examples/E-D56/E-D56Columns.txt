@@ -1,0 +1,43 @@
+# Description follows column name, must be on one line
+# White space after : up to start of description text will be stripped
+# HTML markup can be used (e.g., <sup>superscript</sup>)
+name:                Name of the cluster
+RADeg:               J2000 right ascension of the cluster in decimal degrees
+decDeg:              J2000 declination of the cluster in decimal degrees
+SNR:                 Signal-to-noise ratio, optimized over all filter scales
+SNR2p4:              Signal-to-noise ratio at the reference 2.4 arcmin filter scale
+y0tilde:             Cluster central Compton parameter measured at the 2.4 arcmin filter scale (x 10<sup>-4</sup>)
+y0tilde_err:         1-sigma uncertainty on the cluster central Compton parameter measured at the 2.4 arcmin filter scale (x 10<sup>-4</sup>)
+H13Match:            1 if the cluster is matched to an object in the Hasselfield et al. (2013) ACT equatorial cluster catalog; 0 otherwise
+PSZ2Match:           1 if the cluster is matched to an object in the Planck 2015 PSZ2 SZ cluster catalog; 0 otherwise
+RMMatch:             1 if the cluster is matched to an object in the redMaPPer v5.10 cluster catalog (Rykoff et al. 2014); 0 otherwise
+AltName:             Alternative name for this object (generally the closest match listed on NED)
+BCG_RADeg:           J2000 right ascension of the brightest cluster galaxy in decimal degrees
+BCG_decDeg:          J2000 declination of the brightest cluster galaxy in decimal degrees
+z:                   Redshift of the cluster
+zErr:                Uncertainty on the cluster redshift (if photometric; 0 if spectroscopic)
+zType:               Redshift type (spec = spectroscopic, phot = photometric)
+zSource:             Source of the redshift (see notes in Table A2 in the paper for more details)
+deltaSDSS:           zCluster density contrast statistic as measured using SDSS photometry, measured at the zCluster photometric redshift
+deltaSDSS_err:       1-sigma uncertainty on the zCluster density contrast statistic as measured using SDSS photometry, measured at the zCluster photometric redshift
+deltaS82:            zCluster density contrast statistic as measured using S82 photometry, measured at the zCluster photometric redshift
+deltaS82_err:        1-sigma uncertainty on the zCluster density contrast statistic as measured using S82 photometry, measured at the zCluster photometric redshift
+deltaCFHT:           zCluster density contrast statistic as measured using CFHTLenS photometry, measured at the zCluster photometric redshift
+deltaCFHT_err:       1-sigma uncertainty on the zCluster density contrast statistic as measured using CFHTLenS photometry, measured at the zCluster photometric redshift
+deltaSOAR:           zCluster density contrast statistic as measured using APO/SOAR photometry, measured at the zCluster photometric redshift
+deltaSOAR_err:       1-sigma uncertainty on the zCluster density contrast statistic as measured using APO/SOAR photometry, measured at the zCluster photometric redshift
+M500cUPP:            M<sub>500</sub> with respect to the critical density at the cluster redshift, in units of 10<sup>14</sup> M<sub>Sun</sub>; assuming the UPP and Arnaud et al. (2010) scaling relation to convert SZ signal to mass, corrected for bias due to the steepness of the cluster mass function using the results of Tinker et al. (2008)
+M500cUPP_errPlus:    Positive 1-sigma error on M<sub>500</sub> in units of 10<sup>14</sup> M<sub>Sun</sub>
+M500cUPP_errMinus:   Negative 1-sigma error on M<sub>500</sub>  in units of 10<sup>14</sup> M<sub>Sun</sub>
+M500cUnc:            M<sub>500</sub>  with respect to the critical density at the cluster redshift in units of 10<sup>14</sup> M<sub>Sun</sub>; assuming the UPP and Arnaud et al. (2010) scaling relation to convert SZ signal to mass, uncorrected for bias due to the steepness of the cluster mass function
+M500cUnc_errPlus:    Positive 1-sigma error on M<sub>500</sub>  in units of 10<sup>14</sup> M<sub>Sun</sub>
+M500cUnc_errMinus:   Negative 1-sigma error on M<sub>500</sub>  in units of 10<sup>14</sup> M<sub>Sun</sub>
+M200mUPP:            M200 with respect to the mean density, converted from M500cUPP using the Bhattacharya et al. (2013) c-M relation
+M200mUPP_errPlus:    Positive 1-sigma error on M200 in units of 10<sup>14</sup> M<sub>Sun</sub>
+M200mUPP_errMinus:   Negative 1-sigma error on M200 in units of 10<sup>14</sup> M<sub>Sun</sub>
+M200mUnc:            M200 with respect to the mean density, converted from M500cUnc using the Bhattacharya et al. (2013) c-M relation
+M200mUnc_errPlus:    Positive 1-sigma error on M200 in units of 10<sup>14</sup> M<sub>Sun</sub>
+M200mUnc_errMinus:   Negative 1-sigma error on M200 in units of 10<sup>14</sup> M<sub>Sun</sub>
+M500cCal:            M<sub>500</sub>  with respect to the critical density at the cluster redshift in units of 10<sup>14</sup> M<sub>Sun</sub>; rescaled from M500cUpp using the richness-based weak-lensing mass calibration factor of 1/0.68 (see Section 6.1 of the paper)
+M500cCal_errPlus:        Positive 1-sigma error on M<sub>500</sub>  in units of 10<sup>14</sup> M<sub>Sun</sub>
+M500cCal_errMinus:   Negative 1-sigma error on M<sub>500</sub>  in units of 10<sup>14</sup> M<sub>Sun</sub>

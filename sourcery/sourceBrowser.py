@@ -113,9 +113,13 @@ class SourceBrowser(object):
         # Dirs that could contain big .jpg images from which we will cut
         if 'DESTilesCacheDir' in self.configDict.keys():
             self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
-        if 'KiDSTilesCacheDir' in self.configDict.keys():
+            if os.path.exists(self.DESTilesCacheDir) == False:
+                os.makedirs(self.DESTilesCacheDir)
+        if 'KiDSTilesCacheDir' in self.configDict.keys():            
             self.KiDSTilesCacheDir=self.configDict['KiDSTilesCacheDir']
-
+            if os.path.exists(self.KiDSTilesCacheDir) == False:
+                os.makedirs(self.KiDSTilesCacheDir)
+                
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
         self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
         
@@ -133,54 +137,40 @@ class SourceBrowser(object):
 
         # Column to display info
         # Table pages
-        self.tableDisplayColumns=['name', 'RADeg', 'decDeg']
-        self.tableDisplayColumnLabels=['Name', 'RA (deg)', 'Dec. (deg)']
-        self.tableDisplayColumnFormats=['%s', '%.6f', '%.6f']
+        self.tableDisplayColumns=[{'name': "name",
+                                   'label': "Name",
+                                   'fmt': "%s"},
+                                  {'name': "RADeg",
+                                   'label': "RA (deg)",
+                                   'fmt': "%.6f"},
+                                  {'name': "decDeg",
+                                   'label': "Dec. (deg)",
+                                   'fmt': "%.6f"}]
         for colDict in self.configDict['tableDisplayColumns']:
             for key in colDict.keys():
-                self.tableDisplayColumns.append(key)
-                self.tableDisplayColumnLabels.append(key)
-                self.tableDisplayColumnFormats.append(colDict[key])
-        # Source pages
-        self.sourceDisplayColumns=[]
+                dispDict={'name': key, 'label': key, 'fmt': colDict[key]}
+                self.tableDisplayColumns.append(dispDict)
 
         # Support for tagging, classification etc. of candidates
-        # We have three things here:
-        #   tags: these work as flag columns - eventually, users can add any tag, we can then search for objects matching that tag
-        #   classification: what kind of object is in the catalog? List of types defined in config file
-        #   fields: these are editable, used to, e.g., assign a redshift and source
-        # We create empty entries in the MongoDB and corresponding database columns if we cannot find an existing entry
-        # We will only add/populate columns of atpy table when writing output
-        #if 'tags' in self.configDict.keys():
-            #for t in self.configDict['tags']:
-                #self.tab.add_column(t, np.zeros(len(self.tab), dtype = bool))
-            #self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['tags']
         if 'fields' in self.configDict.keys():
-            formatsList=[]
-            fieldsList=[]
             for fieldDict in self.configDict['fields']:
+                dispDict={'name': fieldDict['name'], 'label': fieldDict['name']}
                 if fieldDict['type'] == 'number':
-                    formatsList.append('%.3f')
+                    dispDict['fmt']='%.3f'
                 elif fieldDict['type'] == 'text':
-                    formatsList.append('%s')
+                    dispDict['fmt']='%s'
                 else:
                     raise Exception, "only valid field types are 'number' and 'text'"
-                fieldsList.append(fieldDict['name'])
-            self.sourceDisplayColumns=self.sourceDisplayColumns+fieldsList
-            self.tableDisplayColumns=self.tableDisplayColumns+fieldsList
-            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+fieldsList
-            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+formatsList
+                self.tableDisplayColumns.append(dispDict)
+                
         if 'classifications' in self.configDict.keys():
-            self.sourceDisplayColumns=self.sourceDisplayColumns+["classification"]
-            self.tableDisplayColumns=self.tableDisplayColumns+["classification"]
-            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["classification"]
-            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
+            dispDict={'name': "classification", 'label': "classification", 'fmt': "%s"}
+            self.tableDisplayColumns.append(dispDict)
         
         # Now tracking when changes are made
-        self.sourceDisplayColumns.append('lastUpdated')
-        self.tableDisplayColumns.append('lastUpdated')
-        self.tableDisplayColumnLabels.append('lastUpdated')
-        self.tableDisplayColumnFormats.append('%s')
+        if 'fields' in self.configDict.keys():
+            dispDict={'name': "lastUpdated", 'label': "lastUpdated", 'fmt': "%s"}
+            self.tableDisplayColumns.append(dispDict)
                                
         # We will generate images dynamically... here we set up info like labels and captions
         self.imageLabels=[]      # labels at top of each source page that allow us to select image to view
@@ -343,7 +333,7 @@ class SourceBrowser(object):
                 tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
                 tab['%s_match' % (label)][mask]=1
                 tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]
-        tab.remove_column("matchIndices")
+            tab.remove_column("matchIndices")
         
         # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
         # Otherwise, for large catalogs, we're hitting memory issues
@@ -1508,8 +1498,7 @@ class SourceBrowser(object):
             </style>
             <style>
             .tablefont, .tablefont TD, .tablefont TH {
-                font-family:sans-serif;
-                font-size:small;
+                font-family: monospace;
             }
             </style>
             <title>$TITLE</title>
@@ -1639,10 +1628,13 @@ class SourceBrowser(object):
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
         
         # Quick query link(s) - at top of 'constraints' box
-        if 'quickLinks' in self.configDict.keys():
+        if 'quickLinks' in self.configDict.keys():            
             quickLinkStr="<p><i>Quick links:</i> "
             for linkDict in self.configDict['quickLinks']:
-                quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (linkDict['url'], linkDict['label'])
+                url="updateQueryParams?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints="
+                url=url+linkDict['constraints']
+                url=url+"&queryApply=Apply"
+                quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (url, linkDict['label'])
                 quickLinkStr=quickLinkStr+" - "
             quickLinkStr=quickLinkStr[:-3]+"</p>"
         else:
@@ -1660,9 +1652,11 @@ class SourceBrowser(object):
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
         # Table columns - as well as defaults, add ones we query on
+        columnsShownList=[]
+        for colDict in self.tableDisplayColumns:
+            if colDict['name'] not in columnsShownList:
+                columnsShownList.append(colDict['name'])
         displayColumns=[]+self.tableDisplayColumns
-        displayColumnLabels=[]+self.tableDisplayColumnLabels
-        displayColumnFormats=[]+self.tableDisplayColumnFormats
         operators=["<", ">", "=", "!"]
         logicalOps=[' and ', ' or ']
         for logOp in logicalOps:
@@ -1670,20 +1664,20 @@ class SourceBrowser(object):
             for c in constraints:
                 for o in operators:
                     colName=c.split(o)[0].lstrip().rstrip()
-                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
-                        displayColumns.append(colName)
-                        displayColumnLabels.append(colName)
+                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in columnsShownList:
                         fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
+                        dispDict={'name': colName, 'label': colName}
                         if fieldTypeDict['type'] == 'number':
-                            displayColumnFormats.append('%.3f')
+                            dispDict['fmt']='%.3f'
                         elif fieldTypeDict['type'] == 'text':
-                            displayColumnFormats.append('%s')
+                            dispDict['fmt']='%s'
                         else:
                             raise Exception, "unknown type for field '%s'" % (colName)
-        
+                        displayColumns.append(dispDict)
+                        
         columnHeadings=""
-        for key in displayColumnLabels:
-            columnHeadings=columnHeadings+"\n           <td><b>%s</b></td>" % (key)
+        for colDict in displayColumns:
+            columnHeadings=columnHeadings+"\n           <td><b>%s</b></td>" % (colDict['label'])
         html=html.replace("$TABLE_COL_NAMES", columnHeadings)
         html=html.replace("$TABLE_COLS", str(len(displayColumns)))
         
@@ -1771,13 +1765,18 @@ class SourceBrowser(object):
                 
             # Row for each object in table
             rowString="<tr>\n"
-            for key in displayColumns:
-                htmlKey="$"+string.upper(key)+"_KEY"
-                rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center width=10%>"+htmlKey+"</td>\n"
+            for colDict in displayColumns:
+                htmlKey="$"+string.upper(colDict['name'])+"_KEY"
+                if colDict['fmt'] == '%s':
+                    widthStr=""
+                else:
+                    widthStr=' width=10%'
+                rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center"+widthStr+">"+htmlKey+"</td>\n"
             rowString=rowString+"</tr>\n"
             
             # Insert values - note name is special
-            for key, fmt in zip(displayColumns, displayColumnFormats):
+            for colDict in displayColumns:
+                key=colDict['name']
                 if key in obj.keys():
                     try:
                         value=obj[key]
@@ -1785,7 +1784,7 @@ class SourceBrowser(object):
                         raise Exception, "missing key %s" % (key)
                 else:
                     # No entry in MongoDB tags yet
-                    if fmt != "%s":
+                    if colDict['fmt'] != "%s":
                         value=0.0
                     else:
                         value=""
@@ -1806,7 +1805,7 @@ class SourceBrowser(object):
                     rowString=rowString.replace(htmlKey, "-")
                 else:
                     try:
-                        rowString=rowString.replace(htmlKey, fmt % (value))
+                        rowString=rowString.replace(htmlKey, colDict['fmt'] % (value))
                     except:
                         IPython.embed()
                         sys.exit()
@@ -2194,7 +2193,7 @@ class SourceBrowser(object):
         # Fill in table of data types
         bckColor="white"
         tableData=""
-        excludeKeys=['RADeg', 'decDeg'] # because we handle differently
+        excludeKeys=['RADeg', 'decDeg', 'sourceryID', 'cacheBuilt'] # because we handle differently
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = excludeKeys)
         for key, typeName, description in zip(keysList, typeNamesList, descriptionsList):
             # Row for each column in table
@@ -2845,7 +2844,25 @@ class SourceBrowser(object):
         # Make .jpg images from local, user-supplied .fits images
         if 'imageDirs' in self.configDict.keys():
             self.makeImageDirJPEGs()
-        
+
+        # Full list of image directories - for adding image_ tags in a moment
+        # NOTE: handling of surveys (e.g., SDSS) is clunky and getting unwieldy...
+        imDirLabelsList=[]
+        if self.configDict['addSDSSImage'] == True:
+            imDirLabelsList.append("SDSS")
+        if self.configDict['addDESImage'] == True:
+            imDirLabelsList.append("DES")
+        if self.configDict['addKiDSImage'] == True:
+            imDirLabelsList.append("KiDS")
+        if self.configDict['addPS1Image'] == True:
+            imDirLabelsList.append("PS1")
+        if self.configDict['addPS1IRImage'] == True:
+            imDirLabelsList.append("PS1IR")
+        if self.configDict['addUnWISEImage'] == True:
+            imDirLabelsList.append("unWISE")
+        for imDirDict in self.configDict['imageDirs']:
+            imDirLabelsList.append(imDirDict['label'])
+                              
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
@@ -2873,16 +2890,17 @@ class SourceBrowser(object):
                     self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)
             
             # Add imageDir tags
+            # NOTE: we look in other survey dirs (e.g., SDSS) while we're here
             minSizeBytes=40000
-            for imDirDict in self.configDict['imageDirs']:
-                f=self.configDict['cacheDir']+os.path.sep+imDirDict['label']+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
+            for label in imDirLabelsList:
+                f=self.configDict['cacheDir']+os.path.sep+label+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
                 if os.path.exists(f) == True:
                     # image size check: don't include SDSS if image size is tiny as no data
                     skipImage=False
                     if os.stat(f).st_size < minSizeBytes and imDirDict['label'] == 'SDSS':
                         skipImage=True
                     if skipImage == False:
-                        post={'image_%s' % (imDirDict['label']): 1}
+                        post={'image_%s' % (label): 1}
                         self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
             
             # Flag this as done
@@ -2890,8 +2908,7 @@ class SourceBrowser(object):
         cursor.close()
         
         # Now add imageDir tags to field types database
-        for imDirDict in self.configDict['imageDirs']:
-            label=imDirDict['label']
+        for label in imDirLabelsList:
             if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
                 keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
                 fieldDict={}
@@ -2928,8 +2945,6 @@ class SourceBrowser(object):
             minMaxRadiusArcmin=imDirDict['minMaxRadiusArcmin']
             scaling=imDirDict['scaling']
             matchKey=imDirDict['matchKey']
-            if colorMap == "None":
-                colorMap=None
             
             print "... %s ..." % (label)
 
@@ -3001,7 +3016,7 @@ class SourceBrowser(object):
                         wcs=wcsDict[imgFileName]
                         
                         useThisImage=False
-                        if matchKey != "None":
+                        if matchKey != None:
                             if imgFileName.find(obj[matchKey]) != -1:
                                 useThisImage=True
                         else:
@@ -3035,7 +3050,7 @@ class SourceBrowser(object):
                                 # Try to pick sensible cut levels
                                 # Min-Max scaling
                                 # Should probably stick with this, but also add log option for optical
-                                if scaling == 'auto' and minMaxRadiusArcmin != "None":
+                                if scaling == 'auto' and minMaxRadiusArcmin != None:
                                     clip['data']=catalogTools.byteSwapArr(clip['data'])
                                     # Avoid cython type troubles
                                     if clip['data'].dtype != np.float32:
