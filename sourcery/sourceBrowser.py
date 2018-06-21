@@ -1721,7 +1721,7 @@ class SourceBrowser(object):
         </tbody>
         </table>
         <hr>
-        <i>Sourcery</i> - $HOSTED_STR
+        <a href="https://github.com/mattyowl/sourcery"><i>Sourcery</i></a> - $HOSTED_STR
         <br>
         <br>
         </body>
@@ -2992,8 +2992,11 @@ class SourceBrowser(object):
             imDirLabelsList.append("PS1IR")
         if self.configDict['addUnWISEImage'] == True:
             imDirLabelsList.append("unWISE")
-        for imDirDict in self.configDict['imageDirs']:
-            imDirLabelsList.append(imDirDict['label'])
+        if 'imageDirs' in self.configDict.keys():
+            for imDirDict in self.configDict['imageDirs']:
+                imDirLabelsList.append(imDirDict['label'])
+        else:
+            imDirLabelsList=[]
                               
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
