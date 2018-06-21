@@ -4,6 +4,9 @@
 # Apache on webserver needs absolute paths - if set, this will be prepended where necessary to all relative paths given here
 #sourceryPath: "/home/mjh/actpol-sourcery/"
 
+# Access control - if userListFile not given, no password protection
+userListFile: "E-D56Users.txt"
+
 # Title shown on table pages
 indexTitle: "ACTPol Galaxy Clusters in the E-D56 field"
 
@@ -47,17 +50,17 @@ tableDisplayColumns:
 # If enableEditing is True, the items in the fields list (see below) will be editable
 # MongoDBCrossMatchRadiusArcmin sets the radius to use between matching the tags database (which has the user-editable fields) with the input catalog
 # This allows the input catalog to be changed without losing the user-edited information
-enableEditing: False
+enableEditing: True
 MongoDBName: "E-D56-sourcery"
 MongoDBCrossMatchRadiusArcmin: 1.0
 
-#classifications:
-    #- "cluster"
-    #- "probable cluster"
-    #- "possible cluster"
-    #- "not cluster"
+classifications:
+    - "cluster"
+    - "probable cluster"
+    - "possible cluster"
+    - "not cluster"
 
-#classificationDescription: "The following classification scheme is used: <ul><li>cluster (confirmed and with redshift)</li><li>probable cluster (looks like a cluster in the optical/IR imaging, redshift confirmation needed)</li><li>possible cluster (should be followed up, but not obviously a cluster based on the available optical/IR imaging)</li><li>not cluster (definitely not a cluster and can be discarded)</li></ul>"
+classificationDescription: "The following classification scheme is used: <ul><li>cluster (confirmed and with redshift)</li><li>probable cluster (looks like a cluster in the optical/IR imaging, redshift confirmation needed)</li><li>possible cluster (should be followed up, but not obviously a cluster based on the available optical/IR imaging)</li><li>not cluster (definitely not a cluster and can be discarded)</li></ul>"
 
 objectTypeString: "clusters"
 
@@ -65,8 +68,8 @@ objectTypeString: "clusters"
 # Fields we can edit that are stored independently (in MongoDB) of the catalog and tagging
 # type can be 'number' or 'text'
 # displaySize is the size in characters of the text input fields on the web form
-#fields:
-    #- {name: notes, type: text, description: "Notes about the candidate (e.g., high-z)", displaySize: 25}
+fields:
+    - {name: notes, type: text, description: "Notes about the candidate (e.g., high-z)", displaySize: 25}
 
 # A text file containing descriptions for each column (displayed on the "constrains help" page
 # Format: delimited, one column per line, e.g.

@@ -57,15 +57,44 @@ import cherrypy
 import pickle
 import pyvips
 import IPython
- 
+from sourcery import sourceryAuth
+from passlib.hash import pbkdf2_sha256
+
 #-------------------------------------------------------------------------------------------------------------
 class SourceBrowser(object):
     
     def __init__(self, configFileName, preprocess = False, buildDatabase = False):
         
+        #self.auth = sourceryAuth.AuthController()
+
         # Parse config file
         self.parseConfig(configFileName)
-
+        
+        # Access control (optional)
+        if 'userListFile' in self.configDict.keys():
+            inFile=open(self.configDict['userListFile'], "r")
+            lines=inFile.readlines()
+            inFile.close()
+            self.usersList=[]
+            for line in lines:
+                if line[0] != "#":
+                    bits=line.split()
+                    userDict={'name': bits[0], 
+                              'role': bits[1],
+                              'hash': bits[2].rstrip()}
+                    if userDict['role'] in ['editor', 'viewer']:
+                        self.usersList.append(userDict)
+                    else:
+                        raise Exception("unknown user role - check userListFile")
+        else:
+            self.usersList=None
+        
+        # Displayed when failed login
+        if 'contactInfo' in self.configDict.keys():
+            self.contactInfo=self.configDict['contactInfo']
+        else:
+            self.contactInfo=""
+            
         # Image choices
         if 'defaultImageType' not in self.configDict.keys():
             self.configDict['defaultImageType']='best'
@@ -170,6 +199,7 @@ class SourceBrowser(object):
         # Now tracking when changes are made
         if 'fields' in self.configDict.keys():
             dispDict={'name': "lastUpdated", 'label': "lastUpdated", 'fmt': "%s"}
+            dispDict={'name': "user", 'label': "user", 'fmt': "%s"}
             self.tableDisplayColumns.append(dispDict)
                                
         # We will generate images dynamically... here we set up info like labels and captions
@@ -1463,9 +1493,94 @@ class SourceBrowser(object):
             cherrypy.session['queryOtherConstraints']=queryOtherConstraints
         
         return self.index()
-    
+
+
+    def onLogin(self, username):
+        """Called on successful login.
         
+        Checks the permissions of the user and sets session variables accordingly
+        
+        """
+        sourceryAuth.setEditPermissions(username, self.usersList)
+        
+    
+    def onLogout(self, username):
+        """Called on logout"""
+    
+    
+    def getLoginForm(self, username, msg="", from_page="/"):
+        html="""<html><body style="font-family: sans-serif; vertical align: top; justify: full;">
+        <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
+            <tbody>
+                <tr>
+                    <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
+                        text-align: center; vertical-align: middle; font-size: 125%;">
+                        $TITLE
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <br>
+        <fieldset>
+        <legend><b>Enter login information:</b></legend>
+        <p>      
+            <form method="post" action="/login">
+            <input type="hidden" name="from_page" value="$FROM_PAGE" />
+            <label for="username"><b>Username:</b></label>
+            <input type="text" name="username" value="$USERNAME" /><br />
+            <br>
+            <label for="username"><b>Password:</b></label>            
+            <input type="password" name="password" /><br />
+            <br>
+            <input type="submit" value="Log in" />
+        </p>
+        <p>$MSG</p>
+        </fieldset>
+        </body></html>"""
+        html=html.replace("$FROM_PAGE", from_page)
+        html=html.replace("$MSG", msg)
+        html=html.replace("$USERNAME", username)
+        if 'indexTitle' in self.configDict.keys():
+            html=html.replace("$TITLE", self.configDict['indexTitle'])
+        else:
+            html=html.replace("$TITLE", "Sourcery Database")
+        
+        return html
+    
+    
     @cherrypy.expose
+    def login(self, username=None, password=None, from_page="/"):
+        
+        if self.usersList == None:
+            username="public"
+            cherrypy.session[sourceryAuth.SESSION_KEY] = cherrypy.request.login = username
+            self.onLogin(username) 
+        else:
+            if username is None or password is None:
+                return self.getLoginForm("", from_page=from_page)
+        
+        error_msg = sourceryAuth.checkCredentials(username, password, self.usersList, contactStr = self.contactInfo)
+        if error_msg:
+            return self.getLoginForm(username, error_msg, from_page)
+        else:
+            cherrypy.session[sourceryAuth.SESSION_KEY] = cherrypy.request.login = username
+            self.onLogin(username)
+        raise cherrypy.HTTPRedirect(from_page or "/")
+    
+    
+    @cherrypy.expose
+    def logout(self, from_page="/"):
+        sess = cherrypy.session
+        username = sess.get(sourceryAuth.SESSION_KEY, None)
+        sess[sourceryAuth.SESSION_KEY] = None
+        if username:
+            cherrypy.request.login = None
+            self.onLogout(username)
+        raise cherrypy.HTTPRedirect(from_page or "/")
+    
+    
+    @cherrypy.expose
+    @sourceryAuth.require()
     def index(self):
         """Shows the table page.
         
@@ -1844,6 +1959,7 @@ class SourceBrowser(object):
 
 
     @cherrypy.expose
+    @sourceryAuth.require()
     def downloadCatalog(self, queryRADeg = "0:360", queryDecDeg = "-90:90", querySearchBoxArcmin = "",
                         queryOtherConstraints = "", fileFormat = "cat"):
         """Provide user with the current table view as a downloadable catalog.
@@ -2267,6 +2383,7 @@ class SourceBrowser(object):
             if key == 'classification':
                 post[key]=kwargs[key]
         post['lastUpdated']=datetime.date.today().isoformat()
+        post['user']=cherrypy.session['_sourcery_username']
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
         # Update source collection too - here we will do this for all sources that share the same name (we can have multiple source lists)
@@ -2326,6 +2443,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
+    @sourceryAuth.require()
     def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
         """Retrieve data on a source and display source page, showing given image plot.
         
@@ -2607,6 +2725,10 @@ class SourceBrowser(object):
             </fieldset>
             </form>
             """
+            if cherrypy.session['editPermission'] == False:
+                readOnlyStr="readonly"
+            else:
+                readOnlyStr=""
             tagFormCode=tagFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
             tagFormCode=tagFormCode.replace("$OBJECT_NAME", name)
             tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
@@ -2614,22 +2736,33 @@ class SourceBrowser(object):
                 fieldsCode=""
                 for fieldDict in self.configDict['fields']:
                     fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (fieldDict['name'], fieldDict['name'])
-                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d/>\n' % (str(mongoDict[fieldDict['name']]), 
+                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d %s/>\n' % (str(mongoDict[fieldDict['name']]), 
                                                                                                    fieldDict['name'], 
-                                                                                                   fieldDict['displaySize'])
+                                                                                                   fieldDict['displaySize'],
+                                                                                                   readOnlyStr)
                 if 'lastUpdated' in mongoDict.keys():
                     lastUpdated=mongoDict['lastUpdated']
                 else:
                     lastUpdated='-'
+                if 'user' in mongoDict.keys():
+                    userName=mongoDict['user']
+                else:
+                    userName='-'
                 fieldsCode=fieldsCode+'<p><label for = "lastUpdated"><b>Last Updated:</b></label>\n'
-                fieldsCode=fieldsCode+'<input type="text" value="%s" name="lastUpdated" size=10 readonly/></p>\n' % (lastUpdated)
+                fieldsCode=fieldsCode+'<input type="text" value="%s" name="lastUpdated" size=10 readonly/>\n' % (lastUpdated)
+                fieldsCode=fieldsCode+'<label for = "user"><b>By User:</b></label>\n'
+                fieldsCode=fieldsCode+'<input type="text" value="%s" name="userName" size=10 readonly/></p>\n' % (userName)
             tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', fieldsCode)
             classificationsCode=""
+            if cherrypy.session['editPermission'] == False:
+                readOnlyStr="disabled"
+            else:
+                readOnlyStr=""
             for c in self.configDict['classifications']:
                 if c == mongoDict['classification']:
-                    classificationsCode=classificationsCode+'<input type="radio" name="classification" value="%s" checked>%s\n' % (c, c)
+                    classificationsCode=classificationsCode+'<input type="radio" name="classification" value="%s" checked %s>%s\n' % (c, readOnlyStr, c)
                 else:
-                    classificationsCode=classificationsCode+'<input type="radio" onChange="this.form.submit();" name="classification" value="%s">%s\n' % (c, c)
+                    classificationsCode=classificationsCode+'<input type="radio" onChange="this.form.submit();" name="classification" value="%s" %s>%s\n' % (c, readOnlyStr, c)
             tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", classificationsCode)
         
         # Optional spectrum plot
@@ -2796,7 +2929,6 @@ class SourceBrowser(object):
         return html   
     
     
-    @cherrypy.expose
     def preprocess(self):
         """This re-runs pre-processing steps (e.g., NED matching, SDSS image fetching etc.).
         

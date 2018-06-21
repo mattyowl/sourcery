@@ -32,12 +32,16 @@ matplotlib.use("Agg")
 import pylab
 import cherrypy
 from sourcery.sourceBrowser import SourceBrowser
+from sourcery import sourceryAuth2
 import atexit
+import base64
+import re
 
 cherrypy.config.update({'environment': 'embedded', 'request.show_tracebacks': True,
                         'tools.sessions.on': True,
                         'tools.sessions.name': 'sourcery_id',
                         'tools.sessions.clean_thread': True,
+                        'tools.auth.on': True,
                         'log.error_file': 'error.log',
                        })
 
