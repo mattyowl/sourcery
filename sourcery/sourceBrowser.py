@@ -1656,8 +1656,8 @@ class SourceBrowser(object):
             <tbody>
                 <tr>
                     <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 125%;">
-                        $TITLE
+                        text-align: center; vertical-align: middle; font-size: 150%;">
+                        <b>$TITLE</b>
                     </td>
                 </tr>
             </tbody>
@@ -2482,8 +2482,8 @@ class SourceBrowser(object):
                 <tr>
                     <!-- $PREV_LINK_CODE -->
                     <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 125%;">
-                        $SOURCE_NAME
+                        text-align: center; vertical-align: middle; font-size: 150%;">
+                        <b>$SOURCE_NAME</b>
                     </td>
                     <!-- $NEXT_LINK_CODE -->
                 </tr>
@@ -2492,20 +2492,32 @@ class SourceBrowser(object):
         
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
 
+        <br>
+
+        <div style="display: table; width: 80%; margin:0 auto;">
+            <div style="display: table-row; height: auto; margin:0 auto;">
+                <div style="display: table-cell;">
+                    <div style="display: block;">
+                        $PLOT_CONTROLS
+                    </div>
+                    <div style="display: block;">
+                        $TAG_CONTROLS
+                    </div>
+                </div>
+                <div style="display: table-cell;">
+                    <fieldset style="height: 100%;">
+                    <legend><b>Source Image</b></legend>
+                    <div id="imagePlot"></div>
+                    </fieldset>
+                </div>
+            </div>
+        </div>
+
         <table frame=border cellspacing=0 cols=1 rules=None border=0 width=100%>
-        <tbody>
-        
-        <tr>
-            <td align=center id="imagePlot">
-            </td>
-        </tr>
-
-        <tr><td align=center>$PLOT_CONTROLS</td></tr>
-
-        <tr><td align=center>$TAG_CONTROLS</td></tr>
+        <tbody>        
 
         $SPECTRUM_PLOT
-        
+
         <tr>
             <td align=center>$NED_MATCHES_TABLE</td>
         </tr>
@@ -2584,7 +2596,7 @@ class SourceBrowser(object):
                             gamma: $("#gamma").val()}, 
                             function(data) {
                                 // directly insert the image
-                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
+                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
                            });
                     return false;
             });
@@ -2619,7 +2631,7 @@ class SourceBrowser(object):
                             gamma: $("#gammaSliderValue").val()}, 
                             function(data) {
                                 // directly insert the image
-                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
+                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
                                 //alert($('input:radio[name=imageType]:checked').val());
                            });
                     return false;
@@ -2629,28 +2641,55 @@ class SourceBrowser(object):
         </script>
 
         <form action="#" id="imageForm" method="post">        
-        <fieldset style="width:80%">
+        <fieldset style="height: 100%;">
         <legend><b>Image Controls</b></legend>
         <input name="name" value="$OBJECT_NAME" type="hidden">
-        <p><b>Survey:</b> $IMAGE_TYPES</p>      
-        <p><b>Plot:</b>
-        <input type="checkbox" name="noAxes" value=1 $CHECKED_NOAXES>Remove coordinate axes
+        <p><b>Survey:</b></p> 
+        <p>
+        $IMAGE_TYPES
+        </p>      
+        <p><b>Plot:</b></p>
+        <p>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="noAxes" value=1 $CHECKED_NOAXES>
+        <label for="noAxes">Remove coordinate axes</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
         $CONTOUR_CODE
-        <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
-        <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
-        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR14 objects
-        <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>Cross match objects
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>
+        <label for="plotSourcePos">Source position</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>
+        <label for="plotNEDObjects">NED objects</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>
+        <label for="plotSDSSObjects">SDSS DR14 objects</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>
+        <label for="plotXMatch">Cross match objects</label>
+        </span>
         </p>
-        
+
+        <p align="right">
+        <span style="margin-left: 1.2em; display: inline-block">
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
         <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
         <input id="sizeSliderValue" type="text" size="2"/>
-        
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
         <label for="gamma">Brightness (&gamma;)</label>
         <input id="gammaSlider" name="gamma" type="range" min="0.2" max="3.0" step="0.2" value=$CURRENT_GAMMA onchange="printValue('gammaSlider','gammaSliderValue')">
         <input id="gammaSliderValue" type="text" size="2"/>
-        
-        <input type="submit" value="Apply">
+        </span>
+        </p>
+        <p align="right">
+        <input type="submit" style="font-size: 1.05em;" value="Apply">
+        </p>
         </fieldset>
         </form>
      
@@ -2662,7 +2701,8 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
         if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-            contourCode='<input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>Contours ($CONTOUR_IMAGE)'
+            contourCode='<input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>\n'
+            contourCode=contourCode+'<label for="plotContours">Contours ($CONTOUR_IMAGE)</label>'
             contourCode=contourCode.replace("$CONTOUR_IMAGE", self.configDict['contourImage'])
             plotFormCode=plotFormCode.replace("$CONTOUR_CODE", contourCode)
         else:
@@ -2671,9 +2711,9 @@ class SourceBrowser(object):
         imageTypesCode=""            
         for label in self.imageLabels:
             if label == imageType:
-                imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s" checked>%s\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s" checked>%s</span>\n' % (label, label)
             else:
-                imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s">%s\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s">%s</span>\n' % (label, label)
         plotFormCode=plotFormCode.replace("$IMAGE_TYPES", imageTypesCode)
         
         if plotNEDObjects == "true":
@@ -2710,23 +2750,21 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$CURRENT_GAMMA", str(gamma))
                 
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
-        if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
-            tagFormCode="""
-            <form method="post" action="updateMongoDB">    
-            <input name="name" value="$OBJECT_NAME" type="hidden">
-            <input name="returnURL" value=$RETURN_URL" type="hidden">
-            <fieldset style="width:80%">
-            <legend><b>Editing Controls</b></legend>
-            <p><b>Classification:</b>
-            $CLASSIFICATION_CONTROLS
-            </p>
-            <p><b>Fields:</b>
-            $FIELD_CONTROLS
-            </p>
-            <input type="submit" class="f" value="Update">
-            </fieldset>
-            </form>
-            """
+        tagFormCode="""
+        <form method="post" action="updateMongoDB">    
+        <input name="name" value="$OBJECT_NAME" type="hidden">
+        <input name="returnURL" value=$RETURN_URL" type="hidden">
+        <fieldset style="height: 100%;">
+        <legend><b>Editing Controls</b></legend>
+        $CLASSIFICATION_CONTROLS
+        $FIELD_CONTROLS
+        <p align="right">
+        <input type="submit" class="f" style="font-size: 1.05em;" value="Update">
+        </p>
+        </fieldset>
+        </form>
+        """
+        if 'fields' in self.configDict.keys():
             if cherrypy.session['editPermission'] == False:
                 readOnlyStr="readonly"
             else:
@@ -2735,13 +2773,17 @@ class SourceBrowser(object):
             tagFormCode=tagFormCode.replace("$OBJECT_NAME", name)
             tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
             if 'fields' in self.configDict.keys():
-                fieldsCode=""
+                #fieldsCode="<p><b>Fields:</b>"
+                fieldsCode='<p align="left">'
                 for fieldDict in self.configDict['fields']:
-                    fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (fieldDict['name'], fieldDict['name'])
+                    fieldsCode=fieldsCode+'<span style="display: inline-block; margin-bottom: 6pt; margin-right: 8pt">'
+                    fieldsCode=fieldsCode+'<label for="%s"><b>%s: </b></label>\n' % (fieldDict['name'], fieldDict['name'])
                     fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d %s/>\n' % (str(mongoDict[fieldDict['name']]), 
                                                                                                    fieldDict['name'], 
                                                                                                    fieldDict['displaySize'],
                                                                                                    readOnlyStr)
+                    fieldsCode=fieldsCode+"</span>"
+                fieldsCode=fieldsCode+"</p>"
                 if 'lastUpdated' in mongoDict.keys():
                     lastUpdated=mongoDict['lastUpdated']
                 else:
@@ -2754,18 +2796,26 @@ class SourceBrowser(object):
                 fieldsCode=fieldsCode+'<input type="text" value="%s" name="lastUpdated" size=10 readonly/>\n' % (lastUpdated)
                 fieldsCode=fieldsCode+'<label for = "user"><b>By User:</b></label>\n'
                 fieldsCode=fieldsCode+'<input type="text" value="%s" name="userName" size=10 readonly/></p>\n' % (userName)
+                fieldsCode=fieldsCode+"</p>"
             tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', fieldsCode)
-            classificationsCode=""
+        else:
+            tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', "")
+        
+        if 'classifications' in self.configDict.keys():
+            classificationsCode="<p><b>Classification:</b></p>\n<p>"
             if cherrypy.session['editPermission'] == False:
                 readOnlyStr="disabled"
             else:
                 readOnlyStr=""
             for c in self.configDict['classifications']:
                 if c == mongoDict['classification']:
-                    classificationsCode=classificationsCode+'<input type="radio" name="classification" value="%s" checked %s>%s\n' % (c, readOnlyStr, c)
+                    classificationsCode=classificationsCode+'<span style="margin-left: 1.2em; display: inline-block;"><input type="radio" name="classification" value="%s" checked %s>%s</span>\n' % (c, readOnlyStr, c)
                 else:
-                    classificationsCode=classificationsCode+'<input type="radio" onChange="this.form.submit();" name="classification" value="%s" %s>%s\n' % (c, readOnlyStr, c)
+                    classificationsCode=classificationsCode+'<span style="margin-left: 1.2em; display: inline-block;"><input type="radio" onChange="this.form.submit();" name="classification" value="%s" %s>%s</span>\n' % (c, readOnlyStr, c)
+            classificationsCode=classificationsCode+"</p>"
             tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", classificationsCode)
+        else:
+            tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", "")
         
         # Optional spectrum plot
         if 'displaySpectra' in self.configDict.keys() and self.configDict['displaySpectra'] == True:
@@ -2794,7 +2844,7 @@ class SourceBrowser(object):
         html=templatePage
         html=html.replace("$SPECTRUM_PLOT", spectrumCode)
         html=html.replace("$PLOT_CONTROLS", plotFormCode)
-        if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
+        if 'fields' in self.configDict.keys() or 'classifications' in self.configDict.keys():
             html=html.replace("$TAG_CONTROLS", tagFormCode)
         else:
             html=html.replace("$TAG_CONTROLS", "")
