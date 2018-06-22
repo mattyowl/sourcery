@@ -2635,7 +2635,7 @@ class SourceBrowser(object):
         <p><b>Survey:</b> $IMAGE_TYPES</p>      
         <p><b>Plot:</b>
         <input type="checkbox" name="noAxes" value=1 $CHECKED_NOAXES>Remove coordinate axes
-        <input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>Contours ($CONTOUR_IMAGE)
+        $CONTOUR_CODE
         <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
         <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
         <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR14 objects
@@ -2662,9 +2662,11 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
         if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-            plotFormCode=plotFormCode.replace("$CONTOUR_IMAGE", self.configDict['contourImage'])
+            contourCode='<input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>Contours ($CONTOUR_IMAGE)'
+            contourCode=contourCode.replace("$CONTOUR_IMAGE", self.configDict['contourImage'])
+            plotFormCode=plotFormCode.replace("$CONTOUR_CODE", contourCode)
         else:
-            plotFormCode=plotFormCode.replace("$CONTOUR_IMAGE", "None")
+            plotFormCode=plotFormCode.replace("$CONTOUR_CODE", "")
         
         imageTypesCode=""            
         for label in self.imageLabels:
