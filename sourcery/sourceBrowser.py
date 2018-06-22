@@ -190,6 +190,10 @@ class SourceBrowser(object):
                     dispDict['fmt']='%s'
                 else:
                     raise Exception, "only valid field types are 'number' and 'text'"
+                if 'tableAlign' in fieldDict:
+                    dispDict['tableAlign']=fieldDict['tableAlign']
+                if 'displaySize' in fieldDict:
+                    dispDict['displaySize']=fieldDict['displaySize']
                 self.tableDisplayColumns.append(dispDict)
                 
         if 'classifications' in self.configDict.keys():
@@ -1492,7 +1496,7 @@ class SourceBrowser(object):
             cherrypy.session['viewTopRow']=0
             cherrypy.session['queryOtherConstraints']=queryOtherConstraints
         
-        return self.index()
+        raise cherrypy.HTTPRedirect("/")
 
 
     def onLogin(self, username):
@@ -1522,7 +1526,7 @@ class SourceBrowser(object):
         </table>
         <br>
         <fieldset>
-        <legend><b>Enter login information:</b></legend>
+        <legend><b>Enter Login Information</b></legend>
         <p>      
             <form method="post" action="/login">
             <input type="hidden" name="from_page" value="$FROM_PAGE" />
@@ -1532,7 +1536,7 @@ class SourceBrowser(object):
             <label for="username"><b>Password:</b></label>            
             <input type="password" name="password" /><br />
             <br>
-            <input type="submit" value="Log in" />
+            <input type="submit" style="font-size: 1.05em;" value="Log in" />
         </p>
         <p>$MSG</p>
         </fieldset>
@@ -1683,24 +1687,23 @@ class SourceBrowser(object):
         </p>
         <label for="queryOtherConstraints">Other constraints <a href=$CONSTRAINTS_HELP_LINK target=new>(help)</a></label>
         <textarea style="width:100%" name="queryOtherConstraints">$QUERY_OTHERCONSTRAINTS</textarea>
-        <input type="submit" class="f" name="queryApply" value="Apply">
-        <input type="submit" class="f" name="queryReset" value="Reset"><br>
+        <input type="submit" class="f" style="font-size: 1.05em;" name="queryApply" value="Apply">
+        <input type="submit" class="f" style="font-size: 1.05em;" name="queryReset" value="Reset"><br>
         </p>
         </fieldset>
         </form>
             
-        <form method="post" action="changeTablePage">
+        <form method="post" action="changeTablePage" style="border">
         <div id="buttons">
-            <input type="submit" class="f" name="nextButton" value=">">
-            <input type="submit" class="f" name="prevButton" value="<">
+            <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
+            <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
             <div style="clear:both"></div><!-- Need this to have the buttons actually inside div#buttons -->
         </div>
-        </form>
                 
         <table frame=border cellspacing=0 cols=$TABLE_COLS rules=all border=2 width=100% align=center class=tablefont>
         <tbody>
-            <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;">
+            <tr style="background-color: rgb(0, 0, 0); font-family: monospace; color: rgb(255, 255, 255); 
+                    text-align: center; vertical-align: middle; font-size: 125%;">
             $TABLE_COL_NAMES
             </tr>
             <font size="1">
@@ -1709,12 +1712,12 @@ class SourceBrowser(object):
         </tbody>
         </table>
 
-        <form method="post" action="changeTablePage">
         <div id="buttons">
-            <input type="submit" class="f" name="nextButton" value=">">
-            <input type="submit" class="f" name="prevButton" value="<">
+            <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
+            <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
             <div style="clear:both"></div><!-- Need this to have the buttons actually inside div#buttons -->
         </div>
+        </form>
         
         $DOWNLOAD_LINKS
 
@@ -1738,6 +1741,8 @@ class SourceBrowser(object):
         # First need to apply query parameters here
         queryPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
         numPosts=queryPosts.count()
+        if 'numPosts' not in cherrypy.session:
+            cherrypy.session['numPosts']=numPosts
         
         # Then cut to number of rows to view as below
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
@@ -1860,33 +1865,35 @@ class SourceBrowser(object):
 
         for obj in viewPosts:
             
-            # On the fly MongoDB matching
-            #tagsDict=self.matchTags(obj)
-                
-            # Highlighting of rows - obviously, order matters here!
             bckColor="white"
-            #if 'observed 2009B' in obj.keys() and obj['observed 2009B'] == True:
-                #bckColor="darkgray"
-                #bckKey='observed 2009B'
-            #if 'SPT cluster' in obj.keys() and obj['SPT cluster'] == True:
-                #bckColor="gold"
-                #bckKey='SPT cluster'
-            #if 'ACT 2008 cluster' in obj.keys() and obj['ACT 2008 cluster'] == True:
-                #bckColor="deeppink"
-                #bckKey='ACT 2008 cluster'
-            #if bckColor not in usedBckColors and bckColor != "white":
-                #usedBckColors.append(bckColor)
-                #usedBckKeys.append(bckKey)
                 
             # Row for each object in table
             rowString="<tr>\n"
             for colDict in displayColumns:
                 htmlKey="$"+string.upper(colDict['name'])+"_KEY"
-                if colDict['fmt'] == '%s':
-                    widthStr=""
+                if 'tableAlign' in colDict.keys():
+                    alignStr=colDict['tableAlign']
                 else:
-                    widthStr=' width=10%'
-                rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center"+widthStr+">"+htmlKey+"</td>\n"
+                    alignStr="center"
+                if 'displaySize' in colDict.keys():
+                    widthStr='width: %dem;' % (colDict['displaySize'])
+                    useDiv=True
+                else:
+                    useDiv=False
+                    if colDict['fmt'] == '%s':
+                        if colDict['name'] in obj.keys():
+                            widthStr='width: %dem;' % (len(obj[colDict['name']]))
+                        else:
+                            widthStr=""
+                    else:
+                        widthStr='width: %dem;' % (len(colDict['fmt'] % (1)))
+                rowString=rowString+"   <td style='background-color: "+bckColor+"; "+widthStr+"' align="+alignStr+">"
+                if useDiv == True:
+                    rowString=rowString+'<div style="text-overflow: ellipsis; white-space: nowrap; overflow: hidden; '+widthStr+'">'
+                rowString=rowString+htmlKey
+                if useDiv == True:
+                    rowString=rowString+"</div>\n"
+                rowString=rowString+"</td>\n"
             rowString=rowString+"</tr>\n"
             
             # Insert values - note name is special
@@ -2229,6 +2236,8 @@ class SourceBrowser(object):
         if nextButton:
             viewTopRow=cherrypy.session.get('viewTopRow')
             viewTopRow=viewTopRow+self.tableViewRows
+            if viewTopRow >= cherrypy.session.get('numPosts'):
+                viewTopRow=cherrypy.session.get('numPosts')-self.tableViewRows
             cherrypy.session['viewTopRow']=viewTopRow
         if prevButton:
             viewTopRow=cherrypy.session.get('viewTopRow')
@@ -2237,7 +2246,7 @@ class SourceBrowser(object):
                 viewTopRow=0
             cherrypy.session['viewTopRow']=viewTopRow
             
-        return self.index()        
+        raise cherrypy.HTTPRedirect("/")
     
     
     @cherrypy.expose
