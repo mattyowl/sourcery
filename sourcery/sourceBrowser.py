@@ -35,7 +35,7 @@ import matplotlib.patches as patches
 from scipy import ndimage
 import sourcery
 from sourcery import catalogTools
-from sourcery import specFeatures
+#from sourcery import specFeatures
 import ConfigParser
 import yaml
 import requests
@@ -505,7 +505,7 @@ class SourceBrowser(object):
         # Add root path where necessary in place
         if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
             rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogs", 
+            keysToFix=["userListFile", "cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogs", 
                        "DESTilesCacheDir", "KiDSTilesCacheDir"]
             for k in keysToFix:
                 if type(self.configDict[k]) == list:
