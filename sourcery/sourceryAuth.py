@@ -51,9 +51,9 @@ def check_auth(*args, **kwargs):
             for condition in conditions:
                 # A condition is just a callable that returns true or false
                 if not condition():
-                    raise cherrypy.HTTPRedirect("/login")
+                    raise cherrypy.HTTPRedirect(cherrypy.request.script_name+"/login")
         else:
-            raise cherrypy.HTTPRedirect("/login")
+            raise cherrypy.HTTPRedirect(cherrypy.request.script_name+"/login")
 
 ####
 #def check_auth(*args, **kwargs):

@@ -1496,7 +1496,7 @@ class SourceBrowser(object):
             cherrypy.session['viewTopRow']=0
             cherrypy.session['queryOtherConstraints']=queryOtherConstraints
         
-        raise cherrypy.HTTPRedirect("/")
+        raise cherrypy.HTTPRedirect(cherrypy.request.script_name)
 
 
     def onLogin(self, username):
@@ -1512,7 +1512,7 @@ class SourceBrowser(object):
         """Called on logout"""
     
     
-    def getLoginForm(self, username, msg="", from_page="/"):
+    def getLoginForm(self, username, msg="", from_page="/actpol-sourcery"):
         html="""<html><body style="font-family: sans-serif; vertical align: top; justify: full;">
         <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
             <tbody>
@@ -1528,7 +1528,7 @@ class SourceBrowser(object):
         <fieldset>
         <legend><b>Enter Login Information</b></legend>
         <p>      
-            <form method="post" action="/login">
+            <form method="post" action="$SCRIPT_NAME/login">
             <input type="hidden" name="from_page" value="$FROM_PAGE" />
             <label for="username"><b>Username:</b></label>
             <input type="text" name="username" value="$USERNAME" /><br />
@@ -1541,6 +1541,7 @@ class SourceBrowser(object):
         <p>$MSG</p>
         </fieldset>
         </body></html>"""
+        html=html.replace("$SCRIPT_NAME", cherrypy.request.script_name)
         html=html.replace("$FROM_PAGE", from_page)
         html=html.replace("$MSG", msg)
         html=html.replace("$USERNAME", username)
@@ -1553,8 +1554,7 @@ class SourceBrowser(object):
     
     
     @cherrypy.expose
-    def login(self, username=None, password=None, from_page="/"):
-        
+    def login(self, username=None, password=None, from_page=cherrypy.request.script_name):
         if self.usersList == None:
             username="public"
             cherrypy.session[sourceryAuth.SESSION_KEY] = cherrypy.request.login = username
@@ -1569,18 +1569,18 @@ class SourceBrowser(object):
         else:
             cherrypy.session[sourceryAuth.SESSION_KEY] = cherrypy.request.login = username
             self.onLogin(username)
-        raise cherrypy.HTTPRedirect(from_page or "/")
+        raise cherrypy.HTTPRedirect(from_page or cherrypy.request.script_name)
     
     
     @cherrypy.expose
-    def logout(self, from_page="/"):
+    def logout(self, from_page=cherrypy.request.script_name):
         sess = cherrypy.session
         username = sess.get(sourceryAuth.SESSION_KEY, None)
         sess[sourceryAuth.SESSION_KEY] = None
         if username:
             cherrypy.request.login = None
             self.onLogout(username)
-        raise cherrypy.HTTPRedirect(from_page or "/")
+        raise cherrypy.HTTPRedirect(from_page or cherrypy.request.script_name)
     
     
     @cherrypy.expose
@@ -2246,7 +2246,7 @@ class SourceBrowser(object):
                 viewTopRow=0
             cherrypy.session['viewTopRow']=viewTopRow
             
-        raise cherrypy.HTTPRedirect("/")
+        raise cherrypy.HTTPRedirect("/actpol-sourcery")
     
     
     @cherrypy.expose
