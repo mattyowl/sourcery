@@ -1512,7 +1512,7 @@ class SourceBrowser(object):
         """Called on logout"""
     
     
-    def getLoginForm(self, username, msg="", from_page="/actpol-sourcery"):
+    def getLoginForm(self, username, msg="", from_page=cherrypy.request.script_name):
         html="""<html><body style="font-family: sans-serif; vertical align: top; justify: full;">
         <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
             <tbody>
