@@ -2768,7 +2768,7 @@ class SourceBrowser(object):
         $CLASSIFICATION_CONTROLS
         $FIELD_CONTROLS
         <p align="right">
-        <input type="submit" class="f" style="font-size: 1.05em;" value="Update">
+        <input type="submit" class="f" style="font-size: 1.05em;" value="Update" $DISABLED_STR>
         </p>
         </fieldset>
         </form>
@@ -2776,8 +2776,10 @@ class SourceBrowser(object):
         if 'fields' in self.configDict.keys():
             if cherrypy.session['editPermission'] == False:
                 readOnlyStr="readonly"
+                tagFormCode=tagFormCode.replace("$DISABLED_STR", "disabled")
             else:
                 readOnlyStr=""
+                tagFormCode=tagFormCode.replace("$DISABLED_STR", "")
             tagFormCode=tagFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
             tagFormCode=tagFormCode.replace("$OBJECT_NAME", name)
             tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
