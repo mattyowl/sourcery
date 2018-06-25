@@ -1518,8 +1518,8 @@ class SourceBrowser(object):
             <tbody>
                 <tr>
                     <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 125%;">
-                        $TITLE
+                        text-align: center; vertical-align: middle; font-size: 150%;">
+                        <b>$TITLE</b>
                     </td>
                 </tr>
             </tbody>
