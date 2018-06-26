@@ -2049,6 +2049,20 @@ class SourceBrowser(object):
         
         return f
     
+    
+    @cherrypy.expose
+    @sourceryAuth.require()
+    def downloadThumbnailFITS(self, sourceryID):
+        """Returns .fits image for download by the user.
+        
+        """
+        obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
+        imgPath=self.cacheDir+os.path.sep+self.configDict['downloadableFITS']+os.path.sep+"%s.fits" % (obj['name'].replace(" ", "_"))
+        cherrypy.response.headers['Content-Disposition']='attachment; filename="%s.%s"' % (obj['name'].replace(" ", "_"), 'fits')
+        f=file(imgPath, 'rb')
+        
+        return f
+        
         
     def sourceNameToURL(self, name):
         """Replaces + and spaces in source names so that they will be valid URLs.
@@ -2516,14 +2530,6 @@ class SourceBrowser(object):
                     <fieldset style="height: 100%;">
                     <legend><b>Source Image</b></legend>
                     <div id="imagePlot"></div>
-                    <p align="right">
-                    <form id="buildCache" method="get" action="buildCacheForObject">        
-                    <input type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
-                    <input type="hidden" value="true" name="refetch"/>
-                    <input type="hidden" value="displaySourcePage?sourceryID=$SOURCERY_URL_ID" name="from_page"/>
-                    <input type="submit" style="font-size: 1.05em;" value="Update Cache [NB: Slow]">
-                    </form>
-                    </p>
                     </fieldset>
                 </div>
             </div>
@@ -2564,9 +2570,6 @@ class SourceBrowser(object):
         obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
         mongoDict=self.matchTags(obj)
         name=obj['name']
-        
-        templatePage=templatePage.replace("$SOURCERY_ID", obj['sourceryID'])
-        templatePage=templatePage.replace("$SOURCERY_URL_ID", self.sourceNameToURL(obj['sourceryID']))
         
         # For avoiding display of e.g. catalogs in which we don't have a cross match
         skipColumnPrefixList=[]
@@ -2659,9 +2662,20 @@ class SourceBrowser(object):
 
         </script>
 
-        <form action="#" id="imageForm" method="post">        
         <fieldset style="height: 100%;">
         <legend><b>Image Controls</b></legend>
+        
+        <form id="buildCache" method="get" action="buildCacheForObject"></form>   
+        $THUMB_FORM_DECLARED
+        <div style="display: inline-block;">
+        <input form="buildCache" type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
+        <input form="buildCache" type="hidden" value="true" name="refetch"/>
+        <input form="buildCache" type="hidden" value="displaySourcePage?sourceryID=$SOURCERY_URL_ID" name="from_page"/>
+        <input form="buildCache" type="submit" style="display: inline-block;" value="Update Cache [NB: Slow]">
+        $THUMB_FORM_CONTROLS
+        </div>
+        
+        <form action="#" id="imageForm" method="post">        
         <input name="name" value="$OBJECT_NAME" type="hidden">
         <p><b>Survey:</b></p> 
         <p>
@@ -2710,9 +2724,27 @@ class SourceBrowser(object):
         <input type="submit" style="font-size: 1.05em;" value="Apply">
         </p>
         </form>
+                
         </fieldset>
      
         """ 
+        
+        # For cache build and downloadable thumbnail buttons
+        plotFormCode=plotFormCode.replace("$SOURCERY_ID", obj['sourceryID'])
+        plotFormCode=plotFormCode.replace("$SOURCERY_URL_ID", self.sourceNameToURL(obj['sourceryID']))        
+        if 'downloadableFITS' in self.configDict.keys():
+            plotFormCode=plotFormCode.replace('$THUMB_FORM_DECLARED', '<form id="downloadThumbnail" method="get" action="downloadThumbnailFITS">')
+            thumbForm="""<div style="display: inline-block;">
+            <input form="downloadThumbnail" type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
+            <input form="downloadThumbnail" type="submit" style="display: inline-block;" value="Download $IMGDIRLABEL FITS">
+            </form>"""
+            thumbForm=thumbForm.replace("$SOURCERY_ID", obj['sourceryID'])
+            thumbForm=thumbForm.replace("$IMGDIRLABEL", self.configDict['downloadableFITS'])
+            plotFormCode=plotFormCode.replace("$THUMB_FORM_CONTROLS", thumbForm)
+        else:
+            plotFormCode=plotFormCode.replace("$THUMB_FORM_DECLARED", "")
+            plotFormCode=plotFormCode.replace("$THUMB_FORM_CONTROLS", "")
+            
         # Taken out: onChange="this.form.submit();" from all checkboxes ^^^
         plotFormCode=plotFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
         plotFormCode=plotFormCode.replace("$OBJECT_NAME", obj['name'])
