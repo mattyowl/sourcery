@@ -1,0 +1,5 @@
+# Format of this file - 3 columns, white space delimited
+# Use sourcery_password_hash to generate the hash needed for the final column
+#username   role        hash
+viewer      viewer      $pbkdf2-sha256$29000$PEcoZYzROscYgxDiXItxrg$0hbVoWnaYLAGioeyByIRucpeMhUIUArc19/VFOIiOSc
+editor      editor      $pbkdf2-sha256$29000$LWWMsfYeI0QIoZRSKiXk3A$8.b5XLPwRo2fU0bxa/WHDhAOhNQ2uGB1uQ9Im/OeLWw

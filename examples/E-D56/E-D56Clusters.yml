@@ -1,0 +1,147 @@
+# Sourcery config file
+# YAML format - use null to return None in Python
+
+# Apache on webserver needs absolute paths - if set, this will be prepended where necessary to all relative paths given here
+#sourceryPath: "/home/mjh/actpol-sourcery/"
+
+# Optional: access control
+# If userListFile is not given, no password protection or editing is possible
+# The contents of contactInfo is shown in the event of an unsuccessful login.
+#userListFile: "E-D56Users.txt"
+#contactInfo: 'Contact <a href="mailto:your@email.address">the administrator</a> if you require access.'
+
+# Title shown on index (table) pages
+indexTitle: "ACTPol Galaxy Clusters in the E-D56 field"
+
+# Location of the cache dir - store all images, catalog matches etc.
+cacheDir: "sourceryCache"
+
+# Location of skyview cache - this gets filled with .fits images, we will want to clean out eventually
+skyviewCacheDir: "skyviewCache"
+
+# The base catalog - a .fits table with columns name, RADeg, decDeg (minimum)
+catalogFileName: "E-D56Clusters.fits"
+
+# Optional: comments on the catalog (HTML), appears in the Source List Information box
+#catalogComments: '<p>See <a href="https://ui.adsabs.harvard.edu/#abs/2018ApJS..235...20H/abstract">Hilton et al. (2018)</a> for a description of the catalog.</p>'
+
+# What type of objects does the catalog contain? 
+# This will appear in the counts in the Source List Information box
+objectTypeString: "clusters"
+
+# Optional: The contents of this file gets appended (one per line) as a bulleted list below catalogComments
+#newsFileName: "news.txt"
+
+# Optional: Quick links to common queries
+quickLinks:
+    - {label: "Clusters with SDSS imaging", constraints: "image_SDSS = 1"}
+    - {label: "Clusters with DES imaging", constraints: "image_DES = 1"}
+    - {label: "High-redshift clusters with spectroscopic redshifts", constraints: "z > 1 and zType = 'spec'"}
+
+# This is just the base file name for catalogs we serve for download (E-D56.fits, E-D56.cat etc.)
+catalogDownloadFileName: "E-D56"
+
+# Which columns to display in the table view (index page)? 
+# These are in addition to name, RADeg, decDeg
+nameColumn: "name"
+tableDisplayColumns:
+    - SNR: "%.1f"
+    - z: "%.2f"
+    - zType: "%s"
+    - M500cUPP: "%.1f"
+
+# Database options
+# MongoDBName sets the name of the collection in MongoDB where everything is stored
+# If enableEditing is True, both classification and the items in the fields list (see below) will be editable
+# MongoDBCrossMatchRadiusArcmin sets the radius to use between matching the tags database (which has the user-editable fields) with the input catalog
+# This allows the input catalog to be changed without losing the user-edited information
+enableEditing: False
+MongoDBName: "E-D56-sourcery"
+MongoDBCrossMatchRadiusArcmin: 1.0
+
+# Optional: classifications (enableEditing must be True for these to be displayed on source pages)
+#classifications:
+    #- "cluster"
+    #- "probable cluster"
+    #- "possible cluster"
+    #- "not cluster"
+
+# Optional: Text (HTML) displayed on the index (table) page in the Source List Information box
+# This is solely for the benefit of users of your site.
+#classificationDescription: "The following classification scheme is used: <ul><li>cluster (confirmed and with redshift)</li><li>probable cluster (looks like a cluster in the optical/IR imaging, redshift confirmation needed)</li><li>possible cluster (should be followed up, but not obviously a cluster based on the available optical/IR imaging)</li><li>not cluster (definitely not a cluster and can be discarded)</li></ul>"
+
+# Optional: List of user-editable fields (should not clash with column names in input catalog)
+# These are stored independently (in MongoDB) of the catalog itself
+# type can be 'number' or 'text'
+# displaySize is the size in characters of the text input fields on the web form
+#fields:
+    #- {name: notes, type: text, description: "Notes about the candidate (e.g., high-z)", displaySize: 40}
+
+# Optional: A text file containing descriptions for each column (displayed on the "constrains help" page)
+# Format: delimited, one column per line, e.g.
+# name:     name of candidate
+# SNR2p4:   Signal-to-noise measured at 2.4' scale
+descriptionsFileName: "E-D56Columns.txt"
+
+# Cross matches with external databases
+addNEDMatches: True
+NEDCrossMatchRadiusArcmin: 2.5
+addSDSSRedshifts: True
+
+# Optional: Cross matches with local catalogs (e.g., .fits tables - anything that astropy.table understands automatically)
+# These must contain at least columns: name, RADeg, decDeg
+# Each column in these catalogs will be added to the database as label_columnName
+#crossMatchCatalogs:
+    #- {label: "H13", fileName: "Hasselfield2013_upp.fits", crossMatchRadiusArcmin: 2.5}
+    #- {label: "PSZ2", fileName: "HFI_PCCS_SZ-union_R2.08_sourcery.fits", crossMatchRadiusArcmin: 10.0}
+    #- {label: "RM", fileName: "redmapper_dr8_public_v6.3_catalog_sourcery.fits", crossMatchRadiusArcmin: 2.5}
+    #- {label: "MCXC", fileName: "MCXC_sourcery.fits", crossMatchRadiusArcmin: 2.5}
+    #- {label: "CoMaLit", fileName: "CoMaLit-LC2-single_sourcery.fits", crossMatchRadiusArcmin: 2.5}
+    
+# Source page options
+# plotSizeArcmin sets the largest possible plot size
+# plotDisplayWidthPix sets the size of the image as shown on the webpage
+plotSizeArcmin: 8.0
+plotDisplayWidthPix: 600
+figSize: [8.25, 7.5]
+
+# Images to fetch/make
+addSDSSImage: True
+addDESImage: False
+addKiDSImage: False
+addUnWISEImage: True
+addPS1Image: True
+addPS1IRImage: True
+
+# These are the directories where all of the DES/KiDS tile preview images (.jpg, converted from the original .tiff) are cached
+# Needed if addDESImage or addKiDSImage is True
+DESTilesCacheDir: "DESTilesCache"
+#KiDSTilesCacheDir: "../KiDS_gri_JPEGs"
+
+# Image preferences... order to show by default
+# if image_<type> = 1 it is shown, if it isn't, we will look for the next
+imagePrefs: ['DES', 'KiDS', 'SDSS', 'unWISE', 'PS1']
+
+# Optional: Own image sources - for now, monochrome only (i.e., no making RGB images on the fly)
+# These directories contain .fits images, from which we will pull out cut outs of size plotSizeArcmin
+# NOTE: for now, no spaces please in imageDirsLabels
+# sizePix sets size of image of scale plotSizeArcmin (set above)
+# minMaxRadiusArmin sets radius wrt source position within which min, max for image intensity scale is set
+# matchKey selects the matching image from part of the image file name matching the key given
+# (e.g., for XCS, matchKey: 'obsID' selects images that contain obsID in the fileName for the given object)
+#imageDirs:
+    #- {label: "ACT-SNR", path: "ACTMap", colorMap: "gray", sizePix: 1024, minMaxRadiusArcmin: 2.0, scaling: "auto", matchKey: null}
+
+# Optional: Contour image - for now, we only allow one image to be overlaid over all others
+# Must match a label from imageDirs
+# Can also set contour1Sigma to "measureFromImage" instead of dialling in by hand
+# contourSigmaLevels sets the levels used in multiples of sigma
+#contourImage: 'ACT-SNR'
+#contourSmoothingArcsec: 15.0
+#contour1Sigma: 1.0
+#contourSigmaLevels: [3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 9.0, 12.0, 15.0]
+#contourColour: 'yellow'
+#contourWidth: 1
+
+# This goes in the footer on all pages
+hostedBy: "ACTPol E-D56 cluster catalog example"

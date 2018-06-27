@@ -32,13 +32,19 @@ matplotlib.use("Agg")
 import pylab
 import cherrypy
 from sourcery.sourceBrowser import SourceBrowser
+from sourcery.sourceryAuth import check_auth
 import atexit
+import base64
+import re
+
+cherrypy.tools.auth = cherrypy.Tool('before_handler', check_auth)
 
 cherrypy.config.update({'environment': 'embedded', 'request.show_tracebacks': True,
                         'tools.sessions.on': True,
                         'tools.sessions.name': 'sourcery_id',
                         'tools.sessions.clean_thread': True,
-                        'log.error_file': 'error.log',
+                        'tools.auth.on': True,
+                        'log.error_file': 'error.log'
                        })
 
 if cherrypy.__version__.startswith('3.0') and cherrypy.engine.state == 0:
@@ -49,6 +55,6 @@ if len(sys.argv) < 2:
     print "Run: % sourcery_test <sourcery.config>"
 else:
     configFileName=sys.argv[1].replace("\n", "")
-    print "Point your browser at http://localhost:8080"
-    cherrypy.quickstart(SourceBrowser(configFileName, preprocess = False))
+    print "Point your browser at http://localhost:8080/sourcery"
+    cherrypy.quickstart(SourceBrowser(configFileName, preprocess = False), script_name = '/sourcery')
     

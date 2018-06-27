@@ -35,8 +35,9 @@ import matplotlib.patches as patches
 from scipy import ndimage
 import sourcery
 from sourcery import catalogTools
-from sourcery import specFeatures
+#from sourcery import specFeatures
 import ConfigParser
+import yaml
 import requests
 import sys
 import time
@@ -56,15 +57,44 @@ import cherrypy
 import pickle
 import pyvips
 import IPython
- 
+from sourcery import sourceryAuth
+from passlib.hash import pbkdf2_sha256
+
 #-------------------------------------------------------------------------------------------------------------
 class SourceBrowser(object):
     
     def __init__(self, configFileName, preprocess = False, buildDatabase = False):
         
+        #self.auth = sourceryAuth.AuthController()
+
         # Parse config file
         self.parseConfig(configFileName)
-
+        
+        # Access control (optional)
+        if 'userListFile' in self.configDict.keys():
+            inFile=open(self.configDict['userListFile'], "r")
+            lines=inFile.readlines()
+            inFile.close()
+            self.usersList=[]
+            for line in lines:
+                if line[0] != "#":
+                    bits=line.split()
+                    userDict={'name': bits[0], 
+                              'role': bits[1],
+                              'hash': bits[2].rstrip()}
+                    if userDict['role'] in ['editor', 'viewer']:
+                        self.usersList.append(userDict)
+                    else:
+                        raise Exception("unknown user role - check userListFile")
+        else:
+            self.usersList=None
+        
+        # Displayed when failed login
+        if 'contactInfo' in self.configDict.keys():
+            self.contactInfo=self.configDict['contactInfo']
+        else:
+            self.contactInfo=""
+            
         # Image choices
         if 'defaultImageType' not in self.configDict.keys():
             self.configDict['defaultImageType']='best'
@@ -108,8 +138,19 @@ class SourceBrowser(object):
         self.sdssRedshiftsDir=self.cacheDir+os.path.sep+"SDSSRedshifts"
         if os.path.exists(self.sdssRedshiftsDir) == False:
             os.makedirs(self.sdssRedshiftsDir)
-        self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
-
+        
+        # Dirs that could contain big .jpg images from which we will cut
+        if 'DESTilesCacheDir' in self.configDict.keys():
+            self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
+            if os.path.exists(self.DESTilesCacheDir) == False:
+                os.makedirs(self.DESTilesCacheDir)
+        if 'KiDSTilesCacheDir' in self.configDict.keys():            
+            self.KiDSTilesCacheDir=self.configDict['KiDSTilesCacheDir']
+            if os.path.exists(self.KiDSTilesCacheDir) == False:
+                os.makedirs(self.KiDSTilesCacheDir)
+        self.DESWCSDict=None
+        self.KiDSWCSDict=None
+                
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
         self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
         
@@ -127,89 +168,99 @@ class SourceBrowser(object):
 
         # Column to display info
         # Table pages
-        self.tableDisplayColumns=['name', 'RADeg', 'decDeg']+self.configDict['tableDisplayColumns']
-        self.tableDisplayColumnLabels=['Name', 'RA (degrees)', 'Dec. (degrees)']+self.configDict['tableDisplayColumns']
-        self.tableDisplayColumnFormats=['%s', '%.6f', '%.6f']+self.configDict['tableDisplayColumnFormats']
-        # Source pages
-        self.sourceDisplayColumns=[]
+        self.tableDisplayColumns=[{'name': "name",
+                                   'label': "Name",
+                                   'fmt': "%s"},
+                                  {'name': "RADeg",
+                                   'label': "RA (deg)",
+                                   'fmt': "%.6f"},
+                                  {'name': "decDeg",
+                                   'label': "Dec. (deg)",
+                                   'fmt': "%.6f"}]
+        for colDict in self.configDict['tableDisplayColumns']:
+            for key in colDict.keys():
+                dispDict={'name': key, 'label': key, 'fmt': colDict[key]}
+                self.tableDisplayColumns.append(dispDict)
 
         # Support for tagging, classification etc. of candidates
-        # We have three things here:
-        #   tags: these work as flag columns - eventually, users can add any tag, we can then search for objects matching that tag
-        #   classification: what kind of object is in the catalog? List of types defined in config file
-        #   fields: these are editable, used to, e.g., assign a redshift and source
-        # We create empty entries in the MongoDB and corresponding database columns if we cannot find an existing entry
-        # We will only add/populate columns of atpy table when writing output
-        #if 'tags' in self.configDict.keys():
-            #for t in self.configDict['tags']:
-                #self.tab.add_column(t, np.zeros(len(self.tab), dtype = bool))
-            #self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['tags']
         if 'fields' in self.configDict.keys():
-            formatsList=[]
-            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
-                if t == 'number':
-                    formatsList.append('%.3f')
-                elif t == 'text':
-                    formatsList.append('%s')
-            self.sourceDisplayColumns=self.sourceDisplayColumns+self.configDict['fields']
-            self.tableDisplayColumns=self.tableDisplayColumns+self.configDict['fields']
-            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+self.configDict['fields']
-            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+formatsList
+            for fieldDict in self.configDict['fields']:
+                dispDict={'name': fieldDict['name'], 'label': fieldDict['name']}
+                if fieldDict['type'] == 'number':
+                    dispDict['fmt']='%.3f'
+                elif fieldDict['type'] == 'text':
+                    dispDict['fmt']='%s'
+                else:
+                    raise Exception, "only valid field types are 'number' and 'text'"
+                if 'tableAlign' in fieldDict:
+                    dispDict['tableAlign']=fieldDict['tableAlign']
+                if 'displaySize' in fieldDict:
+                    dispDict['displaySize']=fieldDict['displaySize']
+                self.tableDisplayColumns.append(dispDict)
+                
         if 'classifications' in self.configDict.keys():
-            self.sourceDisplayColumns=self.sourceDisplayColumns+["classification"]
-            self.tableDisplayColumns=self.tableDisplayColumns+["classification"]
-            self.tableDisplayColumnLabels=self.tableDisplayColumnLabels+["classification"]
-            self.tableDisplayColumnFormats=self.tableDisplayColumnFormats+["%s"]
+            dispDict={'name': "classification", 'label': "classification", 'fmt': "%s"}
+            self.tableDisplayColumns.append(dispDict)
         
         # Now tracking when changes are made
-        self.sourceDisplayColumns.append('lastUpdated')
-        self.tableDisplayColumns.append('lastUpdated')
-        self.tableDisplayColumnLabels.append('lastUpdated')
-        self.tableDisplayColumnFormats.append('%s')
+        if 'fields' in self.configDict.keys():
+            dispDict={'name': "lastUpdated", 'label': "lastUpdated", 'fmt': "%s"}
+            dispDict={'name': "user", 'label': "user", 'fmt': "%s"}
+            self.tableDisplayColumns.append(dispDict)
                                
         # We will generate images dynamically... here we set up info like labels and captions
         self.imageLabels=[]      # labels at top of each source page that allow us to select image to view
-        self.imageCaptions=[]    # caption that goes under image shown on the source pages
-        if "imageDirsLabels" in self.configDict.keys():
-            for label in self.configDict['imageDirsLabels']:
-                self.imageLabels.append(label)
-                self.imageCaptions.append("I don't think we're using this any more")
+        if "imageDirs" in self.configDict.keys():
+            for imDirDict in self.configDict['imageDirs']:
+                self.imageLabels.append(imDirDict['label'])
+        
         # SDSS colour .jpgs
         if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
             label="SDSS"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) SDSS DR13 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # DES colour .jpgs
         if "addDESImage" in self.configDict.keys() and self.configDict['addDESImage'] == True:
             label="DES"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) DES DR1 image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
+        if "addKiDSImage" in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
+            label="KiDS"
+            self.imageLabels.append(label)
         # PS1 colour .jpgs
         if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
             label="PS1"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # PS1IR colour .jpgs
         if "addPS1IRImage" in self.configDict.keys() and self.configDict['addPS1IRImage'] == True:
             label="PS1IR"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (i,z,y) Pan-STARSS PS1 3pi image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
-        # CFHTLS colour .jpgs
-        if "addCFHTLSImage" in self.configDict.keys() and self.configDict['addCFHTLSImage'] == True:
-            label="CFHTLS"
-            self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (g,r,i) CFHT Legacy Survey image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # unWISE colour .jpgs
         if "addUnWISEImage" in self.configDict.keys() and self.configDict['addUnWISEImage'] == True:
             label="unWISE"
             self.imageLabels.append(label)
-            self.imageCaptions.append("%.1f' x %.1f' false color (W1, W2) unWISE image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin']))
         # Skyview images
         if 'skyviewLabels' in self.configDict.keys():
             for label in self.configDict['skyviewLabels']:
                 self.imageLabels.append(label)
-                self.imageCaptions.append("%.1f' x %.1f' false color %s image. The source position is marked with the white cross.<br>Objects marked with green circles are in NED; objects marked with red squares have SDSS DR14 spectroscopic redshifts." % (self.configDict['plotSizeArcmin'], self.configDict['plotSizeArcmin'], label))
        
+        # Full list of image directories - for adding image_ tags in buildCacheForObject
+        # NOTE: handling of surveys (e.g., SDSS) is clunky and getting unwieldy...
+        self.imDirLabelsList=[]
+        if self.configDict['addSDSSImage'] == True:
+            self.imDirLabelsList.append("SDSS")
+        if self.configDict['addDESImage'] == True:
+            self.imDirLabelsList.append("DES")
+        if self.configDict['addKiDSImage'] == True:
+            self.imDirLabelsList.append("KiDS")
+        if self.configDict['addPS1Image'] == True:
+            self.imDirLabelsList.append("PS1")
+        if self.configDict['addPS1IRImage'] == True:
+            self.imDirLabelsList.append("PS1IR")
+        if self.configDict['addUnWISEImage'] == True:
+            self.imDirLabelsList.append("unWISE")
+        if 'imageDirs' in self.configDict.keys():
+            for imDirDict in self.configDict['imageDirs']:
+                self.imDirLabelsList.append(imDirDict['label'])
+            
         # Pre-processing
         # NOTE: this includes generating .jpgs from user-specified, probably proprietary, image dirs
         # We can run this on the webserver by going to localhost:8080/preprocess
@@ -243,12 +294,12 @@ class SourceBrowser(object):
         if 'classifications' in self.configDict.keys() and 'classification' not in mongoDict.keys():
             mongoDict['classification']=""
         if 'fields' in self.configDict.keys():
-            for f, t in zip(self.configDict['fields'], self.configDict['fieldTypes']):
-                if f not in mongoDict.keys():
-                    if t == 'number':
-                        mongoDict[f]=0.0
-                    elif t == 'text':
-                        mongoDict[f]=""
+            for fieldDict in self.configDict['fields']:
+                if fieldDict['name'] not in mongoDict.keys():
+                    if fieldDict['type'] == 'number':
+                        mongoDict[fieldDict['name']]=0.0
+                    elif fieldDict['type'] == 'text':
+                        mongoDict[fieldDict['name']]=""
         
         # Strip out _id and loc, because whatever is calling this routine won't want them
         if '_id' in mongoDict.keys():
@@ -308,13 +359,14 @@ class SourceBrowser(object):
         tab.add_column(atpy.Column(np.zeros(len(tab)), "cacheBuilt"))
         
         # Cross match all tables in turn... quicker than object by object...
-        if 'crossMatchCatalogFileNames' in self.configDict.keys():
+        if 'crossMatchCatalogs' in self.configDict.keys():
             tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
             origLen=len(tab)
             cat1=SkyCoord(ra = tab['RADeg'], dec = tab['decDeg'], unit = 'deg')
-            for f, label, radiusArcmin in zip(self.configDict['crossMatchCatalogFileNames'], 
-                                              self.configDict['crossMatchCatalogLabels'], 
-                                              self.configDict['crossMatchRadiusArcmin']):
+            for xMatchDict in self.configDict['crossMatchCatalogs']:
+                f=xMatchDict['fileName']
+                label=xMatchDict['label']
+                radiusArcmin=xMatchDict['crossMatchRadiusArcmin']
                 xTab=atpy.Table().read(f)
                 xMatchRadiusDeg=radiusArcmin/60.
                 cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
@@ -336,7 +388,7 @@ class SourceBrowser(object):
                 tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
                 tab['%s_match' % (label)][mask]=1
                 tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]
-        tab.remove_column("matchIndices")
+            tab.remove_column("matchIndices")
         
         # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
         # Otherwise, for large catalogs, we're hitting memory issues
@@ -466,89 +518,20 @@ class SourceBrowser(object):
     def parseConfig(self, configFileName):
         """Parse config file, unpacking parameters into the SourceBrowser object.
         
+        NOTE: config file format is now yaml
         """
-        self.configDict={}
-        inFile=file(configFileName, "r")
-        lines=inFile.readlines()
-        inFile.close()
-        for line in lines:
-            if line[0] != "#" and len(line) > 3 and line.find("=") != -1:
-                # We do things this way to allow = in values
-                equalIndex=line.find('=')
-                value=line[equalIndex+1:]
-                key=line[:equalIndex]
-                value=value.rstrip().lstrip()
-                key=key.rstrip()
-                if value == 'True':
-                    value=True
-                elif value == 'False':
-                    value=False
-                elif value[0] == '[':
-                    # This is now complicated by having to handle , inside "" or ''
-                    lst=[]
-                    items=value.replace("[", "").replace("]", "")#.split(",")
-                    if len(items) == 0:
-                        continue
-                    if items[0] == '"':
-                        delim='"'
-                    elif items[0] == "'":
-                        delim="'"
-                    else:
-                        delim=""
-                    if delim != "":
-                        delimIndices=[]
-                        for i in range(len(items)):
-                            if items[i] == delim:
-                                delimIndices.append(i)
-                        extractedItems=[]
-                        for i in range(len(delimIndices)-1):
-                            extractedItems.append(items[delimIndices[i]:delimIndices[i+1]+1])                   
-                        validItems=[]
-                        for b in extractedItems:
-                            if b[0] == delim and b[-1] == delim:
-                                candidateItem=b.replace(delim, "").lstrip().rstrip()
-                                if candidateItem != ',':
-                                    validItems.append(candidateItem)
-                        value=validItems
-                    else:
-                        # In this case, a list of numbers or True, False
-                        value=[]
-                        extractedItems=items.split(",")
-                        for b in extractedItems:
-                            if b.lstrip().rstrip() == 'True':
-                                value.append(True)
-                            elif b.lstrip().rstrip() == 'False':
-                                value.append(False)
-                            elif b.lstrip().rstrip() == 'None':
-                                value.append(None)
-                            else:
-                                value.append(float(b))
-                elif value[0] == '(':
-                    items=value.replace("(", "").replace(")", "").split(",")
-                    lst=[]
-                    for i in items:
-                        lst.append(float(i))
-                    value=tuple(lst)
-                elif value[0] == "'" or value[0] == '"':
-                    value=str(value.replace("'", "").replace('"', ""))
-                self.configDict[key]=value
-                
-        # Not sure of a better way to force things which look like numbers to be floats, not strings
-        for key in self.configDict.keys():
-            if type(self.configDict[key]) == str:
-                try:
-                    self.configDict[key]=float(self.configDict[key])
-                except:
-                    continue
-        
+        with open(configFileName, "r") as stream:
+            self.configDict=yaml.safe_load(stream)
+
         # Add root path where necessary in place
         if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
             rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-            keysToFix=["cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogFileNames", "DESTilesCacheDir"]
+            keysToFix=["userListFile", "cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogs", 
+                       "DESTilesCacheDir", "KiDSTilesCacheDir"]
             for k in keysToFix:
                 if type(self.configDict[k]) == list:
                     for i in range(len(self.configDict[k])):
-                        self.configDict[k][i]=rootDir+os.path.sep+self.configDict[k][i]
+                        self.configDict[k][i]['fileName']=rootDir+os.path.sep+self.configDict[k][i]['fileName']
                 else:
                     self.configDict[k]=rootDir+os.path.sep+self.configDict[k]
         
@@ -572,15 +555,12 @@ class SourceBrowser(object):
         self.configDict['newsItems']=newsItems
         
         
-    def fetchNEDInfo(self, obj, retryFails = False):
+    def fetchNEDInfo(self, name, RADeg, decDeg, retryFails = False):
         """Fetches NED info for given obj (which must have name, RADeg, decDeg keys) - just stores on disk 
         in cacheDir - we'll retrieve it later as needed.
         
         """
         halfMatchBoxLengthDeg=5.0/60.0
-        name=obj['name']
-        RADeg=obj['RADeg']
-        decDeg=obj['decDeg']
         RAMin=RADeg-halfMatchBoxLengthDeg
         RAMax=RADeg+halfMatchBoxLengthDeg
         decMin=decDeg-halfMatchBoxLengthDeg
@@ -647,7 +627,7 @@ class SourceBrowser(object):
             obj['NED_decDeg']=np.nan
 
 
-    def fetchPS1Image(self, obj, refetch = False):
+    def fetchPS1Image(self, name, RADeg, decDeg, refetch = False):
         """Fetches Pan-STARRS gri .jpg using the cutout webservice.
         
         """
@@ -656,9 +636,6 @@ class SourceBrowser(object):
         if os.path.exists(ps1CacheDir) == False:
             os.makedirs(ps1CacheDir)
         
-        name=obj['name']
-        RADeg=obj['RADeg']
-        decDeg=obj['decDeg']  
         if decDeg < -30:
             print "... outside PS1 area - skipping ..."
             return None
@@ -691,7 +668,7 @@ class SourceBrowser(object):
                 outFileName=None
 
 
-    def fetchPS1IRImage(self, obj, refetch = False):
+    def fetchPS1IRImage(self, name, RADeg, decDeg, refetch = False):
         """Fetches Pan-STARRS izy .jpg using the cutout webservice.
         
         """
@@ -699,10 +676,7 @@ class SourceBrowser(object):
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1IR"
         if os.path.exists(ps1CacheDir) == False:
             os.makedirs(ps1CacheDir)
-        
-        name=obj['name']
-        RADeg=obj['RADeg']
-        decDeg=obj['decDeg']  
+         
         if decDeg < -30:
             print "... outside PS1 area - skipping ..."
             return None
@@ -735,7 +709,7 @@ class SourceBrowser(object):
                 outFileName=None
                 
 
-    def fetchSDSSImage(self, obj, refetch = False):
+    def fetchSDSSImage(self, name, RADeg, decDeg, refetch = False):
         """Fetches the SDSS .jpg for the given image size using the casjobs webservice.
         
         makeSDSSPlots loads these jpegs in, and use matplotlib to make them into plots with
@@ -748,10 +722,7 @@ class SourceBrowser(object):
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
         if os.path.exists(sdssCacheDir) == False:
             os.makedirs(sdssCacheDir)
-            
-        name=obj['name']
-        RADeg=obj['RADeg']
-        decDeg=obj['decDeg']                
+                          
         outFileName=sdssCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
         SDSSWidth=1200.0
         SDSSScale=(self.configDict['plotSizeArcmin']*60.0)/SDSSWidth # 0.396127
@@ -767,7 +738,7 @@ class SourceBrowser(object):
                 outFileName=None
     
     
-    def fetchDESImage(self, obj, refetch = False, numRetries = 5):
+    def fetchDESImage(self, name, RADeg, decDeg, refetch = False, numRetries = 5):
         """Make DES co-add .jpg using the publicly available DR1 .tiff files. 
         
         We avoid the descuts server, as currently that serves images which don't correspond to what we ask for.
@@ -787,20 +758,17 @@ class SourceBrowser(object):
         if os.path.exists(desCacheDir) == False:
             os.makedirs(desCacheDir)
         
-        if obj['decDeg'] > 5:
+        if decDeg > 5:
             print "... outside DES dec range - skipping ..."
             return None
-        
-        name=obj['name']
-        RADeg=obj['RADeg']
-        decDeg=obj['decDeg']                
+                     
         outFileName=desCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
         
         # Procedure: spin through tile WCSs, find which tiles we need, download if necessary, paste pixels into low-res image (unWISE style)
         if os.path.exists(outFileName) == False or refetch == True:
                        
             # Blank WCS
-            CRVAL1, CRVAL2=obj['RADeg'], obj['decDeg']
+            CRVAL1, CRVAL2=RADeg, decDeg
             sizePix=1024
             sizeArcmin=self.configDict['plotSizeArcmin']
             xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
@@ -892,54 +860,112 @@ class SourceBrowser(object):
                 outIm=Image.fromarray(outData)
                 outIm.save(outFileName)
                 print "... made DES cut-out .jpg ..."
-                
-    
-    def fetchCFHTLSImage(self, obj, refetch = False):
-        """Retrieves colour .jpg from CFHT legacy survey. Returns True if successful, False if not
+
+
+    def fetchKiDSImage(self, name, RADeg, decDeg, refetch = False):
+        """Make KiDS co-add .jpg from survey's 1 x 1 deg tiles that we turned into gri .jpgs 
         
-        NOTE: Broken since CADC removed this service (I can't find it any more)
+        This can probably be generalised to handle both KiDS and DES
+        
         """
-
-        cfhtCacheDir=self.cacheDir+os.path.sep+"CFHTLS"
-        if os.path.exists(cfhtCacheDir) == False:
-            os.makedirs(cfhtCacheDir)
         
-        name=obj['name']
-        RADeg=obj['RADeg']
-        decDeg=obj['decDeg']
-                
-        outFileName=cfhtCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        kidsCacheDir=self.cacheDir+os.path.sep+"KiDS"
+        if os.path.exists(kidsCacheDir) == False:
+            os.makedirs(kidsCacheDir)
         
-        #http://www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/en/megapipe/access/cut.html
+        # Could put a footprint check in here
+        #if obj['decDeg'] > 5:
+            #print "... outside DES dec range - skipping ..."
+            #return None
+                       
+        outFileName=kidsCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
         
-        url="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/community/CFHTLS-SG/cgi/cutcfhtls.pl?ra=$RA&dec=$DEC&size=$SIZE_ARCMIN&units=arcminutes&wide=true&deep=true&preview=colour"
-        url=url.replace("$RA", str(RADeg))
-        url=url.replace("$DEC", str(decDeg))
-        url=url.replace("$SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))
-        print url
-        foundCutoutInfo=False
+        # Procedure: spin through tile WCSs, find which tiles we need, download if necessary, paste pixels into low-res image (unWISE style)
         if os.path.exists(outFileName) == False or refetch == True:
-            response=urllib2.urlopen(url)
-            lines=response.read()
-            lines=lines.split("\n")
-            for line in lines:
-                if line.find("cutout preview") != -1:
-                    foundCutoutInfo=True
-                    break
-            # This happens if outside of footprint
-            if line == '<img src="/community/CFHTLS-SG/cgi/CFHTLScolcut.pl?field=&amp;section=" alt="cutout preview">':
-                foundCutoutInfo=False
-            if foundCutoutInfo == True:
-                imageURL="http://www1.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/"+line[line.find("src=")+4:].split('"')[1]
-                urllib.urlretrieve(imageURL, outFileName)
-                #except:
-                    #noDataPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
-                    #os.system("cp %s %s" % (noDataPath, outFileName))
-        
-        return foundCutoutInfo
+                       
+            # Blank WCS
+            CRVAL1, CRVAL2=RADeg, decDeg
+            sizePix=1024
+            sizeArcmin=self.configDict['plotSizeArcmin']
+            xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
+            xSizePix=sizePix
+            ySizePix=sizePix
+            xRefPix=xSizePix/2.0
+            yRefPix=ySizePix/2.0
+            xOutPixScale=xSizeDeg/xSizePix
+            yOutPixScale=ySizeDeg/ySizePix
+            newHead=pyfits.Header()
+            newHead['NAXIS']=2
+            newHead['NAXIS1']=xSizePix
+            newHead['NAXIS2']=ySizePix
+            newHead['CTYPE1']='RA---TAN'
+            newHead['CTYPE2']='DEC--TAN'
+            newHead['CRVAL1']=CRVAL1
+            newHead['CRVAL2']=CRVAL2
+            newHead['CRPIX1']=xRefPix+1
+            newHead['CRPIX2']=yRefPix+1
+            newHead['CDELT1']=xOutPixScale
+            newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
+            newHead['CUNIT1']='DEG'
+            newHead['CUNIT2']='DEG'
+            outWCS=astWCS.WCS(newHead, mode='pyfits')
+            outData=np.zeros([sizePix, sizePix, 3], dtype = np.uint8)
+            RAMin, RAMax, decMin, decMax=outWCS.getImageMinMaxWCSCoords()
+            if RAMax-RAMin > 1.0:   # simple check for 0h crossing... assuming no-one wants images > a degree across
+                RAMax=-(360-RAMax)
+                temp=RAMin
+                RAMin=RAMax
+                RAMax=temp
+            checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
+            
+            # Spin though all DES tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
+            matchTilesList=[]
+            for tileName in self.KiDSWCSDict.keys():
+                wcs=self.KiDSWCSDict[tileName]
+                for c in checkCoordsList:
+                    pixCoords=wcs.wcs2pix(c[0], c[1])
+                    if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
+                        if tileName not in matchTilesList:
+                            matchTilesList.append(tileName)
 
+            if matchTilesList == []:
+                print "... object not in any KiDS tiles ..."
+                return None
+            else:
 
-    def fetchUnWISEImage(self, obj, refetch = False):
+                # We work with .jpg preview files that we made with STIFF
+                for tileName in matchTilesList:
+                    matchTab=self.KiDSTileTab[np.where(self.KiDSTileTab['TILENAME'] == tileName)][0]
+                    tileJPGFileName=self.KiDSTilesCacheDir+os.path.sep+tileName+".jpg"
+                    if os.path.exists(tileJPGFileName) == True:
+                        im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
+                    else:
+                        print "... tile %s missing from KiDS tiles .jpg preview directory (probably missing i or g-band coverage) ..." % (tileName)
+                        continue
+                    # Splat pixels from the .jpg into our small image WCS, from which we'll make a new .jpg
+                    d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
+                    d=np.flipud(d)
+                    inWCS=self.KiDSWCSDict[tileName]
+                    for y in range(sizePix):
+                        for x in range(sizePix):
+                            outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
+                            inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
+                            inX=int(round(inX))
+                            inY=int(round(inY))
+                            if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
+                                outData[y, x]=d[inY, inX]
+                
+                # Flips needed to get N at top, E at left
+                outData=np.flipud(outData)
+                outData=np.fliplr(outData)
+                
+                # We could do this with vips... but lazy...
+                outIm=Image.fromarray(outData)
+                outIm.save(outFileName)
+                print "... made KiDS cut-out .jpg ..."
+                
+
+    def fetchUnWISEImage(self, name, RADeg, decDeg, refetch = False):
         """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
         
         """
@@ -947,10 +973,6 @@ class SourceBrowser(object):
         wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
         if os.path.exists(wiseCacheDir) == False:
             os.makedirs(wiseCacheDir)
-        
-        name=obj['name']
-        RADeg=obj['RADeg']
-        decDeg=obj['decDeg']
         
         # 2.75" pixels in the unWISE images (max for query is 250 pixels though)
         sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))
@@ -1069,7 +1091,8 @@ class SourceBrowser(object):
 
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", clipSizeArcmin = None, gamma = 1.0):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", 
+                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", clipSizeArcmin = None, gamma = 1.0):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -1207,7 +1230,8 @@ class SourceBrowser(object):
             xMatchRAs=[]
             xMatchDecs=[]
             xMatchLabels=[]
-            for label in self.configDict['crossMatchCatalogLabels']:
+            for xMatchDict in self.configDict['crossMatchCatalogs']:
+                label=xMatchDict['label']
                 RAKey='%s_RADeg' % (label)
                 decKey='%s_decDeg' % (label)
                 if RAKey in obj.keys() and decKey in obj.keys():
@@ -1471,10 +1495,95 @@ class SourceBrowser(object):
             cherrypy.session['viewTopRow']=0
             cherrypy.session['queryOtherConstraints']=queryOtherConstraints
         
-        return self.index()
-    
+        raise cherrypy.HTTPRedirect(cherrypy.request.script_name)
+
+
+    def onLogin(self, username):
+        """Called on successful login.
         
+        Checks the permissions of the user and sets session variables accordingly
+        
+        """
+        sourceryAuth.setEditPermissions(username, self.usersList)
+        
+    
+    def onLogout(self, username):
+        """Called on logout"""
+    
+    
+    def getLoginForm(self, username, msg="", from_page=cherrypy.request.script_name):
+        html="""<html><body style="font-family: sans-serif; vertical align: top; justify: full;">
+        <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
+            <tbody>
+                <tr>
+                    <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
+                        text-align: center; vertical-align: middle; font-size: 150%;">
+                        <b>$TITLE</b>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <br>
+        <fieldset>
+        <legend><b>Enter Login Information</b></legend>
+        <p>      
+            <form method="post" action="$SCRIPT_NAME/login">
+            <input type="hidden" name="from_page" value="$FROM_PAGE" />
+            <label for="username"><b>Username:</b></label>
+            <input type="text" name="username" value="$USERNAME" /><br />
+            <br>
+            <label for="username"><b>Password:</b></label>            
+            <input type="password" name="password" /><br />
+            <br>
+            <input type="submit" style="font-size: 1.05em;" value="Log in" />
+        </p>
+        <p>$MSG</p>
+        </fieldset>
+        </body></html>"""
+        html=html.replace("$SCRIPT_NAME", cherrypy.request.script_name)
+        html=html.replace("$FROM_PAGE", from_page)
+        html=html.replace("$MSG", msg)
+        html=html.replace("$USERNAME", username)
+        if 'indexTitle' in self.configDict.keys():
+            html=html.replace("$TITLE", self.configDict['indexTitle'])
+        else:
+            html=html.replace("$TITLE", "Sourcery Database")
+        
+        return html
+    
+    
     @cherrypy.expose
+    def login(self, username=None, password=None, from_page=cherrypy.request.script_name):
+        if self.usersList == None:
+            username="public"
+            cherrypy.session[sourceryAuth.SESSION_KEY] = cherrypy.request.login = username
+            self.onLogin(username) 
+        else:
+            if username is None or password is None:
+                return self.getLoginForm("", from_page=from_page)
+        
+        error_msg = sourceryAuth.checkCredentials(username, password, self.usersList, contactStr = self.contactInfo)
+        if error_msg:
+            return self.getLoginForm(username, error_msg, from_page)
+        else:
+            cherrypy.session[sourceryAuth.SESSION_KEY] = cherrypy.request.login = username
+            self.onLogin(username)
+        raise cherrypy.HTTPRedirect(from_page or cherrypy.request.script_name)
+    
+    
+    @cherrypy.expose
+    def logout(self, from_page=cherrypy.request.script_name):
+        sess = cherrypy.session
+        username = sess.get(sourceryAuth.SESSION_KEY, None)
+        sess[sourceryAuth.SESSION_KEY] = None
+        if username:
+            cherrypy.request.login = None
+            self.onLogout(username)
+        raise cherrypy.HTTPRedirect(from_page or cherrypy.request.script_name)
+    
+    
+    @cherrypy.expose
+    @sourceryAuth.require()
     def index(self):
         """Shows the table page.
         
@@ -1507,8 +1616,7 @@ class SourceBrowser(object):
             </style>
             <style>
             .tablefont, .tablefont TD, .tablefont TH {
-                font-family:sans-serif;
-                font-size:small;
+                font-family: monospace;
             }
             </style>
             <title>$TITLE</title>
@@ -1551,8 +1659,8 @@ class SourceBrowser(object):
             <tbody>
                 <tr>
                     <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 125%;">
-                        $TITLE
+                        text-align: center; vertical-align: middle; font-size: 150%;">
+                        <b>$TITLE</b>
                     </td>
                 </tr>
             </tbody>
@@ -1564,6 +1672,7 @@ class SourceBrowser(object):
         <br>
         <form method="get" action="updateQueryParams">
         <fieldset>
+        $QUICK_QUERY_LINKS
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Constraints</b></legend>
         <p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative RA values to wrap around 0 degrees (e.g., -60:60).</p>
         <p>
@@ -1577,24 +1686,23 @@ class SourceBrowser(object):
         </p>
         <label for="queryOtherConstraints">Other constraints <a href=$CONSTRAINTS_HELP_LINK target=new>(help)</a></label>
         <textarea style="width:100%" name="queryOtherConstraints">$QUERY_OTHERCONSTRAINTS</textarea>
-        <input type="submit" class="f" name="queryApply" value="Apply">
-        <input type="submit" class="f" name="queryReset" value="Reset"><br>
+        <input type="submit" class="f" style="font-size: 1.05em;" name="queryApply" value="Apply">
+        <input type="submit" class="f" style="font-size: 1.05em;" name="queryReset" value="Reset"><br>
         </p>
         </fieldset>
         </form>
             
-        <form method="post" action="changeTablePage">
+        <form method="post" action="changeTablePage" style="border">
         <div id="buttons">
-            <input type="submit" class="f" name="nextButton" value=">">
-            <input type="submit" class="f" name="prevButton" value="<">
+            <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
+            <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
             <div style="clear:both"></div><!-- Need this to have the buttons actually inside div#buttons -->
         </div>
-        </form>
                 
         <table frame=border cellspacing=0 cols=$TABLE_COLS rules=all border=2 width=100% align=center class=tablefont>
         <tbody>
-            <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;">
+            <tr style="background-color: rgb(0, 0, 0); font-family: monospace; color: rgb(255, 255, 255); 
+                    text-align: center; vertical-align: middle; font-size: 125%;">
             $TABLE_COL_NAMES
             </tr>
             <font size="1">
@@ -1603,19 +1711,19 @@ class SourceBrowser(object):
         </tbody>
         </table>
 
-        <form method="post" action="changeTablePage">
         <div id="buttons">
-            <input type="submit" class="f" name="nextButton" value=">">
-            <input type="submit" class="f" name="prevButton" value="<">
+            <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
+            <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
             <div style="clear:both"></div><!-- Need this to have the buttons actually inside div#buttons -->
         </div>
+        </form>
         
         $DOWNLOAD_LINKS
 
         </tbody>
         </table>
         <hr>
-        <i>Sourcery</i> - $HOSTED_STR
+        <a href="https://github.com/mattyowl/sourcery"><i>Sourcery</i></a> - $HOSTED_STR
         <br>
         <br>
         </body>
@@ -1632,10 +1740,26 @@ class SourceBrowser(object):
         # First need to apply query parameters here
         queryPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
         numPosts=queryPosts.count()
+        if 'numPosts' not in cherrypy.session:
+            cherrypy.session['numPosts']=numPosts
         
         # Then cut to number of rows to view as below
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
         
+        # Quick query link(s) - at top of 'constraints' box
+        if 'quickLinks' in self.configDict.keys():            
+            quickLinkStr="<p><i>Quick links:</i> "
+            for linkDict in self.configDict['quickLinks']:
+                url="updateQueryParams?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints="
+                url=url+linkDict['constraints']
+                url=url+"&queryApply=Apply"
+                quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (url, linkDict['label'])
+                quickLinkStr=quickLinkStr+" - "
+            quickLinkStr=quickLinkStr[:-3]+"</p>"
+        else:
+            quickLinkStr=""
+        html=html.replace("$QUICK_QUERY_LINKS", quickLinkStr)
+            
         # Fill in query params
         html=html.replace("$QUERY_RADEG", queryRADeg)
         html=html.replace("$QUERY_DECDEG", queryDecDeg)
@@ -1647,9 +1771,11 @@ class SourceBrowser(object):
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
         # Table columns - as well as defaults, add ones we query on
+        columnsShownList=[]
+        for colDict in self.tableDisplayColumns:
+            if colDict['name'] not in columnsShownList:
+                columnsShownList.append(colDict['name'])
         displayColumns=[]+self.tableDisplayColumns
-        displayColumnLabels=[]+self.tableDisplayColumnLabels
-        displayColumnFormats=[]+self.tableDisplayColumnFormats
         operators=["<", ">", "=", "!"]
         logicalOps=[' and ', ' or ']
         for logOp in logicalOps:
@@ -1657,20 +1783,20 @@ class SourceBrowser(object):
             for c in constraints:
                 for o in operators:
                     colName=c.split(o)[0].lstrip().rstrip()
-                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in displayColumns:
-                        displayColumns.append(colName)
-                        displayColumnLabels.append(colName)
+                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in columnsShownList:
                         fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
+                        dispDict={'name': colName, 'label': colName}
                         if fieldTypeDict['type'] == 'number':
-                            displayColumnFormats.append('%.3f')
+                            dispDict['fmt']='%.3f'
                         elif fieldTypeDict['type'] == 'text':
-                            displayColumnFormats.append('%s')
+                            dispDict['fmt']='%s'
                         else:
                             raise Exception, "unknown type for field '%s'" % (colName)
-        
+                        displayColumns.append(dispDict)
+                        
         columnHeadings=""
-        for key in displayColumnLabels:
-            columnHeadings=columnHeadings+"\n           <td><b>%s</b></td>" % (key)
+        for colDict in displayColumns:
+            columnHeadings=columnHeadings+"\n           <td><b>%s</b></td>" % (colDict['label'])
         html=html.replace("$TABLE_COL_NAMES", columnHeadings)
         html=html.replace("$TABLE_COLS", str(len(displayColumns)))
         
@@ -1738,33 +1864,40 @@ class SourceBrowser(object):
 
         for obj in viewPosts:
             
-            # On the fly MongoDB matching
-            #tagsDict=self.matchTags(obj)
-                
-            # Highlighting of rows - obviously, order matters here!
             bckColor="white"
-            #if 'observed 2009B' in obj.keys() and obj['observed 2009B'] == True:
-                #bckColor="darkgray"
-                #bckKey='observed 2009B'
-            #if 'SPT cluster' in obj.keys() and obj['SPT cluster'] == True:
-                #bckColor="gold"
-                #bckKey='SPT cluster'
-            #if 'ACT 2008 cluster' in obj.keys() and obj['ACT 2008 cluster'] == True:
-                #bckColor="deeppink"
-                #bckKey='ACT 2008 cluster'
-            #if bckColor not in usedBckColors and bckColor != "white":
-                #usedBckColors.append(bckColor)
-                #usedBckKeys.append(bckKey)
                 
             # Row for each object in table
             rowString="<tr>\n"
-            for key in displayColumns:
-                htmlKey="$"+string.upper(key)+"_KEY"
-                rowString=rowString+"   <td style='background-color: "+bckColor+";' align=center width=10%>"+htmlKey+"</td>\n"
+            for colDict in displayColumns:
+                htmlKey="$"+string.upper(colDict['name'])+"_KEY"
+                if 'tableAlign' in colDict.keys():
+                    alignStr=colDict['tableAlign']
+                else:
+                    alignStr="center"
+                if 'displaySize' in colDict.keys():
+                    widthStr='width: %dem;' % (colDict['displaySize'])
+                    useDiv=True
+                else:
+                    useDiv=False
+                    if colDict['fmt'] == '%s':
+                        if colDict['name'] in obj.keys():
+                            widthStr='width: %dem;' % (len(obj[colDict['name']]))
+                        else:
+                            widthStr=""
+                    else:
+                        widthStr='width: %dem;' % (len(colDict['fmt'] % (1)))
+                rowString=rowString+"   <td style='background-color: "+bckColor+"; "+widthStr+"' align="+alignStr+">"
+                if useDiv == True:
+                    rowString=rowString+'<div style="text-overflow: ellipsis; white-space: nowrap; overflow: hidden; '+widthStr+'">'
+                rowString=rowString+htmlKey
+                if useDiv == True:
+                    rowString=rowString+"</div>\n"
+                rowString=rowString+"</td>\n"
             rowString=rowString+"</tr>\n"
             
             # Insert values - note name is special
-            for key, fmt in zip(displayColumns, displayColumnFormats):
+            for colDict in displayColumns:
+                key=colDict['name']
                 if key in obj.keys():
                     try:
                         value=obj[key]
@@ -1772,7 +1905,7 @@ class SourceBrowser(object):
                         raise Exception, "missing key %s" % (key)
                 else:
                     # No entry in MongoDB tags yet
-                    if fmt != "%s":
+                    if colDict['fmt'] != "%s":
                         value=0.0
                     else:
                         value=""
@@ -1793,8 +1926,10 @@ class SourceBrowser(object):
                     rowString=rowString.replace(htmlKey, "-")
                 else:
                     try:
-                        rowString=rowString.replace(htmlKey, fmt % (value))
+                        rowString=rowString.replace(htmlKey, colDict['fmt'] % (value))
                     except:
+                        IPython.embed()
+                        sys.exit()
                         raise Exception, """IndexError: check .config file tableDisplayColumns are actually in the .fits table, or for mixed '' "" inside [] """ 
                            
             tableData=tableData+rowString
@@ -1830,6 +1965,7 @@ class SourceBrowser(object):
 
 
     @cherrypy.expose
+    @sourceryAuth.require()
     def downloadCatalog(self, queryRADeg = "0:360", queryDecDeg = "-90:90", querySearchBoxArcmin = "",
                         queryOtherConstraints = "", fileFormat = "cat"):
         """Provide user with the current table view as a downloadable catalog.
@@ -1913,9 +2049,23 @@ class SourceBrowser(object):
         
         return f
     
+    
+    @cherrypy.expose
+    @sourceryAuth.require()
+    def downloadThumbnailFITS(self, sourceryID):
+        """Returns .fits image for download by the user.
+        
+        """
+        obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
+        imgPath=self.cacheDir+os.path.sep+self.configDict['downloadableFITS']+os.path.sep+"%s.fits" % (obj['name'].replace(" ", "_"))
+        cherrypy.response.headers['Content-Disposition']='attachment; filename="%s.%s"' % (obj['name'].replace(" ", "_"), 'fits')
+        f=file(imgPath, 'rb')
+        
+        return f
+        
         
     def sourceNameToURL(self, name):
-        """Replaces + and spaces in source names so that they will be valid urls.
+        """Replaces + and spaces in source names so that they will be valid URLs.
         
         """
         return name.replace("+", "%2b").replace(" ", "%20")
@@ -1937,11 +2087,6 @@ class SourceBrowser(object):
         
         """
         
-        #if not cherrypy.session.loaded: cherrypy.session.load()
-            
-        ## Store results of query in another collection (empty it first if documents are in it)
-        #self.db.collection[cherrypy.session.id].remove({})
-
         # Build query document piece by piece...
         queryDict={}
 
@@ -2104,6 +2249,8 @@ class SourceBrowser(object):
         if nextButton:
             viewTopRow=cherrypy.session.get('viewTopRow')
             viewTopRow=viewTopRow+self.tableViewRows
+            if viewTopRow >= cherrypy.session.get('numPosts'):
+                viewTopRow=cherrypy.session.get('numPosts')-self.tableViewRows
             cherrypy.session['viewTopRow']=viewTopRow
         if prevButton:
             viewTopRow=cherrypy.session.get('viewTopRow')
@@ -2112,7 +2259,7 @@ class SourceBrowser(object):
                 viewTopRow=0
             cherrypy.session['viewTopRow']=viewTopRow
             
-        return self.index()        
+        raise cherrypy.HTTPRedirect("/actpol-sourcery")
     
     
     @cherrypy.expose
@@ -2184,7 +2331,7 @@ class SourceBrowser(object):
         # Fill in table of data types
         bckColor="white"
         tableData=""
-        excludeKeys=['RADeg', 'decDeg'] # because we handle differently
+        excludeKeys=['RADeg', 'decDeg', 'sourceryID', 'cacheBuilt'] # because we handle differently
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = excludeKeys)
         for key, typeName, description in zip(keysList, typeNamesList, descriptionsList):
             # Row for each column in table
@@ -2218,11 +2365,10 @@ class SourceBrowser(object):
             typeNamesList.append("text")
             descList.append(self.configDict['classificationDescription'])
         if 'fields' in self.configDict.keys():
-            for f, t, d in zip(self.configDict['fields'], self.configDict['fieldTypes'], 
-                               self.configDict['fieldDescriptions']):
-                keysList.append(f)
-                typeNamesList.append(t)
-                descList.append(d)
+            for fieldDict in self.configDict['fields']:
+                keysList.append(fieldDict['name'])
+                typeNamesList.append(fieldDict['type'])
+                descList.append(fieldDict['description'])
         
         return keysList, typeNamesList, descList
                 
@@ -2250,14 +2396,16 @@ class SourceBrowser(object):
         
         post={}
         for key in kwargs.keys():
-            if key in self.configDict['fields']:
-                if self.configDict['fieldTypes'][self.configDict['fields'].index(key)] == 'number':
-                    post[key]=float(kwargs[key])
-                else:
-                    post[key]=kwargs[key]
-            else:
+            for fieldDict in self.configDict['fields']:
+                if key == fieldDict['name']:
+                    if fieldDict['type'] == 'number':
+                        post[key]=float(kwargs[key])
+                    else:
+                        post[key]=kwargs[key]
+            if key == 'classification':
                 post[key]=kwargs[key]
         post['lastUpdated']=datetime.date.today().isoformat()
+        post['user']=cherrypy.session['_sourcery_username']
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
         # Update source collection too - here we will do this for all sources that share the same name (we can have multiple source lists)
@@ -2296,13 +2444,15 @@ class SourceBrowser(object):
         
         post={}
         for key in tagsToInsertDict.keys():
-            if key in self.configDict['fields']:
-                if self.configDict['fieldTypes'][self.configDict['fields'].index(key)] == 'number':
-                    post[key]=float(tagsToInsertDict[key])
-                else:
-                    post[key]=tagsToInsertDict[key]
-            else:
-                post[key]=tagsToInsertDict[key]
+            for fieldDict in self.configDict['fields']:
+                if key == fieldDict['name']:
+                    if fieldDict['type'] == 'number':
+                        post[key]=float(kwargs[key])
+                    else:
+                        post[key]=kwargs[key]
+            if key == 'classification':
+                post[key]=kwargs[key]
+        post['lastUpdated']=datetime.date.today().isoformat()
         
         #print "How to avoid overwrites of things we shouldn't?"
         #IPython.embed()
@@ -2315,6 +2465,7 @@ class SourceBrowser(object):
         
     
     @cherrypy.expose
+    @sourceryAuth.require()
     def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
         """Retrieve data on a source and display source page, showing given image plot.
         
@@ -2353,8 +2504,8 @@ class SourceBrowser(object):
                 <tr>
                     <!-- $PREV_LINK_CODE -->
                     <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 125%;">
-                        $SOURCE_NAME
+                        text-align: center; vertical-align: middle; font-size: 150%;">
+                        <b>$SOURCE_NAME</b>
                     </td>
                     <!-- $NEXT_LINK_CODE -->
                 </tr>
@@ -2363,20 +2514,32 @@ class SourceBrowser(object):
         
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
 
+        <br>
+
+        <div style="display: table; width: 80%; margin:0 auto;">
+            <div style="display: table-row; height: auto; margin:0 auto;">
+                <div style="display: table-cell;">
+                    <div style="display: block;">
+                        $PLOT_CONTROLS
+                    </div>
+                    <div style="display: block;">
+                        $TAG_CONTROLS
+                    </div>
+                </div>
+                <div style="display: table-cell;">
+                    <fieldset style="height: 100%;">
+                    <legend><b>Source Image</b></legend>
+                    <div id="imagePlot"></div>
+                    </fieldset>
+                </div>
+            </div>
+        </div>
+
         <table frame=border cellspacing=0 cols=1 rules=None border=0 width=100%>
-        <tbody>
-        
-        <tr>
-            <td align=center id="imagePlot">
-            </td>
-        </tr>
-
-        <tr><td align=center>$PLOT_CONTROLS</td></tr>
-
-        <tr><td align=center>$TAG_CONTROLS</td></tr>
+        <tbody>        
 
         $SPECTRUM_PLOT
-        
+
         <tr>
             <td align=center>$NED_MATCHES_TABLE</td>
         </tr>
@@ -2407,6 +2570,14 @@ class SourceBrowser(object):
         obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
         mongoDict=self.matchTags(obj)
         name=obj['name']
+        
+        # For avoiding display of e.g. catalogs in which we don't have a cross match
+        skipColumnPrefixList=[]
+        for key in obj.keys():
+            prefix=key.split("_")[0]
+            matchKey="%s_match" % (prefix)
+            if matchKey in obj.keys() and obj[matchKey] == 0 and prefix not in skipColumnPrefixList:
+                skipColumnPrefixList.append(prefix)
         
         # Pick the best available image given the preference given in the config file
         if imageType == 'best':
@@ -2447,7 +2618,7 @@ class SourceBrowser(object):
                             gamma: $("#gamma").val()}, 
                             function(data) {
                                 // directly insert the image
-                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
+                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
                            });
                     return false;
             });
@@ -2482,42 +2653,98 @@ class SourceBrowser(object):
                             gamma: $("#gammaSliderValue").val()}, 
                             function(data) {
                                 // directly insert the image
-                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=2 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
+                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
                                 //alert($('input:radio[name=imageType]:checked').val());
                            });
                     return false;
-                });
+                });                
             });
 
         </script>
 
-        <form action="#" id="imageForm" method="post">        
-        <fieldset style="width:80%">
+        <fieldset style="height: 100%;">
         <legend><b>Image Controls</b></legend>
-        <input name="name" value="$OBJECT_NAME" type="hidden">
-        <p><b>Survey:</b> $IMAGE_TYPES</p>      
-        <p><b>Plot:</b>
-        <input type="checkbox" name="noAxes" value=1 $CHECKED_NOAXES>Remove coordinate axes
-        <input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>Contours ($CONTOUR_IMAGE)
-        <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>Source position
-        <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>NED objects
-        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>SDSS DR14 objects
-        <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>Cross match objects
-        </p>
         
+        <form id="buildCache" method="get" action="buildCacheForObject"></form>   
+        $THUMB_FORM_DECLARED
+        <div style="display: inline-block;">
+        <input form="buildCache" type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
+        <input form="buildCache" type="hidden" value="true" name="refetch"/>
+        <input form="buildCache" type="hidden" value="displaySourcePage?sourceryID=$SOURCERY_URL_ID" name="from_page"/>
+        <input form="buildCache" type="submit" style="display: inline-block;" value="Update Cache [NB: Slow]">
+        $THUMB_FORM_CONTROLS
+        </div>
+        
+        <form action="#" id="imageForm" method="post">        
+        <input name="name" value="$OBJECT_NAME" type="hidden">
+        <p><b>Survey:</b></p> 
+        <p>
+        $IMAGE_TYPES
+        </p>      
+        <p><b>Plot:</b></p>
+        <p>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="noAxes" value=1 $CHECKED_NOAXES>
+        <label for="noAxes">Remove coordinate axes</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        $CONTOUR_CODE
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>
+        <label for="plotSourcePos">Source position</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>
+        <label for="plotNEDObjects">NED objects</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>
+        <label for="plotSDSSObjects">SDSS DR14 objects</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>
+        <label for="plotXMatch">Cross match objects</label>
+        </span>
+        </p>
+
+        <p align="right">
+        <span style="margin-left: 1.2em; display: inline-block">
         <label for="clipSizeArcmin">Image Size (arcmin)</label>
         <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
         <input id="sizeSliderValue" type="text" size="2"/>
-        
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
         <label for="gamma">Brightness (&gamma;)</label>
         <input id="gammaSlider" name="gamma" type="range" min="0.2" max="3.0" step="0.2" value=$CURRENT_GAMMA onchange="printValue('gammaSlider','gammaSliderValue')">
         <input id="gammaSliderValue" type="text" size="2"/>
-        
-        <input type="submit" value="Apply">
-        </fieldset>
+        </span>
+        </p>
+        <p align="right">
+        <input type="submit" style="font-size: 1.05em;" value="Apply">
+        </p>
         </form>
+                
+        </fieldset>
      
         """ 
+        
+        # For cache build and downloadable thumbnail buttons
+        plotFormCode=plotFormCode.replace("$SOURCERY_ID", obj['sourceryID'])
+        plotFormCode=plotFormCode.replace("$SOURCERY_URL_ID", self.sourceNameToURL(obj['sourceryID']))        
+        if 'downloadableFITS' in self.configDict.keys():
+            plotFormCode=plotFormCode.replace('$THUMB_FORM_DECLARED', '<form id="downloadThumbnail" method="get" action="downloadThumbnailFITS">')
+            thumbForm="""<div style="display: inline-block;">
+            <input form="downloadThumbnail" type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
+            <input form="downloadThumbnail" type="submit" style="display: inline-block;" value="Download $IMGDIRLABEL FITS">
+            </form>"""
+            thumbForm=thumbForm.replace("$SOURCERY_ID", obj['sourceryID'])
+            thumbForm=thumbForm.replace("$IMGDIRLABEL", self.configDict['downloadableFITS'])
+            plotFormCode=plotFormCode.replace("$THUMB_FORM_CONTROLS", thumbForm)
+        else:
+            plotFormCode=plotFormCode.replace("$THUMB_FORM_DECLARED", "")
+            plotFormCode=plotFormCode.replace("$THUMB_FORM_CONTROLS", "")
+            
         # Taken out: onChange="this.form.submit();" from all checkboxes ^^^
         plotFormCode=plotFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
         plotFormCode=plotFormCode.replace("$OBJECT_NAME", obj['name'])
@@ -2525,16 +2752,19 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
         if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-            plotFormCode=plotFormCode.replace("$CONTOUR_IMAGE", self.configDict['contourImage'])
+            contourCode='<input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>\n'
+            contourCode=contourCode+'<label for="plotContours">Contours ($CONTOUR_IMAGE)</label>'
+            contourCode=contourCode.replace("$CONTOUR_IMAGE", self.configDict['contourImage'])
+            plotFormCode=plotFormCode.replace("$CONTOUR_CODE", contourCode)
         else:
-            plotFormCode=plotFormCode.replace("$CONTOUR_IMAGE", "None")
+            plotFormCode=plotFormCode.replace("$CONTOUR_CODE", "")
         
         imageTypesCode=""            
         for label in self.imageLabels:
             if label == imageType:
-                imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s" checked>%s\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s" checked>%s</span>\n' % (label, label)
             else:
-                imageTypesCode=imageTypesCode+'<input type="radio" name="imageType" value="%s">%s\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s">%s</span>\n' % (label, label)
         plotFormCode=plotFormCode.replace("$IMAGE_TYPES", imageTypesCode)
         
         if plotNEDObjects == "true":
@@ -2571,45 +2801,74 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$CURRENT_GAMMA", str(gamma))
                 
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
-        if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
-            tagFormCode="""
-            <form method="post" action="updateMongoDB">    
-            <input name="name" value="$OBJECT_NAME" type="hidden">
-            <input name="returnURL" value=$RETURN_URL" type="hidden">
-            <fieldset style="width:80%">
-            <legend><b>Editing Controls</b></legend>
-            <p><b>Classification:</b>
-            $CLASSIFICATION_CONTROLS
-            </p>
-            <p><b>Fields:</b>
-            $FIELD_CONTROLS
-            </p>
-            <input type="submit" class="f" value="Update">
-            </fieldset>
-            </form>
-            """
+        tagFormCode="""
+        <form method="post" action="updateMongoDB">    
+        <input name="name" value="$OBJECT_NAME" type="hidden">
+        <input name="returnURL" value=$RETURN_URL" type="hidden">
+        <fieldset style="height: 100%;">
+        <legend><b>Editing Controls</b></legend>
+        $CLASSIFICATION_CONTROLS
+        $FIELD_CONTROLS
+        <p align="right">
+        <input type="submit" class="f" style="font-size: 1.05em;" value="Update" $DISABLED_STR>
+        </p>
+        </fieldset>
+        </form>
+        """
+        if 'fields' in self.configDict.keys():
+            if cherrypy.session['editPermission'] == False:
+                readOnlyStr="readonly"
+                tagFormCode=tagFormCode.replace("$DISABLED_STR", "disabled")
+            else:
+                readOnlyStr=""
+                tagFormCode=tagFormCode.replace("$DISABLED_STR", "")
             tagFormCode=tagFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
             tagFormCode=tagFormCode.replace("$OBJECT_NAME", name)
             tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
             if 'fields' in self.configDict.keys():
-                fieldsCode=""
-                for f, s in zip(self.configDict['fields'], self.configDict['fieldDisplaySizes']):
-                    fieldsCode=fieldsCode+'<label for="%s">%s</label>\n' % (f, f)
-                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d/>\n' % (str(mongoDict[f]), f, s)
+                #fieldsCode="<p><b>Fields:</b>"
+                fieldsCode='<p align="left">'
+                for fieldDict in self.configDict['fields']:
+                    fieldsCode=fieldsCode+'<span style="display: inline-block; margin-bottom: 6pt; margin-right: 8pt">'
+                    fieldsCode=fieldsCode+'<label for="%s"><b>%s: </b></label>\n' % (fieldDict['name'], fieldDict['name'])
+                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d %s/>\n' % (str(mongoDict[fieldDict['name']]), 
+                                                                                                   fieldDict['name'], 
+                                                                                                   fieldDict['displaySize'],
+                                                                                                   readOnlyStr)
+                    fieldsCode=fieldsCode+"</span>"
+                fieldsCode=fieldsCode+"</p>"
                 if 'lastUpdated' in mongoDict.keys():
                     lastUpdated=mongoDict['lastUpdated']
                 else:
                     lastUpdated='-'
+                if 'user' in mongoDict.keys():
+                    userName=mongoDict['user']
+                else:
+                    userName='-'
                 fieldsCode=fieldsCode+'<p><label for = "lastUpdated"><b>Last Updated:</b></label>\n'
-                fieldsCode=fieldsCode+'<input type="text" value="%s" name="lastUpdated" size=10 readonly/></p>\n' % (lastUpdated)
+                fieldsCode=fieldsCode+'<input type="text" value="%s" name="lastUpdated" size=10 readonly/>\n' % (lastUpdated)
+                fieldsCode=fieldsCode+'<label for = "user"><b>By User:</b></label>\n'
+                fieldsCode=fieldsCode+'<input type="text" value="%s" name="userName" size=10 readonly/></p>\n' % (userName)
+                fieldsCode=fieldsCode+"</p>"
             tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', fieldsCode)
-            classificationsCode=""
+        else:
+            tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', "")
+        
+        if 'classifications' in self.configDict.keys():
+            classificationsCode="<p><b>Classification:</b></p>\n<p>"
+            if cherrypy.session['editPermission'] == False:
+                readOnlyStr="disabled"
+            else:
+                readOnlyStr=""
             for c in self.configDict['classifications']:
                 if c == mongoDict['classification']:
-                    classificationsCode=classificationsCode+'<input type="radio" name="classification" value="%s" checked>%s\n' % (c, c)
+                    classificationsCode=classificationsCode+'<span style="margin-left: 1.2em; display: inline-block;"><input type="radio" name="classification" value="%s" checked %s>%s</span>\n' % (c, readOnlyStr, c)
                 else:
-                    classificationsCode=classificationsCode+'<input type="radio" onChange="this.form.submit();" name="classification" value="%s">%s\n' % (c, c)
+                    classificationsCode=classificationsCode+'<span style="margin-left: 1.2em; display: inline-block;"><input type="radio" onChange="this.form.submit();" name="classification" value="%s" %s>%s</span>\n' % (c, readOnlyStr, c)
+            classificationsCode=classificationsCode+"</p>"
             tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", classificationsCode)
+        else:
+            tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", "")
         
         # Optional spectrum plot
         if 'displaySpectra' in self.configDict.keys() and self.configDict['displaySpectra'] == True:
@@ -2638,7 +2897,7 @@ class SourceBrowser(object):
         html=templatePage
         html=html.replace("$SPECTRUM_PLOT", spectrumCode)
         html=html.replace("$PLOT_CONTROLS", plotFormCode)
-        if 'enableEditing' in self.configDict.keys() and self.configDict['enableEditing'] == True:
+        if 'fields' in self.configDict.keys() or 'classifications' in self.configDict.keys():
             html=html.replace("$TAG_CONTROLS", tagFormCode)
         else:
             html=html.replace("$TAG_CONTROLS", "")
@@ -2651,7 +2910,7 @@ class SourceBrowser(object):
                 #html=html.replace("$CAPTION", "%s" % (caption))
                             
         # NED matches table
-        self.fetchNEDInfo(obj)
+        self.fetchNEDInfo(obj['name'], obj['RADeg'], obj['decDeg'])
         self.findNEDMatch(obj)
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
         nedObjs=catalogTools.parseNEDResult(nedFileName)
@@ -2765,18 +3024,55 @@ class SourceBrowser(object):
                         rowString=rowString.replace("$KEY_VALUE", "<a href=%s>%s</a>" % (nedLinkURL, nedName))
                     else:
                         rowString=rowString.replace("$KEY_VALUE", str(obj[pkey]))
-                propTable=propTable+rowString
+                # Skip over cross-matched tables with no matches
+                prefix=pkey.split("_")[0]
+                if prefix not in skipColumnPrefixList:
+                    propTable=propTable+rowString
         propTable=propTable+"</td></tr></tbody></table>"
         html=html.replace("$PROPERTIES_TABLE", propTable)
                 
         return html   
     
     
-    @cherrypy.expose
+    def setUpDESWCSDict(self):
+        """Sets up WCSDict containing DES tile info. Quite slow (~32 sec) but only needed when rebuilding
+        image cache.
+        
+        """
+        self.DESTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"DES_DR1_TILE_INFO.csv")
+        self.DESWCSDict={}
+        keyWordsToGet=['NAXIS1', 'NAXIS2', 'CTYPE1', 'CTYPE2', 'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 
+                        'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2']
+        for row in self.DESTileTab:
+            newHead=pyfits.Header()
+            newHead['NAXIS']=2
+            for key in keyWordsToGet:
+                newHead[key]=row[key] 
+            newHead['CUNIT1']='DEG'
+            newHead['CUNIT2']='DEG'
+            self.DESWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits')  
+        
+        
+    def setUpKiDSWCSDict(self):
+        """Sets up WCSDict containing KiDS tile info. Quite slow, but only needed when rebuilding
+        image cache.
+        
+        """
+        self.KiDSTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"KiDSDR3_regridded_WCSTab.fits")
+        self.KiDSWCSDict={}
+        keyWordsToGet=['NAXIS', 'NAXIS1', 'NAXIS2', 'CTYPE1', 'CTYPE2', 'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 
+                        'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2', 'CUNIT1', 'CUNIT2']
+        for row in self.KiDSTileTab:
+            newHead=pyfits.Header()
+            for key in keyWordsToGet:
+                newHead[key]=row[key]
+            self.KiDSWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits') 
+        
+        
     def preprocess(self):
         """This re-runs pre-processing steps (e.g., NED matching, SDSS image fetching etc.).
         
-        If the use specified their own imageDirs, then the .jpg images from these are constructed here
+        If the user specified their own imageDirs, then the .jpg images from these are constructed here
         
         Directories containing ready-made .jpgs can also be directly added into the cacheDir folder. So long
         as these have a corresponding entry in the .config file they will be picked up. We spin through
@@ -2791,153 +3087,130 @@ class SourceBrowser(object):
         # For DES public DR1 images access (we have to stitch together tiles if necessary anyway, as DESCuts has problems with objects near edge)
         # This is the result of SELECT * FROM DR1_TILE_INFO and contains WCS info for all the tiles
         if 'addDESImage' in self.configDict.keys() and self.configDict['addDESImage'] == True:
-            self.DESTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"DES_DR1_TILE_INFO.csv")
-            # Building the WCS dict here takes ~21 sec
-            self.DESWCSDict={}
-            for row in self.DESTileTab:
-                newHead=pyfits.Header()
-                newHead['NAXIS']=2
-                newHead['NAXIS1']=row['NAXIS1']
-                newHead['NAXIS2']=row['NAXIS2']
-                newHead['CTYPE1']=row['CTYPE1']
-                newHead['CTYPE2']=row['CTYPE2']
-                newHead['CRVAL1']=row['CRVAL1']
-                newHead['CRVAL2']=row['CRVAL2']
-                newHead['CRPIX1']=row['CRPIX1']
-                newHead['CRPIX2']=row['CRPIX2']
-                newHead['CD1_1']=row['CD1_1']
-                newHead['CD1_2']=row['CD1_2']    
-                newHead['CD2_1']=row['CD2_1']    
-                newHead['CD2_2']=row['CD2_2']    
-                newHead['CUNIT1']='DEG'
-                newHead['CUNIT2']='DEG'
-                self.DESWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits')  
+            if self.DESWCSDict == None:
+                self.setUpDESWCSDict()
+            
+        # For KiDS DR3 images that we have regridded and STIFFed
+        if 'addKiDSImage' in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
+            if self.KiDSWCSDict == None:
+                self.setUpKiDSWCSDict()
         
-        # In the CFHT dir, we keep a file that lists objects that don't have data
-        # Saves us pinging CFHT servers again if we rerun
-        cfhtCacheDir=self.cacheDir+os.path.sep+"CFHTLS"
-        if os.path.exists(cfhtCacheDir) == False:
-            os.makedirs(cfhtCacheDir)
-        failsFileName=cfhtCacheDir+os.path.sep+"objectsNotFound.txt"
-        CFHTFailsList=[]
-        if os.path.exists(failsFileName) == True:
-            inFile=file(failsFileName, "r")
-            lines=inFile.readlines()
-            inFile.close()
-            for line in lines:
-                CFHTFailsList.append(line.replace("\n", ""))
-
         # Make .jpg images from local, user-supplied .fits images
         if 'imageDirs' in self.configDict.keys():
             self.makeImageDirJPEGs()
-        
+                              
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
         cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
         for obj in cursor:
-            
-            print ">>> Fetching data to cache for object %s" % (obj['name'])            
-            self.fetchNEDInfo(obj)
-            if self.configDict['addSDSSRedshifts'] == True:
-                catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'], obj['decDeg'])
-            if self.configDict['addSDSSImage'] == True:
-                self.fetchSDSSImage(obj)
-            if self.configDict['addDESImage'] == True:
-                self.fetchDESImage(obj)
-            if self.configDict['addPS1Image'] == True:
-                self.fetchPS1Image(obj)
-            if self.configDict['addPS1IRImage'] == True:
-                self.fetchPS1IRImage(obj)
-            if self.configDict['addCFHTLSImage'] == True:
-                if obj['name'] not in CFHTFailsList:
-                    CFHTResult=self.fetchCFHTLSImage(obj)
-                    if CFHTResult == False:
-                        CFHTFailsList.append(obj['name'])
-            if self.configDict['addUnWISEImage'] == True:
-                #try:
-                self.fetchUnWISEImage(obj)
-                #except:
-                    #print("... problem with UnWISE image for %s - skipping ..." % (obj['name']))
-            if 'skyviewLabels' in self.configDict.keys():
-                for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
-                    self.fetchSkyviewJPEG(obj['name'], obj['RADeg'], obj['decDeg'], surveyString, label)
-                    
-            # Flag this as done
-            self.sourceCollection.update({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
+            self.buildCacheForObject(obj['sourceryID'], refetch = False)
         cursor.close()
         
-        # Update CFHT fails list
-        outFile=file(failsFileName, "w")
-        for objName in CFHTFailsList:
-            outFile.write(objName+"\n")
-        outFile.close()
-                    
-        # Now spin through cache imageDirs and add 'image_<imageDirLabel>' tags
-        print ">>> Adding image_<imageDirLabel> tags to MongoDB ..."
-        minSizeBytes=40000
-        imageDirs=glob.glob(self.cacheDir+os.path.sep+"*")
-        for imageDir in imageDirs:
-            if os.path.isdir(imageDir) == True:         # skip cross-matched tab .fits and .lock file
-                label=os.path.split(imageDir)[-1]
-                print "... %s ..." % (label)
-                fileNames=glob.glob(imageDir+os.path.sep+"*.jpg")
-                for f in fileNames:
-                    
-                    # image size check: don't include SDSS if image size is tiny as no data
-                    skipImage=False
-                    if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
-                        skipImage=True
-                    
-                    objName=os.path.split(f)[-1].replace(".jpg", "")
-                    namesToTry=[objName, objName.replace("_", " ")]
-                    obj=None
-                    for n in namesToTry:
-                        obj=self.sourceCollection.find_one({'name': n})
-                        if obj != None:
-                            break
-                    
-                    if obj != None and skipImage == False:
-                        post={'image_%s' % (label): 1}
-                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
-                        if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                            keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
-                            fieldDict={}
-                            fieldDict['name']='image_%s' % (label)
-                            fieldDict['type']='number'
-                            fieldDict['description']='1 if object has image in the database; 0 otherwise'
-                            fieldDict['index']=len(keysList)+1
-                            self.fieldTypesCollection.insert(fieldDict)
+        # Now add imageDir tags to field types database
+        for label in self.imDirLabelsList:
+            if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
+                keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
+                fieldDict={}
+                fieldDict['name']='image_%s' % (label)
+                fieldDict['type']='number'
+                fieldDict['description']='1 if object has image in the database; 0 otherwise'
+                fieldDict['index']=len(keysList)+1
+                self.fieldTypesCollection.insert(fieldDict)
         
         # This will stop index displaying "cache rebuilding" message
         if os.path.exists(self.lockFileName) == True:
             os.remove(self.lockFileName)
 
+    
+    @cherrypy.expose
+    def buildCacheForObject(self, sourceryID, refetch = False, from_page = None):
+        """Given an obj dictionary (resulting from MongoDB query), (re)fetch all the available imaging.
+        This allows 'spot fixes' by clicking a button on the candidate page (so if user spots image coords off,
+        they can fix rather than manually deleting / re-running build cache). This would happen if object has
+        same name but slightly different coords in an updated source list.
+        
+        """
+        
+        # If called via web...
+        if refetch == "true":
+            refetch=True
+        
+        obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
 
+        name=obj['name']
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']
+            
+        print ">>> Fetching data to cache for object %s" % (name)            
+        self.fetchNEDInfo(name, RADeg, decDeg)
+        if self.configDict['addSDSSRedshifts'] == True:
+            catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg)
+        if self.configDict['addSDSSImage'] == True:
+            self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
+        if self.configDict['addDESImage'] == True:
+            if self.DESWCSDict == None:
+                self.setUpDESWCSDict()
+            self.fetchDESImage(name, RADeg, decDeg, refetch = refetch)
+        if self.configDict['addKiDSImage'] == True:
+            if self.KiDSWCSDict == None:
+                self.setUpKiDSWCSDict()
+            self.fetchKiDSImage(name, RADeg, decDeg, refetch = refetch)
+        if self.configDict['addPS1Image'] == True:
+            self.fetchPS1Image(name, RADeg, decDeg, refetch = refetch)
+        if self.configDict['addPS1IRImage'] == True:
+            self.fetchPS1IRImage(name, RADeg, decDeg, refetch = refetch)
+        if self.configDict['addUnWISEImage'] == True:
+            self.fetchUnWISEImage(name, RADeg, decDeg, refetch = refetch)
+        if 'skyviewLabels' in self.configDict.keys():
+            for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
+                self.fetchSkyviewJPEG(name, RADeg, decDeg, surveyString, label, refetch = refetch)
+        
+        # Add imageDir tags
+        # NOTE: we look in other survey dirs (e.g., SDSS) while we're here
+        minSizeBytes=40000
+        for label in self.imDirLabelsList:
+            f=self.configDict['cacheDir']+os.path.sep+label+os.path.sep+name.replace(" ", "_")+".jpg"
+            if os.path.exists(f) == True:
+                # image size check: don't include SDSS if image size is tiny as no data
+                skipImage=False
+                if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
+                    skipImage=True
+                if skipImage == False:
+                    post={'image_%s' % (label): 1}
+                    self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+        
+        # Flag this as done
+        self.sourceCollection.update({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
+        
+        # If using for spot fixes in web interface, need to refresh page when done
+        if from_page != None:
+            raise cherrypy.HTTPRedirect(cherrypy.request.script_name+"/"+from_page)
+            
+    
+    
     def makeImageDirJPEGs(self):
-        """Actual makes .jpg images from .fits images in given directories. We figure out which image to use
+        """Actually makes .jpg images from .fits images in given directories. We figure out which image to use
         from spinning through the headers. 
         
-        For XCS, there may be more than one image... will need to think how to handle that. For now we will 
-        take the first match.
+        For cases where there may be more than one suitable image, you can use matchKey in the config file to
+        specify a field in the sources database to match on (e.g., obsID in the case of XCS). Otherwise, the
+        first image in which the object is found will be taken.
         
-        If there is only one image in a directory (like an ACT map say), and all objects fall in it, we will
-        flag to make a clickable map page.
-        
-        For tracking e.g. follow-up (and using it), we add a key to object if it has an imageDir image,
-        with name image_<imageDirLabel> (e.g., 'image_NICFPS-Ks'). So would be able to search on
-        'image_NICFPS-Ks = 1'
-                
+        If we were going to add a clickable map image (e.g., for ACT), this would be the place to put it
+        in...
+                        
         """
         print ">>> Making imageDir .jpgs ..."
-        for imageDir, label, colourMap, sizePix, minMaxRadiusArcmin, scaling, matchKey in zip(
-                 self.configDict['imageDirs'], 
-                 self.configDict['imageDirsLabels'],
-                 self.configDict['imageDirsColourMaps'],
-                 self.configDict['imageDirsSizesPix'],
-                 self.configDict['imageDirsMinMaxRadiusArcmin'],
-                 self.configDict['imageDirsScaling'],
-                 self.configDict['imageDirsMatchKey']):
+        for imDirDict in self.configDict['imageDirs']:
+            
+            imageDir=imDirDict['path']
+            label=imDirDict['label']
+            colorMap=imDirDict['colorMap']
+            sizePix=imDirDict['sizePix']
+            minMaxRadiusArcmin=imDirDict['minMaxRadiusArcmin']
+            scaling=imDirDict['scaling']
+            matchKey=imDirDict['matchKey']
             
             print "... %s ..." % (label)
 
@@ -3021,17 +3294,6 @@ class SourceBrowser(object):
                         
                         if useThisImage == True:                           
                                 
-                            # Add to mongodb - we now do this in preprocess
-                            #post={'image_%s' % (label): 1}
-                            #self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
-                            #if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                                #keysList, typeNamesList=self.getFieldNamesAndTypes()
-                                #fieldDict={}
-                                #fieldDict['name']='image_%s' % (label)
-                                #fieldDict['type']='number'
-                                #fieldDict['index']=len(keysList)+1
-                                #self.fieldTypesCollection.insert(fieldDict)
-
                             if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
                                 fitsOutFileName=outFileName.replace(".jpg", ".fits")
                             else:
@@ -3076,17 +3338,13 @@ class SourceBrowser(object):
                                 dpi=96.0
                                 f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
                                 plt.axes([0, 0, 1, 1])
-                                #p=astPlots.ImagePlot(clip['data'], clip['wcs'], cutLevels = [cuts[0], cuts[1]], axesLabels = None, axes = [0., 0., 1.0, 1.0], interpolation = "none")
                                 plt.imshow(clip['data'], interpolation = "none", origin = 'lower', 
-                                            cmap = colourMap, norm = plt.Normalize(cuts[0], cuts[1]))
+                                           cmap = colorMap, norm = plt.Normalize(cuts[0], cuts[1]))
                                 try:
                                     plt.savefig(outFileName, dpi = dpi)
                                 except:
                                     raise Exception, "if you see this, you probably need to update PIL/Pillow"
                                 plt.close()
-                                
-                                #IPython.embed()
-                                #sys.exit()
 
         
         

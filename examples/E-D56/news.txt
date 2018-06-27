@@ -1,0 +1,4 @@
+# News file format - : delimited
+# date (isoformat): event
+2018-06-21: Example news event
+

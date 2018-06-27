@@ -28,6 +28,7 @@ given in brackets, earlier and later versions may also work):
 * pymongo (3.2)
 * requests (2.18.4)
 * SciPy (0.17.0)
+* PyYAML (3.12)
 
 ## Installation
 
