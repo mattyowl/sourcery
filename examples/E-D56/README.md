@@ -51,13 +51,13 @@ Once this is complete, you can test the database by running:
 You should see a table page like Fig. 1 below when you navigate to
 <http://localhost:8080/sourcery> using your web browser:
 
-![alt text](figs/table.png "Fig. 1: The index page for the E-D56 example.")
+![alt text](figs/table.jpg "Fig. 1: The index page for the E-D56 example.")
 
 If you click on one of the links, you should find yourself presented
 with a page that contains all of the data on the object in the catalog,
 including images we specified, as in Fig. 2 below:
 
-![alt text](figs/sourcepage.png "Fig. 2: A source information page for the E-D56 example.")
+![alt text](figs/sourcepage.jpg "Fig. 2: A source information page for the E-D56 example.")
 
 Note that the images pulled from the SDSS DR13 webserver are pretty dark
 by default, and you will probably need to crank up the brightness using the 
