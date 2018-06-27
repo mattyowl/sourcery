@@ -6,6 +6,7 @@ This tutorial covers running the database locally on your machine,
 using cherrypy's built-in webserver - see ADD_LINK for a description
 of how to deploy sourcery on Apache.
 
+
 ## The configuration .yml file
 
 All of the options for sourcery are controlled from a YAML file - 
@@ -14,6 +15,7 @@ file has comments that describe what each of the options does. We
 will go through switching these on in turn, but for now, we will 
 start with simply setting up and serving a database that anyone can
 access.
+
 
 ## Creating the database
 
@@ -32,10 +34,15 @@ Building the database itself (in this case) takes ~2 seconds, but
 this script will then also proceed to build an image cache. As 
 specified in the .yml file, this will download images from SDSS,
 unWISE, PS1, and fetch information from NED also. It may take a while
-to run (~45 minutes, depending on your network speed). If there are 
-any network problems while this is running (e.g., an error message 
-like 'Connection reset by peer', then you can resume building the 
-cache from where it left off by running:
+to run (~45 minutes, depending on your network speed). Fortunately,
+this only needs to be done once - and if you later update your
+input catalog, you will only need to fetch imaging and data for new
+objects that were added.
+
+If there are any network problems while this is running (e.g., 
+an error message like 'Connection reset by peer' appears), 
+then you can resume building the cache from where it left off by 
+running:
 
 ```
 % sourcery_build_cache E-D56Clusters.yml
@@ -55,7 +62,7 @@ You should see a table page like Fig. 1 below when you navigate to
 
 If you click on one of the links, you should find yourself presented
 with a page that contains all of the data on the object in the catalog,
-including images we specified, as in Fig. 2 below:
+including the images we specified, as in Fig. 2 below:
 
 ![alt text](figs/sourcepage.jpg "Fig. 2: A source information page for the E-D56 example.")
 
@@ -63,4 +70,60 @@ Note that the images pulled from the SDSS DR13 webserver are pretty dark
 by default, and you will probably need to crank up the brightness using the 
 slider, as shown.
 
+When you are finished, you can terminate `sourcery_test` using `Ctrl-c`.
 
+
+## Classifications, editable fields, and access control
+
+Sourcery allows you to specify arbitrary editable fields for the database,
+which are stored separately, as well as object classifications (e.g.,
+"cluster", "not a cluster"). These are cross-matched against the source 
+catalog database at run time. The advantage of this approach is that it
+enables you to swap-out the source catalog (pointed to by 
+`catalogFileName`), re-run `sourcery_build_db`, and not lose any of the
+additional information entered about any source using the Sourcery web
+interface.
+
+In the `E-D56Clusters.yml` file, there are some example entries that enable
+these features, which are commented out. The entries to un-comment are:
+
+```
+userListFile
+contactInfo
+classifications
+classificationDescription
+fields
+
+```
+
+Including the `userListFile` parameter enables access control for Sourcery,
+which is required to allow user-editable fields and classifications. The 
+plain-text file pointed to by `userListFile`, in this case 
+[E-D56Users.txt](E-D56Users.txt),  specifies the usernames, access rights,
+and password hashes for users of the database. In this example, we simply
+have two users: 
+
+* `viewer`, who has the role `viewer` (cannot edit the user-editable fields,
+  but can see everything), and has password `viewpassword`
+* `editor`, who has the role `editor` (can edit user-editable fields and
+  classifications), and has password `editpassword`
+
+Now start Sourcery again using:
+
+```
+% sourcery_test E-D56Clusters.yml 
+```
+
+You will find yourself confronted with a page that requests a login and 
+password. Try either of the above options, and navigate to a source 
+information page, and you will see a number of other controls have appeared,
+as in Fig. 3 below:
+
+![alt text](figs/editable.jpg "Fig. 3: Source information page with user-editable controls enabled.")
+
+If you are logged in as 'editor', you can edit and save a note, as shown. You
+will see this reflected on the index (table) page also, once you refresh it.
+
+You can add additional users by editing the `E-D56Users.txt` file. To generate
+the password hash, you can use the `sourcery_password_hash` script, and paste
+the result into the `E-D56Users.txt` in the appropriate column.
