@@ -3,7 +3,7 @@
 Here is an example of how to use Sourcery to serve a web database
 containing the [two-season ACTPol E-D56 cluster catalog](http://adsabs.harvard.edu/abs/2017arXiv170905600H).
 This tutorial covers running the database locally on your machine,
-using cherrypy's built-in webserver - see [here](../APACHE_DEPLOYMENT.md) for a description
+using cherrypy's built-in webserver - see [here](../../APACHE_DEPLOYMENT.md) for a description
 of how to deploy Sourcery on Apache.
 
 
