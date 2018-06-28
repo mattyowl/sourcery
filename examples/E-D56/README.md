@@ -129,7 +129,7 @@ the password hash, you can use the `sourcery_password_hash` script, and paste
 the result into the `E-D56Users.txt` in the appropriate column.
 
 
-# Adding cross match catalogs
+## Adding cross match catalogs
 
 The `E-D56Clusters.yml` contains an example of how to cross match against 
 external catalogs, stored as .fits tables. To enable this, un-comment the lines
@@ -146,7 +146,7 @@ This should take only a few seconds to run, as we have not changed any other
 options, so the cache re-build will not need to download any new imaging.
 
 
-# Image directories
+## Image directories
 
 Sourcery can also make images from user-supplied .fits images. For each entry
 in `imageDirs` in the .yml file, Sourcery will search through all .fits images
@@ -175,7 +175,7 @@ on the source (see Fig. 4).
 ![alt text](figs/contour.jpg "Fig. 4: Example source information page, with contouring turned on.")
 
 
-# Further options
+## Further options
 
 Sourcery can also add public imaging from the DES, KiDS and S82 surveys. However,
 the latter rely on having created colour .jpg preview images of each tile of the
