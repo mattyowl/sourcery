@@ -1,15 +1,15 @@
-# Running sourcery: ACTPol E-D56 cluster catalog example
+# Running Sourcery: ACTPol E-D56 cluster catalog example
 
-Here is an example of how to use sourcery to serve a web database
+Here is an example of how to use Sourcery to serve a web database
 containing the [two-season ACTPol E-D56 cluster catalog](http://adsabs.harvard.edu/abs/2017arXiv170905600H).
 This tutorial covers running the database locally on your machine,
 using cherrypy's built-in webserver - see ADD_LINK for a description
-of how to deploy sourcery on Apache.
+of how to deploy Sourcery on Apache.
 
 
 ## The configuration .yml file
 
-All of the options for sourcery are controlled from a YAML file - 
+All of the options for Sourcery are controlled from a YAML file - 
 this directory contains an example called `E-D56Clusters.yml`. This
 file has comments that describe what each of the options does. We
 will go through switching these on in turn, but for now, we will 
@@ -127,3 +127,57 @@ will see this reflected on the index (table) page also, once you refresh it.
 You can add additional users by editing the `E-D56Users.txt` file. To generate
 the password hash, you can use the `sourcery_password_hash` script, and paste
 the result into the `E-D56Users.txt` in the appropriate column.
+
+
+# Adding cross match catalogs
+
+The `E-D56Clusters.yml` contains an example of how to cross match against 
+external catalogs, stored as .fits tables. To enable this, un-comment the lines
+for the `crossMatchCatalogs` field. In this example, cross-matches are added
+for several other cluster catalogs. The columns in the cross-match catalogs
+are added to the MongoDB database as fields with `label_` prefixes. You must
+re-build the database to be able to access them:
+
+```
+% sourcery_build_db E-D56Clusters.yml
+```
+
+This should take only a few seconds to run, as we have not changed any other
+options, so the cache re-build will not need to download any new imaging.
+
+
+# Image directories
+
+Sourcery can also make images from user-supplied .fits images. For each entry
+in `imageDirs` in the .yml file, Sourcery will search through all .fits images
+placed in each directory, and create thumbnail images centred at each object 
+position in the source catalog. In `E-D56Clusters.yml`, you can see how this
+is applied to the ACTPol E-D56 clusters catalog. To use this, un-comment the
+`imageDirs` and contour-related parameters in `E-D56Clusters.yml`, download 
+the ACTPol signal-to-noise map, and place it in the `ACTMap` directory - i.e.,
+
+```
+% wget INSERT LINK
+% mkdir ACTMap
+% cp Arnaud_M2e14_z0p4#PRIMARY_SNMap.fits ACTMap/
+```
+
+Then rebuild the cache to extract the thumbnails:
+
+```
+% sourcery_build_cache E-D56Clusters.yml
+```
+
+If you now re-run `sourcery_test`, you will find that contour overlays are now
+enabled - in this case showing the ACT S/N in the matched filtered map, centred
+on the source (see Fig. 4).
+
+![alt text](figs/contour.jpg "Fig. 4: Example source information page, with contouring turned on.")
+
+
+# Further options
+
+Sourcery can also add public imaging from the DES, KiDS and S82 surveys. However,
+the latter rely on having created colour .jpg preview images of each tile of the
+survey (we may add links to these later - KiDS DR2 clocks in at 11 Gb for images
+that have been downsampled by a factor of 2 in resolution).
