@@ -2,7 +2,7 @@
 
 Note that this is quite clunky at present and may be tidied up...
 
-1. Install all needed python packages [see README.md](README.md), MongoDB, and Apache 2.
+1. Install all needed python packages ([see README.md](README.md)), MongoDB, and Apache 2.
 
 2. Install mod_wsgi:
 
