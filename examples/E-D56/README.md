@@ -131,7 +131,7 @@ the result into the `E-D56Users.txt` in the appropriate column.
 
 ## Adding cross match catalogs
 
-The `E-D56Clusters.yml` contains an example of how to cross match against 
+The `E-D56Clusters.yml` file contains an example of how to cross match against 
 external catalogs, stored as .fits tables. To enable this, un-comment the lines
 for the `crossMatchCatalogs` field. In this example, cross-matches are added
 for several other cluster catalogs. The columns in the cross-match catalogs
