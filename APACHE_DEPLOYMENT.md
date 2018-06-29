@@ -65,7 +65,7 @@ above the `</VirtualHost>` line, add:
    ```
 
    The last line here isn't strictly essential, but will enable your database to be accessed as, e.g.,
-   https://www.example.com/sourcery (substituting your host name as appropriate).
+   https://www.example.com/example-sourcery (substituting your host name as appropriate).
 
 7. Optionally (to stop astropy complaining about missing config files, although this doesn't seem to 
 essential), edit /etc/apache2/envvars and add:
