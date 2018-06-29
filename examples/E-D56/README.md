@@ -193,5 +193,5 @@ for the latter).
 
 Here we may add links for some `tileDirs` for use with Sourcery later...
 
-* KiDS DR2 (11 Gb; downsampled in resolution by a factor of 2)
-* IAC-S82 (XX Gb)
+* KiDS DR2 (11.0 Gb; downsampled in resolution by a factor of 2)
+* IAC-S82 (9.3 Gb)
