@@ -10,8 +10,10 @@ import urllib
 from passlib.hash import pbkdf2_sha256
 import IPython
 
+#-------------------------------------------------------------------------------------------------------------
 SESSION_KEY = '_sourcery_username'
 
+#-------------------------------------------------------------------------------------------------------------
 def checkCredentials(username, password, usersList, contactStr = ""):
     """Verifies credentials for username and password.
     Returns None on success or a string describing the error on failure"""
@@ -22,7 +24,7 @@ def checkCredentials(username, password, usersList, contactStr = ""):
             return None
     return u"Incorrect username or password. %s" % (contactStr)
     
-
+#-------------------------------------------------------------------------------------------------------------
 def setEditPermissions(username, usersList):
     """Checks if the user is in the group that can edit pages.
     
@@ -38,7 +40,7 @@ def setEditPermissions(username, usersList):
         if foundUser == False:
             cherrypy.session['editPermission']=False
     
-    
+#-------------------------------------------------------------------------------------------------------------
 def check_auth(*args, **kwargs):
     """A tool that looks in config for 'auth.require'. If found and it
     is not None, a login is required and the entry is evaluated as a list of
@@ -55,10 +57,11 @@ def check_auth(*args, **kwargs):
         else:
             raise cherrypy.HTTPRedirect(cherrypy.request.script_name+"/login")
 
-
+#-------------------------------------------------------------------------------------------------------------
 cherrypy.tools.auth = cherrypy.Tool('before_handler', check_auth)
 
-
+#-------------------------------------------------------------------------------------------------------------
+# Decorators and conditions
 def require(*conditions):
     """A decorator that appends conditions to the auth.require config
     variable."""

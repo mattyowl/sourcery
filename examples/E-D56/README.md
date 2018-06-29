@@ -175,9 +175,23 @@ on the source (see Fig. 4).
 ![alt text](figs/contour.jpg "Fig. 4: Example source information page, with contouring turned on.")
 
 
-## Further options
+## Tile directories
 
-Sourcery can also add public imaging from the DES, KiDS and S82 surveys. However,
-the latter rely on having created colour .jpg preview images of each tile of the
-survey (we may add links to these later - KiDS DR2 clocks in at 11 Gb for images
-that have been downsampled by a factor of 2 in resolution).
+Sourcery can also add public imaging from surveys that have been broken into 
+tiles, creating cut-outs for each source in a catalog by stitching the tiles
+together as needed. This is how DES DR1 imaging is handled in Sourcery, and it
+can be enabled by uncommenting the `tileDirs` lines in the `E-D56Clusters.yml`
+file and then rebuilding the image cache. This will take a while, because the
+DES .tiff preview files are large.
+
+Any other survey can similarly be added using the `tileDirs` syntax: all that 
+is required is a directory full of .jpg files and a `WCSTab.fits` file that 
+maps between the filenames (using the TILENAME column) and contains the 
+corresponding WCS header keywords. We have used this method successfully for 
+adding colour images from KiDS DR2 and S82 (using the IAC's reprocessed images
+for the latter).
+
+Here we may add links for some `tileDirs` for use with Sourcery later...
+
+* KiDS DR2 (11 Gb; downsampled in resolution by a factor of 2)
+* IAC-S82 (XX Gb)

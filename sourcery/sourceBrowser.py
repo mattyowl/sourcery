@@ -1,6 +1,6 @@
 """
 
-    Copyright 2014 Matt Hilton (matt.hilton@mykolab.com)
+    Copyright 2014-2018 Matt Hilton (matt.hilton@mykolab.com)
     
     This file is part of Sourcery.
 
@@ -58,6 +58,7 @@ import pickle
 import pyvips
 import IPython
 from sourcery import sourceryAuth
+from sourcery import tileDir
 from passlib.hash import pbkdf2_sha256
 
 #-------------------------------------------------------------------------------------------------------------
@@ -138,19 +139,23 @@ class SourceBrowser(object):
         self.sdssRedshiftsDir=self.cacheDir+os.path.sep+"SDSSRedshifts"
         if os.path.exists(self.sdssRedshiftsDir) == False:
             os.makedirs(self.sdssRedshiftsDir)
-        
+    
         # Dirs that could contain big .jpg images from which we will cut
         if 'DESTilesCacheDir' in self.configDict.keys():
             self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
             if os.path.exists(self.DESTilesCacheDir) == False:
                 os.makedirs(self.DESTilesCacheDir)
-        if 'KiDSTilesCacheDir' in self.configDict.keys():            
-            self.KiDSTilesCacheDir=self.configDict['KiDSTilesCacheDir']
-            if os.path.exists(self.KiDSTilesCacheDir) == False:
-                os.makedirs(self.KiDSTilesCacheDir)
+        #if 'KiDSTilesCacheDir' in self.configDict.keys():            
+            #self.KiDSTilesCacheDir=self.configDict['KiDSTilesCacheDir']
+            #if os.path.exists(self.KiDSTilesCacheDir) == False:
+                #os.makedirs(self.KiDSTilesCacheDir)
         self.DESWCSDict=None
-        self.KiDSWCSDict=None
-                
+        #self.KiDSWCSDict=None
+    
+        # tileDirs set-up - KiDS, IAC-S82 etc..
+        # This dictionary will be populated later when needed (see, e.g., preprocess)
+        self.tileDirs={}
+        
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
         self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
         
@@ -207,56 +212,25 @@ class SourceBrowser(object):
             dispDict={'name': "lastUpdated", 'label': "lastUpdated", 'fmt': "%s"}
             dispDict={'name': "user", 'label': "user", 'fmt': "%s"}
             self.tableDisplayColumns.append(dispDict)
-                               
-        # We will generate images dynamically... here we set up info like labels and captions
-        self.imageLabels=[]      # labels at top of each source page that allow us to select image to view
-        if "imageDirs" in self.configDict.keys():
-            for imDirDict in self.configDict['imageDirs']:
-                self.imageLabels.append(imDirDict['label'])
-        
-        # SDSS colour .jpgs
-        if "addSDSSImage" in self.configDict.keys() and self.configDict['addSDSSImage'] == True:
-            label="SDSS"
-            self.imageLabels.append(label)
-        # DES colour .jpgs
-        if "addDESImage" in self.configDict.keys() and self.configDict['addDESImage'] == True:
-            label="DES"
-            self.imageLabels.append(label)
-        if "addKiDSImage" in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
-            label="KiDS"
-            self.imageLabels.append(label)
-        # PS1 colour .jpgs
-        if "addPS1Image" in self.configDict.keys() and self.configDict['addPS1Image'] == True:
-            label="PS1"
-            self.imageLabels.append(label)
-        # PS1IR colour .jpgs
-        if "addPS1IRImage" in self.configDict.keys() and self.configDict['addPS1IRImage'] == True:
-            label="PS1IR"
-            self.imageLabels.append(label)
-        # unWISE colour .jpgs
-        if "addUnWISEImage" in self.configDict.keys() and self.configDict['addUnWISEImage'] == True:
-            label="unWISE"
-            self.imageLabels.append(label)
-        # Skyview images
-        if 'skyviewLabels' in self.configDict.keys():
-            for label in self.configDict['skyviewLabels']:
-                self.imageLabels.append(label)
-       
+                                       
         # Full list of image directories - for adding image_ tags in buildCacheForObject
         # NOTE: handling of surveys (e.g., SDSS) is clunky and getting unwieldy...
         self.imDirLabelsList=[]
         if self.configDict['addSDSSImage'] == True:
             self.imDirLabelsList.append("SDSS")
-        if self.configDict['addDESImage'] == True:
-            self.imDirLabelsList.append("DES")
-        if self.configDict['addKiDSImage'] == True:
-            self.imDirLabelsList.append("KiDS")
+        #if self.configDict['addDESImage'] == True:
+            #self.imDirLabelsList.append("DES")
+        #if self.configDict['addKiDSImage'] == True:
+            #self.imDirLabelsList.append("KiDS")
         if self.configDict['addPS1Image'] == True:
             self.imDirLabelsList.append("PS1")
         if self.configDict['addPS1IRImage'] == True:
             self.imDirLabelsList.append("PS1IR")
         if self.configDict['addUnWISEImage'] == True:
             self.imDirLabelsList.append("unWISE")
+        if 'tileDirs' in self.configDict.keys():
+            for tileDirDict in self.configDict['tileDirs']:
+                self.imDirLabelsList.append(tileDirDict['label'])
         if 'imageDirs' in self.configDict.keys():
             for imDirDict in self.configDict['imageDirs']:
                 self.imDirLabelsList.append(imDirDict['label'])
@@ -860,109 +834,6 @@ class SourceBrowser(object):
                 outIm=Image.fromarray(outData)
                 outIm.save(outFileName)
                 print "... made DES cut-out .jpg ..."
-
-
-    def fetchKiDSImage(self, name, RADeg, decDeg, refetch = False):
-        """Make KiDS co-add .jpg from survey's 1 x 1 deg tiles that we turned into gri .jpgs 
-        
-        This can probably be generalised to handle both KiDS and DES
-        
-        """
-        
-        kidsCacheDir=self.cacheDir+os.path.sep+"KiDS"
-        if os.path.exists(kidsCacheDir) == False:
-            os.makedirs(kidsCacheDir)
-        
-        # Could put a footprint check in here
-        #if obj['decDeg'] > 5:
-            #print "... outside DES dec range - skipping ..."
-            #return None
-                       
-        outFileName=kidsCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
-        
-        # Procedure: spin through tile WCSs, find which tiles we need, download if necessary, paste pixels into low-res image (unWISE style)
-        if os.path.exists(outFileName) == False or refetch == True:
-                       
-            # Blank WCS
-            CRVAL1, CRVAL2=RADeg, decDeg
-            sizePix=1024
-            sizeArcmin=self.configDict['plotSizeArcmin']
-            xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
-            xSizePix=sizePix
-            ySizePix=sizePix
-            xRefPix=xSizePix/2.0
-            yRefPix=ySizePix/2.0
-            xOutPixScale=xSizeDeg/xSizePix
-            yOutPixScale=ySizeDeg/ySizePix
-            newHead=pyfits.Header()
-            newHead['NAXIS']=2
-            newHead['NAXIS1']=xSizePix
-            newHead['NAXIS2']=ySizePix
-            newHead['CTYPE1']='RA---TAN'
-            newHead['CTYPE2']='DEC--TAN'
-            newHead['CRVAL1']=CRVAL1
-            newHead['CRVAL2']=CRVAL2
-            newHead['CRPIX1']=xRefPix+1
-            newHead['CRPIX2']=yRefPix+1
-            newHead['CDELT1']=xOutPixScale
-            newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
-            newHead['CUNIT1']='DEG'
-            newHead['CUNIT2']='DEG'
-            outWCS=astWCS.WCS(newHead, mode='pyfits')
-            outData=np.zeros([sizePix, sizePix, 3], dtype = np.uint8)
-            RAMin, RAMax, decMin, decMax=outWCS.getImageMinMaxWCSCoords()
-            if RAMax-RAMin > 1.0:   # simple check for 0h crossing... assuming no-one wants images > a degree across
-                RAMax=-(360-RAMax)
-                temp=RAMin
-                RAMin=RAMax
-                RAMax=temp
-            checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
-            
-            # Spin though all DES tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
-            matchTilesList=[]
-            for tileName in self.KiDSWCSDict.keys():
-                wcs=self.KiDSWCSDict[tileName]
-                for c in checkCoordsList:
-                    pixCoords=wcs.wcs2pix(c[0], c[1])
-                    if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
-                        if tileName not in matchTilesList:
-                            matchTilesList.append(tileName)
-
-            if matchTilesList == []:
-                print "... object not in any KiDS tiles ..."
-                return None
-            else:
-
-                # We work with .jpg preview files that we made with STIFF
-                for tileName in matchTilesList:
-                    matchTab=self.KiDSTileTab[np.where(self.KiDSTileTab['TILENAME'] == tileName)][0]
-                    tileJPGFileName=self.KiDSTilesCacheDir+os.path.sep+tileName+".jpg"
-                    if os.path.exists(tileJPGFileName) == True:
-                        im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
-                    else:
-                        print "... tile %s missing from KiDS tiles .jpg preview directory (probably missing i or g-band coverage) ..." % (tileName)
-                        continue
-                    # Splat pixels from the .jpg into our small image WCS, from which we'll make a new .jpg
-                    d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
-                    d=np.flipud(d)
-                    inWCS=self.KiDSWCSDict[tileName]
-                    for y in range(sizePix):
-                        for x in range(sizePix):
-                            outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
-                            inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
-                            inX=int(round(inX))
-                            inY=int(round(inY))
-                            if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
-                                outData[y, x]=d[inY, inX]
-                
-                # Flips needed to get N at top, E at left
-                outData=np.flipud(outData)
-                outData=np.fliplr(outData)
-                
-                # We could do this with vips... but lazy...
-                outIm=Image.fromarray(outData)
-                outIm.save(outFileName)
-                print "... made KiDS cut-out .jpg ..."
                 
 
     def fetchUnWISEImage(self, name, RADeg, decDeg, refetch = False):
@@ -2472,7 +2343,7 @@ class SourceBrowser(object):
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
         source and candidate status (e.g., confirmed cluster, junk etc.).
         
-        imageType should match to an entry in self.imageLabels
+        imageType should match to an entry in self.imDirLabelsList
         
         """
         if not cherrypy.session.loaded: cherrypy.session.load()
@@ -2760,7 +2631,7 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CONTOUR_CODE", "")
         
         imageTypesCode=""            
-        for label in self.imageLabels:
+        for label in self.imDirLabelsList:
             if label == imageType:
                 imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s" checked>%s</span>\n' % (label, label)
             else:
@@ -2905,7 +2776,7 @@ class SourceBrowser(object):
         html=html.replace("$SIZE_ARC_MIN", "%.1f" % (self.configDict['plotSizeArcmin']))
         html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
 
-        #for label, caption in zip(self.imageLabels, self.imageCaptions):
+        #for label, caption in zip(self.imDirLabelsList, self.imageCaptions):
             #if label == imageType:
                 #html=html.replace("$CAPTION", "%s" % (caption))
                             
@@ -3033,41 +2904,6 @@ class SourceBrowser(object):
                 
         return html   
     
-    
-    def setUpDESWCSDict(self):
-        """Sets up WCSDict containing DES tile info. Quite slow (~32 sec) but only needed when rebuilding
-        image cache.
-        
-        """
-        self.DESTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"DES_DR1_TILE_INFO.csv")
-        self.DESWCSDict={}
-        keyWordsToGet=['NAXIS1', 'NAXIS2', 'CTYPE1', 'CTYPE2', 'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 
-                        'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2']
-        for row in self.DESTileTab:
-            newHead=pyfits.Header()
-            newHead['NAXIS']=2
-            for key in keyWordsToGet:
-                newHead[key]=row[key] 
-            newHead['CUNIT1']='DEG'
-            newHead['CUNIT2']='DEG'
-            self.DESWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits')  
-        
-        
-    def setUpKiDSWCSDict(self):
-        """Sets up WCSDict containing KiDS tile info. Quite slow, but only needed when rebuilding
-        image cache.
-        
-        """
-        self.KiDSTileTab=atpy.Table().read(sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"KiDSDR3_regridded_WCSTab.fits")
-        self.KiDSWCSDict={}
-        keyWordsToGet=['NAXIS', 'NAXIS1', 'NAXIS2', 'CTYPE1', 'CTYPE2', 'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 
-                        'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2', 'CUNIT1', 'CUNIT2']
-        for row in self.KiDSTileTab:
-            newHead=pyfits.Header()
-            for key in keyWordsToGet:
-                newHead[key]=row[key]
-            self.KiDSWCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits') 
-        
         
     def preprocess(self):
         """This re-runs pre-processing steps (e.g., NED matching, SDSS image fetching etc.).
@@ -3083,17 +2919,18 @@ class SourceBrowser(object):
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
         outFile=file(self.lockFileName, "wb")
         outFile.close()
+
+        # tileDirs set-up - DES, KiDS, IAC-S82 etc..
+        if 'tileDirs' in self.configDict.keys():
+            for tileDirDict in self.configDict['tileDirs']:
+                if tileDirDict['label'] not in self.tileDirs.keys():
+                    self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], self.cacheDir)
+                    self.tileDirs[tileDirDict['label']].setUpWCSDict()
         
-        # For DES public DR1 images access (we have to stitch together tiles if necessary anyway, as DESCuts has problems with objects near edge)
-        # This is the result of SELECT * FROM DR1_TILE_INFO and contains WCS info for all the tiles
-        if 'addDESImage' in self.configDict.keys() and self.configDict['addDESImage'] == True:
-            if self.DESWCSDict == None:
-                self.setUpDESWCSDict()
-            
         # For KiDS DR3 images that we have regridded and STIFFed
-        if 'addKiDSImage' in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
-            if self.KiDSWCSDict == None:
-                self.setUpKiDSWCSDict()
+        #if 'addKiDSImage' in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
+            #if self.KiDSWCSDict == None:
+                #self.setUpKiDSWCSDict()
         
         # Make .jpg images from local, user-supplied .fits images
         if 'imageDirs' in self.configDict.keys():
@@ -3144,24 +2981,21 @@ class SourceBrowser(object):
             
         print ">>> Fetching data to cache for object %s" % (name)            
         self.fetchNEDInfo(name, RADeg, decDeg)
+        # Web services
         if self.configDict['addSDSSRedshifts'] == True:
             catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg)
         if self.configDict['addSDSSImage'] == True:
             self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
-        if self.configDict['addDESImage'] == True:
-            if self.DESWCSDict == None:
-                self.setUpDESWCSDict()
-            self.fetchDESImage(name, RADeg, decDeg, refetch = refetch)
-        if self.configDict['addKiDSImage'] == True:
-            if self.KiDSWCSDict == None:
-                self.setUpKiDSWCSDict()
-            self.fetchKiDSImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addPS1Image'] == True:
             self.fetchPS1Image(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addPS1IRImage'] == True:
             self.fetchPS1IRImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addUnWISEImage'] == True:
             self.fetchUnWISEImage(name, RADeg, decDeg, refetch = refetch)
+        # Tile dirs
+        for key in self.tileDirs.keys():
+            self.tileDirs[key].fetchImage(name, RADeg, decDeg, self.configDict['plotSizeArcmin'], refetch = refetch)
+        # Skyview (not maintained or tested recently as very slow)
         if 'skyviewLabels' in self.configDict.keys():
             for surveyString, label in zip(self.configDict['skyviewSurveyStrings'], self.configDict['skyviewLabels']):
                 self.fetchSkyviewJPEG(name, RADeg, decDeg, surveyString, label, refetch = refetch)
@@ -3272,9 +3106,7 @@ class SourceBrowser(object):
             for obj in objList:
                 outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
                 
-                if os.path.exists(outFileName) == True:
-                    print "... image for %s exists..." % (obj['name'])
-                else:
+                if os.path.exists(outFileName) == False:
                     print "... making image for %s ..." % (obj['name'])
                                         
                     for imgFileName in imgList:

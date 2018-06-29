@@ -1,6 +1,6 @@
 """
 
-    Copyright 2014 Matt Hilton (matt.hilton@mykolab.com)
+    Copyright 2014-2018 Matt Hilton (matt.hilton@mykolab.com)
     
     This file is part of Sourcery.
 
@@ -22,5 +22,6 @@
 import catalogTools
 import sourceBrowser
 import specFeatures
+import tileDir
 
 __version__ = "git"

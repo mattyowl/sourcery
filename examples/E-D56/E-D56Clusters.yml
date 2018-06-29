@@ -104,20 +104,20 @@ plotSizeArcmin: 8.0
 plotDisplayWidthPix: 800
 figSize: [8.25, 7.5]
 
-# Images to fetch/make
+# Images to fetch/make: using webservices
 addSDSSImage: True
-addS82Image: False
-addDESImage: False
-addKiDSImage: False
 addUnWISEImage: True
 addPS1Image: True
 addPS1IRImage: True
 
-# These are the directories where all of the DES/KiDS/S82 tile preview images (.jpg) are cached
-# Needed if addDESImage or addKiDSImage or addS82Image is True
-#DESTilesCacheDir: "DESTilesCache"
-#KiDSTilesCacheDir: "KiDS_gri_JPEGs"
-#S82TilesCacheDir:  "IAC-S82_gri_JPEGs"
+# Images to fetch/make: using tileDirs
+# These are directories that contain preview .jpg images of an entire survey, broken into tiles
+# Needed for DES, KiDS, S82... (DES is treated slightly differently, and can fetch tiles over the internet)
+# For any other survey (KiDS, S82), the path pointed to should contain .jpg files for each tile,
+# and a WCSTab.fits file that has a column TILENAME (corresponding to .jpg file names, minus .jpg) 
+# with the header WCS keywords in all other columns (CRVAL1, CRPIX2, CD1_1 etc.) 
+#tileDirs:
+    #- {label: "DES", path: "DESTiles_JPGs"}
 
 # Image preferences... order to show by default
 # if image_<type> = 1 it is shown, if it isn't, we will look for the next
