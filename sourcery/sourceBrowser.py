@@ -139,19 +139,7 @@ class SourceBrowser(object):
         self.sdssRedshiftsDir=self.cacheDir+os.path.sep+"SDSSRedshifts"
         if os.path.exists(self.sdssRedshiftsDir) == False:
             os.makedirs(self.sdssRedshiftsDir)
-    
-        # Dirs that could contain big .jpg images from which we will cut
-        if 'DESTilesCacheDir' in self.configDict.keys():
-            self.DESTilesCacheDir=self.configDict['DESTilesCacheDir']
-            if os.path.exists(self.DESTilesCacheDir) == False:
-                os.makedirs(self.DESTilesCacheDir)
-        #if 'KiDSTilesCacheDir' in self.configDict.keys():            
-            #self.KiDSTilesCacheDir=self.configDict['KiDSTilesCacheDir']
-            #if os.path.exists(self.KiDSTilesCacheDir) == False:
-                #os.makedirs(self.KiDSTilesCacheDir)
-        self.DESWCSDict=None
-        #self.KiDSWCSDict=None
-    
+        
         # tileDirs set-up - KiDS, IAC-S82 etc..
         # This dictionary will be populated later when needed (see, e.g., preprocess)
         self.tileDirs={}
@@ -500,8 +488,7 @@ class SourceBrowser(object):
         # Add root path where necessary in place
         if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
             rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-            keysToFix=["userListFile", "cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogs", 
-                       "DESTilesCacheDir", "KiDSTilesCacheDir"]
+            keysToFix=["userListFile", "cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogs"]
             for k in keysToFix:
                 if type(self.configDict[k]) == list:
                     for i in range(len(self.configDict[k])):
