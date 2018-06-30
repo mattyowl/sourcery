@@ -28,6 +28,7 @@ from PIL import Image
 import os
 import sourcery
 import urllib
+import time
 import IPython
 
 class TileDir:
@@ -94,8 +95,13 @@ class TileDir:
         """Sets-up WCS info, needed for fetching images (can take ~30 sec or so, don't do this lightly).
         
         """
-
-        self.tileTab=atpy.Table().read(self.WCSTabPath)
+        
+        # Add some extra columns to speed up searching
+        self.tileTab=atpy.Table().read(self.WCSTabPath)        
+        self.tileTab.add_column(atpy.Column(np.zeros(len(self.tileTab)), 'RAMin'))
+        self.tileTab.add_column(atpy.Column(np.zeros(len(self.tileTab)), 'RAMax'))
+        self.tileTab.add_column(atpy.Column(np.zeros(len(self.tileTab)), 'decMin'))
+        self.tileTab.add_column(atpy.Column(np.zeros(len(self.tileTab)), 'decMax'))
         self.WCSDict={}
         keyWordsToGet=['NAXIS', 'NAXIS1', 'NAXIS2', 'CTYPE1', 'CTYPE2', 'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 
                         'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2', 'CDELT1', 'CDELT2', 'CUNIT1', 'CUNIT2']
@@ -111,26 +117,38 @@ class TileDir:
                 newHead['CUNIT1']='DEG'
             if 'CUNIT2' not in newHead.keys():
                 newHead['CUNIT2']='DEG'
-            self.WCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits') 
+            self.WCSDict[row['TILENAME']]=astWCS.WCS(newHead.copy(), mode = 'pyfits')  
+            ra0, dec0=self.WCSDict[row['TILENAME']].pix2wcs(0, 0)
+            ra1, dec1=self.WCSDict[row['TILENAME']].pix2wcs(row['NAXIS1'], row['NAXIS2'])
+            if ra1 > ra0:
+                ra1=-(360-ra1)
+            row['RAMin']=min([ra0, ra1])
+            row['RAMax']=max([ra0, ra1])
+            row['decMin']=min([dec0, dec1])
+            row['decMax']=max([dec0, dec1])
         
             
     def fetchImage(self, name, RADeg, decDeg, sizeArcmin, refetch = False):
         """Make .jpg image of a source of sizeArcmin, using preview .jpg tiles covering a whole survey. 
                 
         """
-        
-        # Could put a footprint check in here
-        #if obj['decDeg'] > 5:
-            #print "... outside DES dec range - skipping ..."
-            #return None
+
         if self.WCSDict == None:
-            self.setUpWCSDict()
+            self.setUpWCSDict()        
+        
+        # Inside footprint check
+        raMask=np.logical_and(np.greater(RADeg, self.tileTab['RAMin']), np.less(RADeg, self.tileTab['RAMax']))
+        decMask=np.logical_and(np.greater(decDeg, self.tileTab['decMin']), np.less(decDeg, self.tileTab['decMax']))
+        tileMask=np.logical_and(raMask, decMask)
+        if tileMask.sum() == 0:
+            print("... object not in any %s tiles ..." % (self.label))
+            return None
                        
         outFileName=self.outputCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
         
         # Procedure: spin through tile WCSs, find which tiles we need, paste pixels into low-res image
         if os.path.exists(outFileName) == False or refetch == True:
-                       
+            
             # Blank WCS
             CRVAL1, CRVAL2=RADeg, decDeg
             sizePix=1024
@@ -164,7 +182,7 @@ class TileDir:
                 RAMin=RAMax
                 RAMax=temp
             checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
-            
+                        
             # Spin though all tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
             matchTilesList=[]
             for tileName in self.WCSDict.keys():
@@ -174,7 +192,7 @@ class TileDir:
                     if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
                         if tileName not in matchTilesList:
                             matchTilesList.append(tileName)
-
+            
             if matchTilesList == []:
                 print("... object not in any %s tiles ..." % (self.label))
                 return None
