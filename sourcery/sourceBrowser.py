@@ -236,7 +236,9 @@ class SourceBrowser(object):
 
     def matchTags(self, obj):
         """Find match in MongoDB to obj row from tab. If we don't find one, return a dictionary with blank
-        values where fields would be.
+        values where fields would be. We now allow "overloading" - i.e., user can specify as editable fields
+        columns which already exist in the database. In that case, we set as default values (if key not 
+        found) the values in the input catalog.
         
         """
         
@@ -258,10 +260,14 @@ class SourceBrowser(object):
         if 'fields' in self.configDict.keys():
             for fieldDict in self.configDict['fields']:
                 if fieldDict['name'] not in mongoDict.keys():
-                    if fieldDict['type'] == 'number':
-                        mongoDict[fieldDict['name']]=0.0
+                    # Allow overloading: first check if in obj keys
+                    if fieldDict['name'] in obj.keys():
+                        defValue=obj[fieldDict['name']]
+                    elif fieldDict['type'] == 'number':
+                        defValue=0.0
                     elif fieldDict['type'] == 'text':
-                        mongoDict[fieldDict['name']]=""
+                        defValue=""
+                    mongoDict[fieldDict['name']]=defValue
         
         # Strip out _id and loc, because whatever is calling this routine won't want them
         if '_id' in mongoDict.keys():
@@ -950,7 +956,7 @@ class SourceBrowser(object):
                 
     @cherrypy.expose
     def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", 
-                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", clipSizeArcmin = None, gamma = 1.0):
+                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", clipSizeArcmin = None, gamma = 1.0):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -1036,7 +1042,7 @@ class SourceBrowser(object):
         #astImages.saveFITS("test.fits", R, wcs)
         
         # Make plot
-        if noAxes == "false":
+        if showAxes == "true":
             axes=[0.1,0.085,0.9,0.85]
             axesLabels="sexagesimal"
             figSize=self.configDict['figSize']
@@ -1049,7 +1055,7 @@ class SourceBrowser(object):
         p=astPlots.ImagePlot([R, G, B], wcs, cutLevels = cutLevels, title = name.replace("_", " "), axes = axes, 
                             axesLabels = axesLabels)
         
-        if noAxes != "false":
+        if showAxes != "true":
             scaleBarSizeArcmin=1.0
             p.addScaleBar('NW', scaleBarSizeArcmin*60.0, color='yellow', fontSize=16, width=2.0, label = "1'")
             plt.figtext(0.025, 0.95, name.replace("_", " "), ha = 'left', size = 24, color = 'yellow')
@@ -1088,14 +1094,26 @@ class SourceBrowser(object):
             xMatchRAs=[]
             xMatchDecs=[]
             xMatchLabels=[]
-            for xMatchDict in self.configDict['crossMatchCatalogs']:
-                label=xMatchDict['label']
-                RAKey='%s_RADeg' % (label)
-                decKey='%s_decDeg' % (label)
-                if RAKey in obj.keys() and decKey in obj.keys():
-                    xMatchRAs.append(obj[RAKey])
-                    xMatchDecs.append(obj[decKey])
-                    xMatchLabels.append(label)
+            if 'crossMatchCatalogs' in self.configDict.keys():
+                for xMatchDict in self.configDict['crossMatchCatalogs']:
+                    label=xMatchDict['label']
+                    RAKey='%s_RADeg' % (label)
+                    decKey='%s_decDeg' % (label)
+                    if RAKey in obj.keys() and decKey in obj.keys():
+                        # We only want to show coords that are different, and not exactly cross-matched
+                        # (e.g., cross matched zCluster results would have exact same RADeg, decDeg - useless to show)
+                        if obj[RAKey] != obj['RADeg'] and obj[decKey] != obj['decDeg']:
+                            xMatchRAs.append(obj[RAKey])
+                            xMatchDecs.append(obj[decKey])
+                            xMatchLabels.append(label)
+            # Other coords in obj dictionary that weren't yet picked up (useful for e.g. editable BCG coords)
+            for key in obj.keys():
+                if key.split("_")[-1] == 'RADeg':
+                    if key not in xMatchRAs and key != "RADeg":
+                        xMatchRAs.append(obj[key])
+                        xMatchDecs.append(obj[key.replace("RADeg", "decDeg")])
+                        xMatchLabels.append(key.split("_")[0]) 
+
             if len(xMatchRAs) > 0:
                 p.addPlotObjects(xMatchRAs, xMatchDecs, 'xMatchObjects', objLabels = xMatchLabels,
                                  size = sizeDeg/40.0*3600.0, symbol = "diamond", color = 'cyan')
@@ -1480,7 +1498,7 @@ class SourceBrowser(object):
             <title>$TITLE</title>
         </head>
         
-        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
 
         <script type="text/javascript">
         
@@ -2117,7 +2135,7 @@ class SourceBrowser(object):
                 viewTopRow=0
             cherrypy.session['viewTopRow']=viewTopRow
             
-        raise cherrypy.HTTPRedirect("/actpol-sourcery")
+        raise cherrypy.HTTPRedirect(cherrypy.request.script_name)
     
     
     @cherrypy.expose
@@ -2279,9 +2297,10 @@ class SourceBrowser(object):
             imageType=self.configDict['defaultImageType']
         else:
             imageType="SDSS"
-                        
-        return self.displaySourcePage(obj['sourceryID'], clipSizeArcmin = self.configDict['plotSizeArcmin'],
-                                      imageType = imageType)
+        
+        raise cherrypy.HTTPRedirect(cherrypy.request.script_name+"/displaySourcePage?sourceryID=%s" % (self.sourceNameToURL(obj['sourceryID'])))
+        #return self.displaySourcePage(obj['sourceryID'], clipSizeArcmin = self.configDict['plotSizeArcmin'],
+                                      #imageType = imageType)
 
 
     def offlineUpdateTags(self, name, tagsToInsertDict):
@@ -2324,7 +2343,7 @@ class SourceBrowser(object):
     
     @cherrypy.expose
     @sourceryAuth.require()
-    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", noAxes = "false", gamma = 1.0):
+    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", gamma = 1.0):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2370,7 +2389,7 @@ class SourceBrowser(object):
             </tbody>
         </table>
         
-        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
 
         <br>
 
@@ -2471,7 +2490,7 @@ class SourceBrowser(object):
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
-                            noAxes: $('input:checkbox[name=noAxes]').prop('checked'),
+                            showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
                             clipSizeArcmin: $("#clipSizeArcmin").val(),
                             gamma: $("#gamma").val()}, 
                             function(data) {
@@ -2482,15 +2501,42 @@ class SourceBrowser(object):
             });
             
             $(document).ready(function() {
-                
                 $(':checkbox').change(function(){
                     $( "#imageForm" ).submit();
                 });
-                
                 $('input:radio[name=imageType]').change(function(){
                     $( "#imageForm" ).submit();
                 });
-                
+            });
+            
+            $CLICKABLE_RADEC_SCRIPT
+            
+            $(document).ready(function() {
+                $("#imagePlot").on("click", function(event) {
+                    var x = event.pageX - this.offsetLeft;
+                    var y = event.pageY - this.offsetTop;
+                    var width = $("#imagePlot").width();
+                    var height = $("#imagePlot").height();
+                    var CDELT1 = ($("#sizeSliderValue").val()/60.0) / width;
+                    var CDELT2 = ($("#sizeSliderValue").val()/60.0) / height;
+                    var CRPIX1 = (width/2.0)+1;
+                    var CRPIX2 = (height/2.0)+1;
+                    var CRVAL1 = $OBJECT_RADEG;
+                    var CRVAL2 = $OBJECT_DECDEG;                    
+                    var ra = (CRPIX1-x)*CDELT1+CRVAL1;
+                    var dec = (CRPIX2-y)*CDELT2+CRVAL2;
+
+                    // debugging
+                    //alert("X Coordinate / RA: " + x + " / " + ra + " Y Coordinate / dec: " + y + " / " + dec);
+                    
+                    if ($('input:checkbox[name=showAxes]').prop('checked') == true)  {
+                        alert("Coords not recorded when showing coordinate axes - deselect 'Show coordinate axes'");
+                    } else {
+                        $('[name=$CLICKABLE_RA]').val(ra);
+                        $('[name=$CLICKABLE_DEC]').val(dec);
+                    };
+                    
+                });
             });
             
             $(function() {
@@ -2506,7 +2552,7 @@ class SourceBrowser(object):
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
-                            noAxes: $('input:checkbox[name=noAxes]').prop('checked'),
+                            showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
                             clipSizeArcmin: $("#sizeSliderValue").val(),
                             gamma: $("#gammaSliderValue").val()}, 
                             function(data) {
@@ -2542,8 +2588,8 @@ class SourceBrowser(object):
         <p><b>Plot:</b></p>
         <p>
         <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="noAxes" value=1 $CHECKED_NOAXES>
-        <label for="noAxes">Remove coordinate axes</label>
+        <input type="checkbox" name="showAxes" value=1 $CHECKED_SHOWAXES>
+        <label for="showAxes">Show coordinate axes</label>
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         $CONTOUR_CODE
@@ -2602,6 +2648,42 @@ class SourceBrowser(object):
         else:
             plotFormCode=plotFormCode.replace("$THUMB_FORM_DECLARED", "")
             plotFormCode=plotFormCode.replace("$THUMB_FORM_CONTROLS", "")
+        
+        # Clickable coordinate script
+        clickCoordScript="""$(document).ready(function() {
+                $("#imagePlot").on("click", function(event) {
+                    var x = event.pageX - this.offsetLeft;
+                    var y = event.pageY - this.offsetTop;
+                    var width = $("#imagePlot").width();
+                    var height = $("#imagePlot").height();
+                    var CDELT1 = ($("#sizeSliderValue").val()/60.0) / width;
+                    var CDELT2 = ($("#sizeSliderValue").val()/60.0) / height;
+                    var CRPIX1 = (width/2.0)+1;
+                    var CRPIX2 = (height/2.0)+1;
+                    var CRVAL1 = $OBJECT_RADEG;
+                    var CRVAL2 = $OBJECT_DECDEG;                    
+                    var ra = (CRPIX1-x)*CDELT1+CRVAL1;
+                    var dec = (CRPIX2-y)*CDELT2+CRVAL2;
+
+                    // debugging
+                    //alert("X Coordinate / RA: " + x + " / " + ra + " Y Coordinate / dec: " + y + " / " + dec);
+                    
+                    if ($('input:checkbox[name=showAxes]').prop('checked') == true)  {
+                        alert("Coords not recorded when showing coordinate axes - deselect 'Show coordinate axes'");
+                    } else {
+                        $('[name=$CLICKABLE_RA]').val(ra);
+                        $('[name=$CLICKABLE_DEC]').val(dec);
+                    };
+                    
+                });
+            });
+        """
+        if 'clickableRAField' in self.configDict.keys() and 'clickableDecField' in self.configDict.keys():
+            clickCoordScript=clickCoordScript.replace("$CLICKABLE_RA", self.configDict['clickableRAField'])
+            clickCoordScript=clickCoordScript.replace("$CLICKABLE_DEC", self.configDict['clickableDecField'])
+        else:
+            clickCoordScript=""
+        plotFormCode=plotFormCode.replace("$CLICKABLE_RADEC_SCRIPT", clickCoordScript)
             
         # Taken out: onChange="this.form.submit();" from all checkboxes ^^^
         plotFormCode=plotFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
@@ -2645,10 +2727,10 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_CONTOURS", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_CONTOURS", "")
-        if noAxes == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_NOAXES", " checked")
+        if showAxes == "true":
+            plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", " checked")
         else:
-            plotFormCode=plotFormCode.replace("$CHECKED_NOAXES", "")
+            plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", "")
             
         plotFormCode=plotFormCode.replace("$MAX_SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))        
         if clipSizeArcmin == None:

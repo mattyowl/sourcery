@@ -75,6 +75,13 @@ MongoDBCrossMatchRadiusArcmin: 1.0
 # displaySize is the size in characters of the text input fields on the web form
 #fields:
     #- {name: notes, type: text, description: "Notes about the candidate (e.g., high-z)", displaySize: 40}
+    #- {name: BCG_RADeg, type: number, description: "RA of BCG; readable from image click", displaySize: 10}
+    #- {name: BCG_decDeg, type: number, description: "dec of BCG; readable from image click", displaySize: 10}
+
+# Optional: we support one editable coordinate, selected by clicking in the image
+# For this to work, corresponding editable field names need to be listed in fields above
+#clickableRAField: BCG_RADeg
+#clickableDecField: BCG_decDeg
 
 # Optional: A text file containing descriptions for each column (displayed on the "constrains help" page)
 # Format: delimited, one column per line, e.g.
