@@ -27,6 +27,7 @@ import pyvips
 from PIL import Image
 import os
 import sourcery
+from sourcery import catalogTools
 import urllib
 import time
 import IPython
@@ -144,7 +145,7 @@ class TileDir:
             print("... object not in any %s tiles ..." % (self.label))
             return None
                        
-        outFileName=self.outputCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        outFileName=self.outputCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         
         # Procedure: spin through tile WCSs, find which tiles we need, paste pixels into low-res image
         if os.path.exists(outFileName) == False or refetch == True:

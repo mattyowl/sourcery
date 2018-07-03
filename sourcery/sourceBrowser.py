@@ -591,8 +591,8 @@ class SourceBrowser(object):
             obj['NED_z']=np.nan
             obj['NED_distArcmin']=np.nan
             obj['NED_RADeg']=np.nan
-            obj['NED_decDeg']=np.nan
-
+            obj['NED_decDeg']=np.nan        
+        
 
     def fetchPS1Image(self, name, RADeg, decDeg, refetch = False):
         """Fetches Pan-STARRS gri .jpg using the cutout webservice.
@@ -607,7 +607,7 @@ class SourceBrowser(object):
             print "... outside PS1 area - skipping ..."
             return None
         
-        outFileName=ps1CacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         tmpFileName=tempfile.mktemp()+".html"
         
         if os.path.exists(outFileName) == False or refetch == True:
@@ -649,7 +649,7 @@ class SourceBrowser(object):
             print "... outside PS1 area - skipping ..."
             return None
         
-        outFileName=ps1CacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         tmpFileName=tempfile.mktemp()+".html"
 
         if os.path.exists(outFileName) == False or refetch == True:
@@ -692,7 +692,7 @@ class SourceBrowser(object):
         if os.path.exists(sdssCacheDir) == False:
             os.makedirs(sdssCacheDir)
                           
-        outFileName=sdssCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        outFileName=sdssCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         SDSSWidth=1200.0
         SDSSScale=(self.configDict['plotSizeArcmin']*60.0)/SDSSWidth # 0.396127
         if os.path.exists(outFileName) == False or refetch == True:
@@ -731,7 +731,7 @@ class SourceBrowser(object):
             print "... outside DES dec range - skipping ..."
             return None
                      
-        outFileName=desCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        outFileName=desCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         
         # Procedure: spin through tile WCSs, find which tiles we need, download if necessary, paste pixels into low-res image (unWISE style)
         if os.path.exists(outFileName) == False or refetch == True:
@@ -843,7 +843,7 @@ class SourceBrowser(object):
         # 2.75" pixels in the unWISE images (max for query is 250 pixels though)
         sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))
         
-        outFileName=wiseCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
+        outFileName=wiseCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         targzPath=tempfile.mktemp()+".tar.gz"
         topDir=os.getcwd()
         if os.path.exists(outFileName) == False or refetch == True:
@@ -981,7 +981,7 @@ class SourceBrowser(object):
         sizeDeg=self.configDict['plotSizeArcmin']/60.0
         
         # Load data
-        inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+name.replace(" ", "_")+".jpg"
+        inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         if os.path.exists(inJPGPath) == False:
             inJPGPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
         
