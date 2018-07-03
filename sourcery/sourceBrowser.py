@@ -844,11 +844,13 @@ class SourceBrowser(object):
         sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))
         
         outFileName=wiseCacheDir+os.path.sep+name.replace(" ", "_")+".jpg"
-        targzPath=wiseCacheDir+os.path.sep+"wise.tar.gz"
+        targzPath=tempfile.mktemp()+".tar.gz"
+        topDir=os.getcwd()
         if os.path.exists(outFileName) == False or refetch == True:
             print "... fetching unWISE data for %s ..." % (name) 
             
             urllib.urlretrieve("http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix), targzPath)
+            os.chdir(tempfile.gettempdir())
             os.system("tar -zxvf %s" % (targzPath))
             wiseFiles=glob.glob("unwise-*-img-m.fits")
             w1FileName=None
@@ -924,6 +926,9 @@ class SourceBrowser(object):
             except:
                 raise Exception, "W1, W2 images not same dimensions"
 
+            os.system("rm unwise-*.fits*")            
+            os.chdir(topDir)
+
             # Make colour .jpg
             # Nicer log scaling - twiddle with the min, max levels here and cuts below as you like
             dpi=96.0
@@ -953,8 +958,6 @@ class SourceBrowser(object):
             
             # Clean up
             os.remove(targzPath)
-            os.system("rm unwise-*.fits*")
-
                 
     @cherrypy.expose
     def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", 
