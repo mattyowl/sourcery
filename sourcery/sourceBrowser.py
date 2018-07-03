@@ -3178,7 +3178,7 @@ class SourceBrowser(object):
             objList=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
 
             for obj in objList:
-                outFileName=outDir+os.path.sep+obj['name'].replace(" ", "_")+".jpg"
+                outFileName=outDir+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".jpg"
                 
                 if os.path.exists(outFileName) == False:
                     print "... making image for %s ..." % (obj['name'])
