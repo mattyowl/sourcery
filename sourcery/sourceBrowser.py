@@ -611,16 +611,16 @@ class SourceBrowser(object):
         
         if os.path.exists(outFileName) == False or refetch == True:
         
-            if os.path.exists('ps1tmp.html') == True:
-                os.remove('ps1tmp.html')
+            if os.path.exists(ps1CacheDir+os.path.sep+'ps1tmp.html') == True:
+                os.remove(ps1CacheDir+os.path.sep+'ps1tmp.html')
                 
             # 1920 pixels is 8 arcmin on PS1 scale
             PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
             
             urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=g&filter=r&filter=i&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
-            urllib.urlretrieve(urlString, filename = 'ps1tmp.html')
+            urllib.urlretrieve(urlString, filename = ps1CacheDir+os.path.sep+'ps1tmp.html')
             
-            inFile=file('ps1tmp.html', 'r')
+            inFile=file(ps1CacheDir+os.path.sep+'ps1tmp.html', 'r')
             lines=inFile.readlines()
             inFile.close()
             for line in lines:
@@ -652,14 +652,14 @@ class SourceBrowser(object):
         
         if os.path.exists(outFileName) == False or refetch == True:
         
-            if os.path.exists('ps1tmp.html') == True:
-                os.remove('ps1tmp.html')
+            if os.path.exists(ps1CacheDir+os.path.sep+'ps1tmp.html') == True:
+                os.remove(ps1CacheDir+os.path.sep+'ps1tmp.html')
                 
             # 1920 pixels is 8 arcmin on PS1 scale
             PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
             
             urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=i&filter=z&filter=y&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
-            urllib.urlretrieve(urlString, filename = 'ps1tmp.html')
+            urllib.urlretrieve(urlString, filename = ps1CacheDir+os.path.sep+'ps1tmp.html')
             
             inFile=file('ps1tmp.html', 'r')
             lines=inFile.readlines()
