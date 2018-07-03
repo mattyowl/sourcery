@@ -36,6 +36,13 @@ import IPython
 XMATCH_RADIUS_DEG=1.4/60.0  # catalog matching radius, for sim comparisons
 
 #-------------------------------------------------------------------------------------------------------------
+def makeRADecString(self, RADeg, decDeg):
+    """Switched to using %.5f_%.5f as part of image file names.
+    
+    """
+    return "%.5f_%.5f" % (RADeg, decDeg)
+    
+#-------------------------------------------------------------------------------------------------------------
 def clipSmoothedTanResampledImage(obj, mapData, mapWCS, sizeDeg, gaussSmoothArcSecRadius, 
                                   outFileName = None, sizePix = 200):
     """Clips a tan resampled, (optionally smoothed) section around an object in an image, writes it out
