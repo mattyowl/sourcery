@@ -36,7 +36,7 @@ import IPython
 XMATCH_RADIUS_DEG=1.4/60.0  # catalog matching radius, for sim comparisons
 
 #-------------------------------------------------------------------------------------------------------------
-def makeRADecString(self, RADeg, decDeg):
+def makeRADecString(RADeg, decDeg):
     """Switched to using %.5f_%.5f as part of image file names.
     
     """
