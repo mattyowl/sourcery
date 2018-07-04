@@ -608,7 +608,7 @@ class SourceBrowser(object):
             return None
         
         outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        tmpFileName=tempfile.mktemp()+".html"
+        tmpFileName=tempfile.mkstemp()[1]+".html"
         
         if os.path.exists(outFileName) == False or refetch == True:
         
@@ -634,6 +634,9 @@ class SourceBrowser(object):
                 print "... WARNING: couldn't get PS1 image ..."
                 print urlString
                 outFileName=None
+        
+        if os.path.exists(tmpFileName) == True:
+            os.remove(tmpFileName)
 
 
     def fetchPS1IRImage(self, name, RADeg, decDeg, refetch = False):
@@ -650,7 +653,7 @@ class SourceBrowser(object):
             return None
         
         outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        tmpFileName=tempfile.mktemp()+".html"
+        tmpFileName=tempfile.mkstemp()[1]+".html"
 
         if os.path.exists(outFileName) == False or refetch == True:
         
@@ -676,6 +679,9 @@ class SourceBrowser(object):
                 print "... WARNING: couldn't get PS1 image ..."
                 print urlString
                 outFileName=None
+
+        if os.path.exists(tmpFileName) == True:
+            os.remove(tmpFileName)
                 
 
     def fetchSDSSImage(self, name, RADeg, decDeg, refetch = False):
@@ -842,15 +848,15 @@ class SourceBrowser(object):
         
         # 2.75" pixels in the unWISE images (max for query is 250 pixels though)
         sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))
-        
         outFileName=wiseCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        targzPath=tempfile.mktemp()+".tar.gz"
+        tmpDirPath=tempfile.mkdtemp()
+        targzPath=tmpDirPath+"wise.tar.gz"
         topDir=os.getcwd()
         if os.path.exists(outFileName) == False or refetch == True:
             print "... fetching unWISE data for %s ..." % (name) 
             
             urllib.urlretrieve("http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix), targzPath)
-            os.chdir(tempfile.gettempdir())
+            os.chdir(tmpDirPath)
             os.system("tar -zxvf %s" % (targzPath))
             wiseFiles=glob.glob("unwise-*-img-m.fits")
             w1FileName=None
@@ -926,9 +932,13 @@ class SourceBrowser(object):
             except:
                 raise Exception, "W1, W2 images not same dimensions"
 
-            os.system("rm unwise-*.fits*")            
+            # Clean up
             os.chdir(topDir)
-
+            fileList=os.listdir(tmpDirPath)
+            for f in fileList:
+                os.remove(tmpDirPath+os.path.sep+f)
+            os.removedirs(tmpDirPath)
+            
             # Make colour .jpg
             # Nicer log scaling - twiddle with the min, max levels here and cuts below as you like
             dpi=96.0
@@ -949,7 +959,6 @@ class SourceBrowser(object):
 
             sizePix=1024
             f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
-            plt.axes([0, 0, 1, 1])
             axes=[0., 0., 1.0, 1.0]
             plot=astPlots.ImagePlot([rData, gData, bData], bClip['wcs'], axes = axes, 
                                 cutLevels = [cuts, cuts, cuts], axesFontSize = 18.0)
@@ -1915,7 +1924,7 @@ class SourceBrowser(object):
         
         print "time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4)
 
-        tmpFileName=tempfile.mktemp()
+        tmpFileName=tempfile.mkstemp()[1]
         if fileFormat == 'cat':
             tab.write(tmpFileName+".cat", format = 'ascii')
         elif fileFormat == 'fits':
