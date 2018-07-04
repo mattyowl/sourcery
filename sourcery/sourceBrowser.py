@@ -2676,8 +2676,8 @@ class SourceBrowser(object):
                     var CRPIX2 = (height/2.0)+1;
                     var CRVAL1 = $OBJECT_RADEG;
                     var CRVAL2 = $OBJECT_DECDEG;                    
-                    var ra = (CRPIX1-x)*CDELT1+CRVAL1;
-                    var dec = (CRPIX2-y)*CDELT2+CRVAL2;
+                    var ra = (CRPIX1-(x+1))*CDELT1+CRVAL1;
+                    var dec = (CRPIX2-(y+1))*CDELT2+CRVAL2;
 
                     // debugging
                     //alert("X Coordinate / RA: " + x + " / " + ra + " Y Coordinate / dec: " + y + " / " + dec);
