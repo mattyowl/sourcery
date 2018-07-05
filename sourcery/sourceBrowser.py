@@ -608,7 +608,7 @@ class SourceBrowser(object):
             return None
         
         outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        tmpFileName=tempfile.mkstemp()[1]+".html"
+        tmpFile, tmpFileName=tempfile.mkstemp()
         
         if os.path.exists(outFileName) == False or refetch == True:
         
@@ -636,6 +636,7 @@ class SourceBrowser(object):
                 outFileName=None
         
         if os.path.exists(tmpFileName) == True:
+            tmpFile.close()
             os.remove(tmpFileName)
 
 
@@ -653,7 +654,7 @@ class SourceBrowser(object):
             return None
         
         outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        tmpFileName=tempfile.mkstemp()[1]+".html"
+        tmpFile, tmpFileName=tempfile.mkstemp()
 
         if os.path.exists(outFileName) == False or refetch == True:
         
@@ -681,6 +682,7 @@ class SourceBrowser(object):
                 outFileName=None
 
         if os.path.exists(tmpFileName) == True:
+            tmpFile.close()
             os.remove(tmpFileName)
                 
 
@@ -1924,7 +1926,7 @@ class SourceBrowser(object):
         
         print "time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4)
 
-        tmpFileName=tempfile.mkstemp()[1]
+        tmpFile, tmpFileName=tempfile.mkstemp()
         if fileFormat == 'cat':
             tab.write(tmpFileName+".cat", format = 'ascii')
         elif fileFormat == 'fits':
