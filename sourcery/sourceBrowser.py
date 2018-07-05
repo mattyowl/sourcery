@@ -636,7 +636,7 @@ class SourceBrowser(object):
                 outFileName=None
         
         if os.path.exists(tmpFileName) == True:
-            tmpFile.close()
+            os.close(tmpFile)
             os.remove(tmpFileName)
 
 
@@ -682,7 +682,7 @@ class SourceBrowser(object):
                 outFileName=None
 
         if os.path.exists(tmpFileName) == True:
-            tmpFile.close()
+            os.close(tmpFile)
             os.remove(tmpFileName)
                 
 
