@@ -20,13 +20,17 @@
 """
 
 import os
+import matplotlib
+matplotlib.use('Agg')
 import astropy.table as atpy
 from astropy.coordinates import SkyCoord
 from astropy.coordinates import match_coordinates_sky
 import operator
+import urllib3
 import urllib
-import urllib2
 import glob
+import subprocess32
+import tarfile
 from astLib import *
 import astropy.io.fits as pyfits
 import numpy as np
@@ -65,9 +69,7 @@ from passlib.hash import pbkdf2_sha256
 class SourceBrowser(object):
     
     def __init__(self, configFileName, preprocess = False, buildDatabase = False):
-        
-        #self.auth = sourceryAuth.AuthController()
-
+              
         # Parse config file
         self.parseConfig(configFileName)
         
@@ -140,9 +142,26 @@ class SourceBrowser(object):
         if os.path.exists(self.sdssRedshiftsDir) == False:
             os.makedirs(self.sdssRedshiftsDir)
         
+        # More storage dirs... (we can't make these on-the-fly when running threaded)
+        sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
+        if os.path.exists(sdssCacheDir) == False:
+            os.makedirs(sdssCacheDir)
+        ps1CacheDir=self.cacheDir+os.path.sep+"PS1"
+        if os.path.exists(ps1CacheDir) == False:
+            os.makedirs(ps1CacheDir)
+        ps1CacheDir=self.cacheDir+os.path.sep+"PS1IR"
+        if os.path.exists(ps1CacheDir) == False:
+            os.makedirs(ps1CacheDir)
+        wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
+        if os.path.exists(wiseCacheDir) == False:
+            os.makedirs(wiseCacheDir)
+            
         # tileDirs set-up - KiDS, IAC-S82 etc..
-        # This dictionary will be populated later when needed (see, e.g., preprocess)
-        self.tileDirs={}
+        if 'tileDirs' in self.configDict.keys():
+            self.tileDirs={}
+            for tileDirDict in self.configDict['tileDirs']:
+                if tileDirDict['label'] not in self.tileDirs.keys():
+                    self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], self.cacheDir)
         
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
         self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
@@ -206,10 +225,6 @@ class SourceBrowser(object):
         self.imDirLabelsList=[]
         if self.configDict['addSDSSImage'] == True:
             self.imDirLabelsList.append("SDSS")
-        #if self.configDict['addDESImage'] == True:
-            #self.imDirLabelsList.append("DES")
-        #if self.configDict['addKiDSImage'] == True:
-            #self.imDirLabelsList.append("KiDS")
         if self.configDict['addPS1Image'] == True:
             self.imDirLabelsList.append("PS1")
         if self.configDict['addPS1IRImage'] == True:
@@ -222,11 +237,9 @@ class SourceBrowser(object):
         if 'imageDirs' in self.configDict.keys():
             for imDirDict in self.configDict['imageDirs']:
                 self.imDirLabelsList.append(imDirDict['label'])
-            
-        # Pre-processing
-        # NOTE: this includes generating .jpgs from user-specified, probably proprietary, image dirs
-        # We can run this on the webserver by going to localhost:8080/preprocess
-        # We might want to prevent that and force it to run manually only...
+                    
+        # Pre-processing - building image cache etc.
+        self.http=urllib3.PoolManager()
         if preprocess == True:
             self.preprocess()
 
@@ -535,13 +548,19 @@ class SourceBrowser(object):
         outFileName=self.nedDir+os.path.sep+name.replace(" ", "_")+".txt"        
         if os.path.exists(outFileName) == False:
             print "... fetching NED info for %s ..." % (name)
-            try:                
-                urllib.urlretrieve("http://ned.ipac.caltech.edu/cgi-bin/objsearch?search_type=Near+Position+Search&in_csys=Equatorial&in_equinox=J2000.0&lon=%.6fd&lat=%.6fd&radius=%.2f&dot_include=ANY&in_objtypes1=GGroups&in_objtypes1=GClusters&in_objtypes1=QSO&in_objtypes2=Radio&in_objtypes2=SmmS&in_objtypes2=Infrared&in_objtypes2=Xray&nmp_op=ANY&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=ascii_tab&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (RADeg, decDeg, halfMatchBoxLengthDeg*60.0), filename = outFileName)
-            except:
-                # This will block if our server can't see NED - so, we'll write something in the file
-                # We can test for this above and re-do the query if needed
-                print "WARNING: couldn't get NED info"
-                outFileName=None
+            urlString="http://ned.ipac.caltech.edu/cgi-bin/objsearch?search_type=Near+Position+Search&in_csys=Equatorial&in_equinox=J2000.0&lon=%.6fd&lat=%.6fd&radius=%.2f&dot_include=ANY&in_objtypes1=GGroups&in_objtypes1=GClusters&in_objtypes1=QSO&in_objtypes2=Radio&in_objtypes2=SmmS&in_objtypes2=Infrared&in_objtypes2=Xray&nmp_op=ANY&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=ascii_tab&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (RADeg, decDeg, halfMatchBoxLengthDeg*60.0)
+            resp=self.http.request('GET', urlString)
+            with open(outFileName, 'wb') as f:
+                f.write(resp.data)
+                f.close()
+            # Old
+            #try:                
+                #urllib.urlretrieve(urlString, filename = outFileName)
+            #except:
+                ## This will block if our server can't see NED - so, we'll write something in the file
+                ## We can test for this above and re-do the query if needed
+                #print "WARNING: couldn't get NED info"
+                #outFileName=None
 
 
     def findNEDMatch(self, obj, NEDObjType = "GClstr"):
@@ -600,8 +619,6 @@ class SourceBrowser(object):
         """
        
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1"
-        if os.path.exists(ps1CacheDir) == False:
-            os.makedirs(ps1CacheDir)
         
         if decDeg < -30:
             print "... outside PS1 area - skipping ..."
@@ -619,7 +636,12 @@ class SourceBrowser(object):
             PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
             
             urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=g&filter=r&filter=i&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
-            urllib.urlretrieve(urlString, filename = tmpFileName)
+            resp=self.http.request('GET', urlString)
+            with open(tmpFileName, 'wb') as f:
+                f.write(resp.data)
+                f.close()
+            # Old
+            #urllib.urlretrieve(urlString, filename = tmpFileName)
             
             inFile=file(tmpFileName, 'r')
             lines=inFile.readlines()
@@ -628,12 +650,17 @@ class SourceBrowser(object):
                 if line.find("fitscut.cgi") != -1 and line.find("green") != -1:
                     break
             urlString='http://'+line.split('src="//')[-1].split('"')[0]
-            try:
-                urllib.urlretrieve(urlString, filename = outFileName)
-            except:
-                print "... WARNING: couldn't get PS1 image ..."
-                print urlString
-                outFileName=None
+            resp=self.http.request('GET', urlString)
+            with open(outFileName, 'wb') as f:
+                f.write(resp.data)
+                f.close()
+            # Old
+            #try:
+                #urllib.urlretrieve(urlString, filename = outFileName)
+            #except:
+                #print "... WARNING: couldn't get PS1 image ..."
+                #print urlString
+                #outFileName=None
         
         if os.path.exists(tmpFileName) == True:
             os.close(tmpFile)
@@ -646,8 +673,6 @@ class SourceBrowser(object):
         """
        
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1IR"
-        if os.path.exists(ps1CacheDir) == False:
-            os.makedirs(ps1CacheDir)
          
         if decDeg < -30:
             print "... outside PS1 area - skipping ..."
@@ -665,7 +690,11 @@ class SourceBrowser(object):
             PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
             
             urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=i&filter=z&filter=y&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
-            urllib.urlretrieve(urlString, filename = tmpFileName)
+            resp=self.http.request('GET', urlString)
+            with open(outFileName, 'wb') as f:
+                f.write(resp.data)
+                f.close()
+            #urllib.urlretrieve(urlString, filename = tmpFileName)
             
             inFile=file(tmpFileName, 'r')
             lines=inFile.readlines()
@@ -674,12 +703,17 @@ class SourceBrowser(object):
                 if line.find("fitscut.cgi") != -1 and line.find("green") != -1:
                     break
             urlString='http://'+line.split('src="//')[-1].split('"')[0]
-            try:
-                urllib.urlretrieve(urlString, filename = outFileName)
-            except:
-                print "... WARNING: couldn't get PS1 image ..."
-                print urlString
-                outFileName=None
+            resp=self.http.request('GET', urlString)
+            with open(outFileName, 'wb') as f:
+                f.write(resp.data)
+                f.close()
+            # Old
+            #try:
+                #urllib.urlretrieve(urlString, filename = outFileName)
+            #except:
+                #print "... WARNING: couldn't get PS1 image ..."
+                #print urlString
+                #outFileName=None
 
         if os.path.exists(tmpFileName) == True:
             os.close(tmpFile)
@@ -697,8 +731,6 @@ class SourceBrowser(object):
         """
     
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
-        if os.path.exists(sdssCacheDir) == False:
-            os.makedirs(sdssCacheDir)
                           
         outFileName=sdssCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         SDSSWidth=1200.0
@@ -707,137 +739,18 @@ class SourceBrowser(object):
             #urlString="http://skyservice.pha.jhu.edu/DR10/ImgCutout/getjpeg.aspx?ra="+str(RADeg)+"&dec="+str(decDeg)
             urlString="http://skyserver.sdss.org/dr13/SkyServerWS/ImgCutout/getjpeg?TaskName=Skyserver.Chart.Image&ra="+str(RADeg)+"&dec="+str(decDeg)
             urlString=urlString+"&scale="+str(SDSSScale)+"&width="+str(int(SDSSWidth))+"&height="+str(int(SDSSWidth))
-            try:
-                urllib.urlretrieve(urlString, filename = outFileName)
-            except:
-                print "... WARNING: couldn't get SDSS image ..."
-                print urlString
-                outFileName=None
-    
-    
-    def fetchDESImage(self, name, RADeg, decDeg, refetch = False, numRetries = 5):
-        """Make DES co-add .jpg using the publicly available DR1 .tiff files. 
-        
-        We avoid the descuts server, as currently that serves images which don't correspond to what we ask for.
-        
-        This will be monstrously slow because each tile image is ~160 Mb. But the code that takes the .tiff
-        and spits out a clipped .jpg. is fast enough.
-        
-        NOTE: The below is no longer true... but left here in case we need to write it again...
-        
-        This will only work if you have DES data access rights - 'DESServicesConfigPath' in the
-        .config file should specify the path to the file containing these 
-        (e.g., $HOME/.desservices.ini if you are using easyaccess).
-        
-        """
-        
-        desCacheDir=self.cacheDir+os.path.sep+"DES"
-        if os.path.exists(desCacheDir) == False:
-            os.makedirs(desCacheDir)
-        
-        if decDeg > 5:
-            print "... outside DES dec range - skipping ..."
-            return None
-                     
-        outFileName=desCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        
-        # Procedure: spin through tile WCSs, find which tiles we need, download if necessary, paste pixels into low-res image (unWISE style)
-        if os.path.exists(outFileName) == False or refetch == True:
-                       
-            # Blank WCS
-            CRVAL1, CRVAL2=RADeg, decDeg
-            sizePix=1024
-            sizeArcmin=self.configDict['plotSizeArcmin']
-            xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
-            xSizePix=sizePix
-            ySizePix=sizePix
-            xRefPix=xSizePix/2.0
-            yRefPix=ySizePix/2.0
-            xOutPixScale=xSizeDeg/xSizePix
-            yOutPixScale=ySizeDeg/ySizePix
-            newHead=pyfits.Header()
-            newHead['NAXIS']=2
-            newHead['NAXIS1']=xSizePix
-            newHead['NAXIS2']=ySizePix
-            newHead['CTYPE1']='RA---TAN'
-            newHead['CTYPE2']='DEC--TAN'
-            newHead['CRVAL1']=CRVAL1
-            newHead['CRVAL2']=CRVAL2
-            newHead['CRPIX1']=xRefPix+1
-            newHead['CRPIX2']=yRefPix+1
-            newHead['CDELT1']=xOutPixScale
-            newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
-            newHead['CUNIT1']='DEG'
-            newHead['CUNIT2']='DEG'
-            outWCS=astWCS.WCS(newHead, mode='pyfits')
-            outData=np.zeros([sizePix, sizePix, 3], dtype = np.uint8)
-            RAMin, RAMax, decMin, decMax=outWCS.getImageMinMaxWCSCoords()
-            if RAMax-RAMin > 1.0:   # simple check for 0h crossing... assuming no-one wants images > a degree across
-                RAMax=-(360-RAMax)
-                temp=RAMin
-                RAMin=RAMax
-                RAMax=temp
-            checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
-            
-            # Spin though all DES tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
-            matchTilesList=[]
-            for tileName in self.DESWCSDict.keys():
-                wcs=self.DESWCSDict[tileName]
-                for c in checkCoordsList:
-                    pixCoords=wcs.wcs2pix(c[0], c[1])
-                    if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
-                        if tileName not in matchTilesList:
-                            matchTilesList.append(tileName)
-
-            if matchTilesList == []:
-                print "... object not in any DES tiles ..."
-                return None
-            else:
-
-                # We work with the .tiff files... downloading .fits images could be done similarly
-                for tileName in matchTilesList:
-                    matchTab=self.DESTileTab[np.where(self.DESTileTab['TILENAME'] == tileName)][0]
-                    tiffFileName=self.DESTilesCacheDir+os.path.sep+tileName+".tiff"
-                    tileJPGFileName=tiffFileName.replace(".tiff", ".jpg")
-                    if os.path.exists(tileJPGFileName) == False:
-                        if os.path.exists(tiffFileName) == False:
-                            print "... downloading .tiff image for tileName = %s ..." % (tileName)
-                            try:
-                                urllib.urlretrieve(str(matchTab['TIFF_COLOR_IMAGE']), tiffFileName)
-                            except:
-                                os.remove(tiffFileName)
-                                raise Exception, "downloading DES .tiff image failed"
-                        # NOTE: we use pyvips, because images are too big for PIL
-                        # We save disk space by caching a lower quality version of the entire tile
-                        print "... converting .tiff for tileName = %s to .jpg ..." % (tileName)
-                        im=pyvips.Image.new_from_file(tiffFileName, access = 'sequential')
-                        im.write_to_file(tileJPGFileName+'[Q=80]')
-                        os.remove(tiffFileName)
-                    else:
-                        im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
+            resp=self.http.request('GET', urlString)
+            with open(outFileName, 'wb') as f:
+                f.write(resp.data)
+                f.close()
+            # Old
+            #try:
+                #urllib.urlretrieve(urlString, filename = outFileName)
+            #except:
+                #print "... WARNING: couldn't get SDSS image ..."
+                #print urlString
+                #outFileName=None
                     
-                    # Splat pixels from the .tiff into our small image WCS, from which we'll make the .jpg
-                    d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
-                    d=np.flipud(d)
-                    inWCS=self.DESWCSDict[tileName]
-                    for y in range(sizePix):
-                        for x in range(sizePix):
-                            outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
-                            inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
-                            inX=int(round(inX))
-                            inY=int(round(inY))
-                            if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
-                                outData[y, x]=d[inY, inX]
-                
-                # Flips needed to get N at top, E at left
-                outData=np.flipud(outData)
-                outData=np.fliplr(outData)
-                
-                # We could do this with vips... but lazy...
-                outIm=Image.fromarray(outData)
-                outIm.save(outFileName)
-                print "... made DES cut-out .jpg ..."
-                
 
     def fetchUnWISEImage(self, name, RADeg, decDeg, refetch = False):
         """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
@@ -845,22 +758,22 @@ class SourceBrowser(object):
         """
         
         wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
-        if os.path.exists(wiseCacheDir) == False:
-            os.makedirs(wiseCacheDir)
         
         # 2.75" pixels in the unWISE images (max for query is 250 pixels though)
         sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))
         outFileName=wiseCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         tmpDirPath=tempfile.mkdtemp()
-        targzPath=tmpDirPath+"wise.tar.gz"
-        topDir=os.getcwd()
+        targzPath=tmpDirPath+os.path.sep+"wise.tar.gz"
         if os.path.exists(outFileName) == False or refetch == True:
             print "... fetching unWISE data for %s ..." % (name) 
-            
-            urllib.urlretrieve("http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix), targzPath)
-            os.chdir(tmpDirPath)
-            os.system("tar -zxvf %s" % (targzPath))
-            wiseFiles=glob.glob("unwise-*-img-m.fits")
+            resp=self.http.request('GET', "http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix))
+            with open(targzPath, 'wb') as f:
+                f.write(resp.data)
+                f.close()
+            with tarfile.open(targzPath) as t:
+                t.extractall(path = os.path.split(targzPath)[0])
+                t.close()
+            wiseFiles=glob.glob(tmpDirPath+os.path.sep+"unwise-*-img-m.fits")
             w1FileName=None
             w2FileName=None
             for w in wiseFiles:
@@ -935,7 +848,6 @@ class SourceBrowser(object):
                 raise Exception, "W1, W2 images not same dimensions"
 
             # Clean up
-            os.chdir(topDir)
             fileList=os.listdir(tmpDirPath)
             for f in fileList:
                 os.remove(tmpDirPath+os.path.sep+f)
@@ -966,9 +878,7 @@ class SourceBrowser(object):
                                 cutLevels = [cuts, cuts, cuts], axesFontSize = 18.0)
             plt.savefig(outFileName, dpi = dpi)
             plt.close()
-            
-            # Clean up
-            os.remove(targzPath)
+
                 
     @cherrypy.expose
     def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", 
@@ -3007,16 +2917,12 @@ class SourceBrowser(object):
 
         # tileDirs set-up - DES, KiDS, IAC-S82 etc..
         if 'tileDirs' in self.configDict.keys():
+            print(">>> Setting up tileDir WCS info ...")
             for tileDirDict in self.configDict['tileDirs']:
                 if tileDirDict['label'] not in self.tileDirs.keys():
                     self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], self.cacheDir)
-                    self.tileDirs[tileDirDict['label']].setUpWCSDict()
-        
-        # For KiDS DR3 images that we have regridded and STIFFed
-        #if 'addKiDSImage' in self.configDict.keys() and self.configDict['addKiDSImage'] == True:
-            #if self.KiDSWCSDict == None:
-                #self.setUpKiDSWCSDict()
-        
+                self.tileDirs[tileDirDict['label']].setUpWCSDict()
+                
         # Make .jpg images from local, user-supplied .fits images
         if 'imageDirs' in self.configDict.keys():
             self.makeImageDirJPEGs()
@@ -3024,10 +2930,22 @@ class SourceBrowser(object):
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
+        # Threaded
         cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+        sourceryIDs=[]
         for obj in cursor:
-            self.buildCacheForObject(obj['sourceryID'], refetch = False)
+            sourceryIDs.append(obj['sourceryID'])
         cursor.close()
+        import multiprocessing
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers = multiprocessing.cpu_count()) as executor:
+            executor.map(self.buildCacheForObject, sourceryIDs)
+    
+        # Serial - still useful if debugging
+        #cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+        #for obj in cursor:
+            #self.buildCacheForObject(obj['sourceryID'], refetch = False)
+        #cursor.close()
         
         # Now add imageDir tags to field types database
         for label in self.imDirLabelsList:
@@ -3047,10 +2965,13 @@ class SourceBrowser(object):
     
     @cherrypy.expose
     def buildCacheForObject(self, sourceryID, refetch = False, from_page = None):
-        """Given an obj dictionary (resulting from MongoDB query), (re)fetch all the available imaging.
-        This allows 'spot fixes' by clicking a button on the candidate page (so if user spots image coords off,
-        they can fix rather than manually deleting / re-running build cache). This would happen if object has
-        same name but slightly different coords in an updated source list.
+        """Given a sourceryID (unique ID number), (re)fetch all the available imaging.
+        As well as allowing threading, this also enables 'spot fixes' by clicking a button on the candidate 
+        page (so if user spots image coords off, they can fix rather than manually deleting / re-running
+        build cache). 
+        
+        NOTE: We may remove the Rebuild Cache button if the change to coord-based file names is accurate
+        enough.
         
         """
         
@@ -3063,6 +2984,7 @@ class SourceBrowser(object):
         name=obj['name']
         RADeg=obj['RADeg']
         decDeg=obj['decDeg']
+        fileNameLabel=catalogTools.makeRADecString(RADeg, decDeg)
             
         print ">>> Fetching data to cache for object %s" % (name)            
         self.fetchNEDInfo(name, RADeg, decDeg)
@@ -3089,7 +3011,7 @@ class SourceBrowser(object):
         # NOTE: we look in other survey dirs (e.g., SDSS) while we're here
         minSizeBytes=40000
         for label in self.imDirLabelsList:
-            f=self.configDict['cacheDir']+os.path.sep+label+os.path.sep+name.replace(" ", "_")+".jpg"
+            f=self.configDict['cacheDir']+os.path.sep+label+os.path.sep+fileNameLabel+".jpg"
             if os.path.exists(f) == True:
                 # image size check: don't include SDSS if image size is tiny as no data
                 skipImage=False

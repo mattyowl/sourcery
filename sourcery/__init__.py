@@ -19,8 +19,8 @@
 
 """
 
-import catalogTools
 import sourceBrowser
+import catalogTools
 import specFeatures
 import tileDir
 

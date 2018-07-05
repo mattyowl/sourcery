@@ -28,7 +28,7 @@ from PIL import Image
 import os
 import sourcery
 from sourcery import catalogTools
-import urllib
+import urllib3
 import time
 import IPython
 
@@ -138,8 +138,8 @@ class TileDir:
             self.setUpWCSDict()        
         
         # Inside footprint check
-        raMask=np.logical_and(np.greater(RADeg, self.tileTab['RAMin']), np.less(RADeg, self.tileTab['RAMax']))
-        decMask=np.logical_and(np.greater(decDeg, self.tileTab['decMin']), np.less(decDeg, self.tileTab['decMax']))
+        raMask=np.logical_and(np.greater_equal(RADeg, self.tileTab['RAMin']), np.less(RADeg, self.tileTab['RAMax']))
+        decMask=np.logical_and(np.greater_equal(decDeg, self.tileTab['decMin']), np.less(decDeg, self.tileTab['decMax']))
         tileMask=np.logical_and(raMask, decMask)
         if tileMask.sum() == 0:
             print("... object not in any %s tiles ..." % (self.label))
@@ -184,16 +184,19 @@ class TileDir:
                 RAMax=temp
             checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
                         
+            # Old
             # Spin though all tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
-            matchTilesList=[]
-            for tileName in self.WCSDict.keys():
-                wcs=self.WCSDict[tileName]
-                for c in checkCoordsList:
-                    pixCoords=wcs.wcs2pix(c[0], c[1])
-                    if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
-                        if tileName not in matchTilesList:
-                            matchTilesList.append(tileName)
-            
+            #matchTilesList=[]
+            #for tileName in self.WCSDict.keys():
+                #wcs=self.WCSDict[tileName]
+                #for c in checkCoordsList:
+                    #pixCoords=wcs.wcs2pix(c[0], c[1])
+                    #if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
+                        #if tileName not in matchTilesList:
+                            #matchTilesList.append(tileName)
+            # Faster
+            matchTilesList=self.tileTab['TILENAME'][tileMask].tolist()
+                        
             if matchTilesList == []:
                 print("... object not in any %s tiles ..." % (self.label))
                 return None
@@ -213,10 +216,15 @@ class TileDir:
                         if os.path.exists(tileJPGFileName) == False:
                             if os.path.exists(tiffFileName) == False:
                                 print "... downloading .tiff image for tileName = %s ..." % (tileName)
-                                try:
-                                    urllib.urlretrieve(str(matchTab['TIFF_COLOR_IMAGE']), tiffFileName)
-                                except:
-                                    raise Exception, "downloading DES .tiff image failed"
+                                resp=self.http.request('GET', str(matchTab['TIFF_COLOR_IMAGE']))
+                                with open(tiffFileName, 'wb') as f:
+                                    f.write(resp.data)
+                                    f.close()
+                                # Old
+                                #try:
+                                    #urllib.urlretrieve(str(matchTab['TIFF_COLOR_IMAGE']), tiffFileName)
+                                #except:
+                                    #raise Exception, "downloading DES .tiff image failed"
                             # NOTE: we use pyvips, because images are too big for PIL
                             # We save disk space by caching a lower quality version of the entire tile
                             print "... converting .tiff for tileName = %s to .jpg ..." % (tileName)
@@ -231,6 +239,7 @@ class TileDir:
                     else:
                         print("... tile %s missing from %s tiles .jpg preview directory (probably missing i or g-band coverage) ..." % (tileName, self.label))
                         continue
+
                     # Splat pixels from the .jpg into our small image WCS, from which we'll make a new .jpg
                     d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
                     d=np.flipud(d)
@@ -243,7 +252,7 @@ class TileDir:
                             inY=int(round(inY))
                             if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
                                 outData[y, x]=d[inY, inX]
-                
+                    
                 # Flips needed to get N at top, E at left
                 outData=np.flipud(outData)
                 outData=np.fliplr(outData)

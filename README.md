@@ -34,6 +34,7 @@ by the author are given in brackets, earlier and later versions may also work):
 * SciPy (0.17.0)
 * pyvips (2.0.4)
 * PyYAML (3.12)
+* concurrent.futures
 
 
 ## Installation
