@@ -1862,7 +1862,7 @@ class SourceBrowser(object):
         
         """
         obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
-        imgPath=self.cacheDir+os.path.sep+self.configDict['downloadableFITS']+os.path.sep+"%s.fits" % (obj['name'].replace(" ", "_"))
+        imgPath=self.cacheDir+os.path.sep+self.configDict['downloadableFITS']+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".fits"
         cherrypy.response.headers['Content-Disposition']='attachment; filename="%s.%s"' % (obj['name'].replace(" ", "_"), 'fits')
         f=file(imgPath, 'rb')
         
