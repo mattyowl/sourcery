@@ -3079,22 +3079,22 @@ class SourceBrowser(object):
                 pickleFile.close()
             else:
                 headerDict={}
-            # Takes ~160 sec to build the first time for ~10,000 images, ~2 sec for subsequent runs
-            print "... building headerDict pickle for .fits images under %s/ ..." % (imageDir)
-            t0=time.time()
-            origLength=len(headerDict.keys())
-            for imgFileName in imgList:
-                if imgFileName not in headerDict.keys():
-                    wcs=astWCS.WCS(imgFileName)
-                    headerDict[imgFileName]=wcs.header.copy()
-            t1=time.time()
-            # Write pickled headerDict, in case it was updated
-            if len(headerDict.keys()) > origLength:
-                print "... writing updated headerDict pickle to %s/ ..." % (imageDir)
-                pickleFile=file(pickleFileName, "wb")
-                pickler=pickle.Pickler(pickleFile)
-                pickler.dump(headerDict)
-                pickleFile.close()
+                # Takes ~160 sec to build the first time for ~10,000 images, ~2 sec for subsequent runs
+                print "... building headerDict pickle for .fits images under %s/ ..." % (imageDir)
+                t0=time.time()
+                origLength=len(headerDict.keys())
+                for imgFileName in imgList:
+                    if imgFileName not in headerDict.keys():
+                        wcs=astWCS.WCS(imgFileName)
+                        headerDict[imgFileName]=wcs.header.copy()
+                t1=time.time()
+                # Write pickled headerDict, in case it was updated
+                if len(headerDict.keys()) > origLength:
+                    print "... writing updated headerDict pickle to %s/ ..." % (imageDir)
+                    pickleFile=file(pickleFileName, "wb")
+                    pickler=pickle.Pickler(pickleFile)
+                    pickler.dump(headerDict)
+                    pickleFile.close()
             
             # Convert headerDict to wcsDict - takes ~30 sec for ~10,000 images
             t0=time.time()
