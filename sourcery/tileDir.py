@@ -260,5 +260,6 @@ class TileDir:
                 # We could do this with vips... but lazy...
                 outIm=Image.fromarray(outData)
                 outIm.save(outFileName)
+                outIm.close()
                 print("... made %s cut-out .jpg ..." % (self.label))
                 
