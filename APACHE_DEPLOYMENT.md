@@ -61,7 +61,13 @@ above the `</VirtualHost>` line, add:
     WSGIApplicationGroup %{GLOBAL}
 
     # Mounting cherrypy apps
-    WSGIScriptAlias /example-sourcery /usr/local/www/wsgi-scripts/example-sourcery.wsgi 
+    WSGIDaemonProcess example-sourcery
+    WSGIScriptAlias /example-sourcery /usr/local/www/wsgi-scripts/example-sourcery.wsgi  
+    <Location /example-sourcery>
+        WSGIProcessGroup example-sourcery
+    </Location>
+
+        
    ```
 
    The last line here isn't strictly essential, but will enable your database to be accessed as, e.g.,
