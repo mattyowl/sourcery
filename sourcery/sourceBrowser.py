@@ -1049,7 +1049,7 @@ class SourceBrowser(object):
         
         if plotContours == "true":
             if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-                contourImg=pyfits.open(self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+name.replace(" ", "_")+".fits")
+                contourImg=pyfits.open(self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".fits")
                 contourWCS=astWCS.WCS(contourImg[0].header, mode = 'pyfits')
                 if self.configDict['contour1Sigma'] == "measureFromImage":
                     contourData=contourImg[0].data
