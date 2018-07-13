@@ -2934,21 +2934,22 @@ class SourceBrowser(object):
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
 
         # Threaded
-        cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
-        sourceryIDs=[]
-        for obj in cursor:
-            sourceryIDs.append(obj['sourceryID'])
-        cursor.close()
-        import multiprocessing
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers = multiprocessing.cpu_count()) as executor:
-            executor.map(self.buildCacheForObject, sourceryIDs)
-    
-        # Serial - still useful if debugging
-        #cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
-        #for obj in cursor:
-            #self.buildCacheForObject(obj['sourceryID'], refetch = False)
-        #cursor.close()
+        if 'threadedCacheBuild' in self.configDict.keys() and self.configDict['threadedCacheBuild'] == True:
+            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+            sourceryIDs=[]
+            for obj in cursor:
+                sourceryIDs.append(obj['sourceryID'])
+            cursor.close()
+            import multiprocessing
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers = multiprocessing.cpu_count()) as executor:
+                executor.map(self.buildCacheForObject, sourceryIDs)
+        else:
+            # Serial - still useful if debugging
+            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+            for obj in cursor:
+                self.buildCacheForObject(obj['sourceryID'], refetch = False)
+            cursor.close()
         
         # Now add imageDir tags to field types database
         for label in self.imDirLabelsList:
