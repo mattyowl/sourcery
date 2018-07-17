@@ -694,7 +694,7 @@ class SourceBrowser(object):
             
             urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=i&filter=z&filter=y&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
             resp=self.http.request('GET', urlString)
-            with open(outFileName, 'wb') as f:
+            with open(tmpFileName, 'wb') as f:
                 f.write(resp.data)
                 f.close()
             #urllib.urlretrieve(urlString, filename = tmpFileName)
