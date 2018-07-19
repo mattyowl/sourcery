@@ -1780,19 +1780,29 @@ class SourceBrowser(object):
         # Fetch the cached table and update that with any changed classifications info
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
         xTab=atpy.Table().read(cachedTabFileName)
-        
+                
         t0=time.time()
         posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)                
         tabLength=posts.count()
         t1=time.time()
 
+        # Need this and change below for overloading with e.g. editable BCG coords
+        editableFieldsList=[]
+        for f in self.configDict['fields']:
+            editableFieldsList.append(f['name'])
+        for key in xTab.keys():
+            if key in editableFieldsList:
+                xTab.remove_column(key)
+        
+        # NOTE: there may be fun unicode-related stuff here: e.g., u'BCG_RADeg' versus 'BCG_RADeg'
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
         keysToAdd=['RADeg', 'decDeg']
         typeNamesToAdd=['number', 'number']
         for k, t in zip(keysList, typeNamesList):
-            if k not in xTab.keys():
-                keysToAdd.append(k)
-                typeNamesToAdd.append(t)
+            if k not in xTab.keys() or k in editableFieldsList:
+                if k not in keysToAdd:
+                    keysToAdd.append(k)
+                    typeNamesToAdd.append(t)
                 
         t2=time.time()
         tab=atpy.Table()
