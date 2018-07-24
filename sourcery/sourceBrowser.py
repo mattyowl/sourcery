@@ -1049,34 +1049,39 @@ class SourceBrowser(object):
         
         if plotContours == "true":
             if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-                contourImg=pyfits.open(self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".fits")
-                contourWCS=astWCS.WCS(contourImg[0].header, mode = 'pyfits')
-                if self.configDict['contour1Sigma'] == "measureFromImage":
-                    contourData=contourImg[0].data
-                    # Choose level from clipped stdev
-                    sigmaCut=2.0
-                    mean=0
-                    sigma=1e6
-                    for i in range(20):
-                        #nonZeroMask=np.not_equal(contourData, 0)
-                        mask=np.less(abs(contourData-mean), sigmaCut*sigma)
-                        #mask=np.logical_and(nonZeroMask, mask)
-                        mean=np.mean(contourData[mask])
-                        sigma=np.std(contourData[mask])
+                clipFileName=self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".fits"
+                if os.path.exists(clipFileName):
+                    contourImg=pyfits.open(clipFileName)
+                    contourWCS=astWCS.WCS(contourImg[0].header, mode = 'pyfits')
+                    if self.configDict['contour1Sigma'] == "measureFromImage":
+                        contourData=contourImg[0].data
+                        # Choose level from clipped stdev
+                        sigmaCut=2.0
+                        mean=0
+                        sigma=1e6
+                        for i in range(20):
+                            #nonZeroMask=np.not_equal(contourData, 0)
+                            mask=np.less(abs(contourData-mean), sigmaCut*sigma)
+                            #mask=np.logical_and(nonZeroMask, mask)
+                            mean=np.mean(contourData[mask])
+                            sigma=np.std(contourData[mask])
+                    else:
+                        sigma=self.configDict['contour1Sigma']
+                    contourSigmaLevels=np.array(self.configDict['contourSigmaLevels'])
+                    contourLevels=contourSigmaLevels*sigma
+                    #contourLevels=[self.configDict['contour1Sigma'], 2*self.configDict['contour1Sigma'],
+                                    #4*self.configDict['contour1Sigma'], 8*self.configDict['contour1Sigma'],
+                                    #16*self.configDict['contour1Sigma']]
+                    #contourLevels=np.linspace(self.configDict['contour1Sigma'], 
+                                                #20*self.configDict['contour1Sigma'], 20)
+                    p.addContourOverlay(contourImg[0].data, contourWCS, 'contour', levels = contourLevels, 
+                                        width = self.configDict['contourWidth'],     
+                                        color = self.configDict['contourColour'], 
+                                        smooth = self.configDict['contourSmoothingArcsec'],
+                                        highAccuracy = False)
                 else:
-                    sigma=self.configDict['contour1Sigma']
-                contourSigmaLevels=np.array(self.configDict['contourSigmaLevels'])
-                contourLevels=contourSigmaLevels*sigma
-                #contourLevels=[self.configDict['contour1Sigma'], 2*self.configDict['contour1Sigma'],
-                                   #4*self.configDict['contour1Sigma'], 8*self.configDict['contour1Sigma'],
-                                   #16*self.configDict['contour1Sigma']]
-                #contourLevels=np.linspace(self.configDict['contour1Sigma'], 
-                                              #20*self.configDict['contour1Sigma'], 20)
-                p.addContourOverlay(contourImg[0].data, contourWCS, 'contour', levels = contourLevels, 
-                                    width = self.configDict['contourWidth'],     
-                                    color = self.configDict['contourColour'], 
-                                    smooth = self.configDict['contourSmoothingArcsec'],
-                                    highAccuracy = False)
+                    plt.figtext(0.05, 0.05, "Adding contours failed - missing file: %s" % (clipFileName), color = 'red', backgroundcolor = 'black')
+
         
         cherrypy.response.headers['Content-Type']="image/jpg"
         buf=StringIO.StringIO()

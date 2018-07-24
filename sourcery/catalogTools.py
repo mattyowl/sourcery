@@ -11,7 +11,7 @@
 
     Sourcery is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    MERCHANTABILITY or FITNESS FORf A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
@@ -163,17 +163,20 @@ def parseNEDResult(inFileName, onlyObjTypes = None):
         if bits[0] == "1":
             dataStarted=True
         if dataStarted == True:
-            if onlyObjTypes == str(bits[4]) or onlyObjTypes == None:
-                labels.append(bits[0])
-                names.append(bits[1])
-                RAs.append(float(bits[2]))
-                decs.append(float(bits[3]))
-                sourceTypes.append(str(bits[4]))
-                if bits[6] == '':
-                    redshifts.append('N/A')
-                else:
-                    redshifts.append(str(bits[6]))
-
+            try:
+                if onlyObjTypes == str(bits[4]) or onlyObjTypes == None:
+                    labels.append(bits[0])
+                    names.append(bits[1])
+                    RAs.append(float(bits[2]))
+                    decs.append(float(bits[3]))
+                    sourceTypes.append(str(bits[4]))
+                    if bits[6] == '':
+                        redshifts.append('N/A')
+                    else:
+                        redshifts.append(str(bits[6]))
+            except:
+                raise Exception("Failed to parse NED results file %s - delete and try again?" % (inFileName))
+                
     return {'labels': labels, 'names': names, 'RAs': RAs, 'decs': decs, 'sourceTypes': sourceTypes, 'redshifts': redshifts}
 
 #-------------------------------------------------------------------------------------------------------------
