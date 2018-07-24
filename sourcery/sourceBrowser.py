@@ -616,108 +616,59 @@ class SourceBrowser(object):
             obj['NED_decDeg']=np.nan        
         
 
-    def fetchPS1Image(self, name, RADeg, decDeg, refetch = False):
-        """Fetches Pan-STARRS gri .jpg using the cutout webservice.
+    def fetchPS1Image(self, name, RADeg, decDeg, bands = "gri", refetch = False):
+        """Fetches Pan-STARRS gri or izy .jpg using the cutout webservice.
         
         """
        
-        ps1CacheDir=self.cacheDir+os.path.sep+"PS1"
-        
-        if decDeg < -30:
-            print "... outside PS1 area - skipping ..."
-            return None
-        
-        outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        tmpFile, tmpFileName=tempfile.mkstemp()
-        
-        if os.path.exists(outFileName) == False or refetch == True:
-        
-            if os.path.exists(tmpFileName) == True:
-                os.remove(tmpFileName)
-                
-            # 1920 pixels is 8 arcmin on PS1 scale
-            PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
+        # 1920 pixels is 8 arcmin on PS1 scale
+        PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
             
+        if bands == 'gri':
+            cacheDirLabel="PS1"
             urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=g&filter=r&filter=i&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
-            resp=self.http.request('GET', urlString)
-            with open(tmpFileName, 'wb') as f:
-                f.write(resp.data)
-                f.close()
-            # Old
-            #urllib.urlretrieve(urlString, filename = tmpFileName)
-            
-            inFile=file(tmpFileName, 'r')
-            lines=inFile.readlines()
-            inFile.close()
-            for line in lines:
-                if line.find("fitscut.cgi") != -1 and line.find("green") != -1:
-                    break
-            urlString='http://'+line.split('src="//')[-1].split('"')[0]
-            resp=self.http.request('GET', urlString)
-            with open(outFileName, 'wb') as f:
-                f.write(resp.data)
-                f.close()
-            # Old
-            #try:
-                #urllib.urlretrieve(urlString, filename = outFileName)
-            #except:
-                #print "... WARNING: couldn't get PS1 image ..."
-                #print urlString
-                #outFileName=None
-        
-        if os.path.exists(tmpFileName) == True:
-            os.close(tmpFile)
-            os.remove(tmpFileName)
+        elif bands == 'izy':
+            cacheDirLabel="PS1IR"
+            urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=i&filter=z&filter=y&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
+        else:
+            raise Exception("PS1 bands should be 'gri' or 'izy'")
 
-
-    def fetchPS1IRImage(self, name, RADeg, decDeg, refetch = False):
-        """Fetches Pan-STARRS izy .jpg using the cutout webservice.
+        ps1CacheDir=self.cacheDir+os.path.sep+cacheDirLabel
         
-        """
-       
-        ps1CacheDir=self.cacheDir+os.path.sep+"PS1IR"
-         
         if decDeg < -30:
             print "... outside PS1 area - skipping ..."
             return None
         
         outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         tmpFile, tmpFileName=tempfile.mkstemp()
-
+        
         if os.path.exists(outFileName) == False or refetch == True:
         
             if os.path.exists(tmpFileName) == True:
                 os.remove(tmpFileName)
-                
-            # 1920 pixels is 8 arcmin on PS1 scale
-            PS1PlotSizePix=int(round(self.configDict['plotSizeArcmin']*240))
-            
-            urlString="http://ps1images.stsci.edu/cgi-bin/ps1cutouts?pos=%.6f+%.6f&filter=color&filter=i&filter=z&filter=y&filetypes=stack&auxiliary=data&size=%d&output_size=1024&verbose=0&autoscale=99.500000&catlist=" % (RADeg, decDeg, PS1PlotSizePix)
+
             resp=self.http.request('GET', urlString)
             with open(tmpFileName, 'wb') as f:
                 f.write(resp.data)
                 f.close()
-            #urllib.urlretrieve(urlString, filename = tmpFileName)
-            
+
             inFile=file(tmpFileName, 'r')
             lines=inFile.readlines()
             inFile.close()
+            foundLine=False
             for line in lines:
                 if line.find("fitscut.cgi") != -1 and line.find("green") != -1:
+                    foundLine=True
                     break
-            urlString='http://'+line.split('src="//')[-1].split('"')[0]
-            resp=self.http.request('GET', urlString)
-            with open(outFileName, 'wb') as f:
-                f.write(resp.data)
-                f.close()
-            # Old
-            #try:
-                #urllib.urlretrieve(urlString, filename = outFileName)
-            #except:
-                #print "... WARNING: couldn't get PS1 image ..."
-                #print urlString
-                #outFileName=None
-
+            if foundLine == True:
+                urlString='http://'+line.split('src="//')[-1].split('"')[0]
+                resp=self.http.request('GET', urlString)
+                with open(outFileName, 'wb') as f:
+                    f.write(resp.data)
+                    f.close()
+            else:
+                print("... WARNING: couldn't retrieve PS1 image ...")
+        
         if os.path.exists(tmpFileName) == True:
             os.close(tmpFile)
             os.remove(tmpFileName)
@@ -3013,9 +2964,9 @@ class SourceBrowser(object):
         if self.configDict['addSDSSImage'] == True:
             self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addPS1Image'] == True:
-            self.fetchPS1Image(name, RADeg, decDeg, refetch = refetch)
+            self.fetchPS1Image(name, RADeg, decDeg, refetch = refetch, bands = 'gri')
         if self.configDict['addPS1IRImage'] == True:
-            self.fetchPS1IRImage(name, RADeg, decDeg, refetch = refetch)
+            self.fetchPS1Image(name, RADeg, decDeg, refetch = refetch, bands = 'izy')
         if self.configDict['addUnWISEImage'] == True:
             self.fetchUnWISEImage(name, RADeg, decDeg, refetch = refetch)
         # Tile dirs
