@@ -82,13 +82,14 @@ class SourceBrowser(object):
             for line in lines:
                 if line[0] != "#":
                     bits=line.split()
-                    userDict={'name': bits[0], 
-                              'role': bits[1],
-                              'hash': bits[2].rstrip()}
-                    if userDict['role'] in ['editor', 'viewer']:
-                        self.usersList.append(userDict)
-                    else:
-                        raise Exception("unknown user role - check userListFile")
+                    if len(bits) > 2:
+                        userDict={'name': bits[0], 
+                                'role': bits[1],
+                                'hash': bits[2].rstrip()}
+                        if userDict['role'] in ['editor', 'viewer']:
+                            self.usersList.append(userDict)
+                        else:
+                            raise Exception("unknown user role - check userListFile")
         else:
             self.usersList=None
         
