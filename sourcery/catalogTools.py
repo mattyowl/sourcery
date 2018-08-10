@@ -230,25 +230,11 @@ def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg):
             with open(outFileName, 'wb') as f:
                 f.write(resp.data)
                 f.close()
-            # Old
-            #params=urllib.urlencode({'searchtool': 'SQL', 'TaskName': 'Skyserver.Search.SQL', 
-                                        #'cmd': fsql, 'format': "csv"})                
-            #try:
-                #response=urllib2.urlopen(url+'?%s' % (params))
-            #except:
-                #print "SDSS spec query failed"
-                #IPython.embed()
-                #sys.exit()
-            #lines=response.read()
-            #lines=lines.split("\n")
-            #outFile=file(outFileName, "w")
-            #for line in lines:
-                #outFile.write(line+"\n")
-            #outFile.close()        
-        else:
-            inFile=file(outFileName, "r")
-            lines=inFile.readlines()
-            inFile.close()
+      
+        inFile=file(outFileName, "r")
+        lines=inFile.readlines()
+        inFile.close()
+
     else:
         return []
         

@@ -86,6 +86,8 @@ class SourceBrowser(object):
                         userDict={'name': bits[0], 
                                 'role': bits[1],
                                 'hash': bits[2].rstrip()}
+                        if len(bits) > 3:
+                            userDict['hiddenConstraints']=line[line.find(bits[3]):].rstrip()
                         if userDict['role'] in ['editor', 'viewer']:
                             self.usersList.append(userDict)
                         else:
@@ -1498,7 +1500,7 @@ class SourceBrowser(object):
             html=html.replace("$TITLE", self.configDict['indexTitle'])
         else:
             html=html.replace("$TITLE", "Sourcery Database")
-        
+                
         # First need to apply query parameters here
         queryPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
         numPosts=queryPosts.count()
@@ -1859,6 +1861,19 @@ class SourceBrowser(object):
         
         """
         
+        # Hidden constraints: for access control, e.g., show only DES users regions inside DES footprint
+        user=cherrypy.session['_sourcery_username']
+        hiddenConstraints=""
+        for userDict in self.usersList:
+            if userDict['name'] == user and 'hiddenConstraints' in userDict.keys():
+                hiddenConstraints=userDict['hiddenConstraints']
+                if hiddenConstraints[0] == '"' or hiddenConstraints[0] == "'":
+                    hiddenConstraints=hiddenConstraints[1:]
+                if hiddenConstraints[-1] == '"' or hiddenConstraints[-1] == "'":
+                    hiddenConstraints=hiddenConstraints[:-1]
+        if hiddenConstraints != "":
+            queryOtherConstraints=queryOtherConstraints+" and "+hiddenConstraints
+                    
         # Build query document piece by piece...
         queryDict={}
 
