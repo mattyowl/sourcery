@@ -98,8 +98,8 @@ fields
 
 Including the `userListFile` parameter enables access control for Sourcery,
 which is required to allow user-editable fields and classifications. The 
-plain-text file pointed to by `userListFile`, in this case 
-[E-D56Users.txt](E-D56Users.txt),  specifies the usernames, access rights,
+YML file pointed to by `userListFile`, in this case 
+[E-D56Users.yml](E-D56Users.yml),  specifies the usernames, access rights,
 and password hashes for users of the database. In this example, we simply
 have two users: 
 

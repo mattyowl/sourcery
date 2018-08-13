@@ -8,7 +8,7 @@
 # Optional: access control
 # If userListFile is not given, no password protection or editing is possible
 # The contents of contactInfo is shown in the event of an unsuccessful login.
-#userListFile: "E-D56Users.txt"
+#userListFile: "E-D56Users.yml"
 #contactInfo: 'Contact <a href="mailto:your@email.address">the administrator</a> if you require access.'
 
 # Title shown on index (table) pages

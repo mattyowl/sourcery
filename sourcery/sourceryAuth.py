@@ -14,27 +14,27 @@ import IPython
 SESSION_KEY = '_sourcery_username'
 
 #-------------------------------------------------------------------------------------------------------------
-def checkCredentials(username, password, usersList, contactStr = ""):
+def checkCredentials(username, password, usersDict, contactStr = ""):
     """Verifies credentials for username and password.
     Returns None on success or a string describing the error on failure"""
-    if usersList == None:
+    if usersDict == {}:
         return None
-    for userDict in usersList:
-        if username == userDict['name'] and pbkdf2_sha256.verify(password, userDict['hash']) == True:
+    for userNameKey in usersDict.keys():
+        if username == userNameKey and pbkdf2_sha256.verify(password, usersDict[userNameKey]['hash']) == True:
             return None
     return u"Incorrect username or password. %s" % (contactStr)
     
 #-------------------------------------------------------------------------------------------------------------
-def setEditPermissions(username, usersList):
+def setEditPermissions(username, usersDict):
     """Checks if the user is in the group that can edit pages.
     
     """
-    if usersList == None:
+    if usersDict == {}:
         cherrypy.session['editPermission']=False
     else:
         foundUser=False
-        for userDict in usersList:
-            if username == userDict['name'] and userDict['role'] in ['editor']:
+        for userNameKey in usersDict.keys():
+            if username == userNameKey and usersDict[userNameKey]['role'] in ['editor']:
                 cherrypy.session['editPermission']=True
                 foundUser=True
         if foundUser == False:

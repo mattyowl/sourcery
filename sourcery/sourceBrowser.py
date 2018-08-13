@@ -75,25 +75,15 @@ class SourceBrowser(object):
         
         # Access control (optional)
         if 'userListFile' in self.configDict.keys():
-            inFile=open(self.configDict['userListFile'], "r")
-            lines=inFile.readlines()
-            inFile.close()
-            self.usersList=[]
-            for line in lines:
-                if line[0] != "#":
-                    bits=line.split()
-                    if len(bits) > 2:
-                        userDict={'name': bits[0], 
-                                'role': bits[1],
-                                'hash': bits[2].rstrip()}
-                        if len(bits) > 3:
-                            userDict['hiddenConstraints']=line[line.find(bits[3]):].rstrip()
-                        if userDict['role'] in ['editor', 'viewer']:
-                            self.usersList.append(userDict)
-                        else:
-                            raise Exception("unknown user role - check userListFile")
+            with open(self.configDict['userListFile'], "r") as stream:
+                self.usersDict=yaml.safe_load(stream)
+            for userName in self.usersDict.keys():
+                if 'role' not in self.usersDict[userName].keys():
+                    raise Exception("'role' must be defined in user list file %s" % (self.configDict['userListFile']))
+                if self.usersDict[userName]['role'] not in ['editor', 'viewer']:
+                    raise Exception("unknown user role - check user list file %s" % (self.configDict['userListFile']))
         else:
-            self.usersList=None
+            self.usersDict={}
         
         # Displayed when failed login
         if 'contactInfo' in self.configDict.keys():
@@ -1268,7 +1258,7 @@ class SourceBrowser(object):
         Checks the permissions of the user and sets session variables accordingly
         
         """
-        sourceryAuth.setEditPermissions(username, self.usersList)
+        sourceryAuth.setEditPermissions(username, self.usersDict)
         
     
     def onLogout(self, username):
@@ -1290,7 +1280,8 @@ class SourceBrowser(object):
         <br>
         <fieldset>
         <legend><b>Enter Login Information</b></legend>
-        <p>      
+        <p>
+        $LOGIN_MESSAGE
             <form method="post" action="$SCRIPT_NAME/login">
             <input type="hidden" name="from_page" value="$FROM_PAGE" />
             <label for="username"><b>Username:</b></label>
@@ -1312,13 +1303,17 @@ class SourceBrowser(object):
             html=html.replace("$TITLE", self.configDict['indexTitle'])
         else:
             html=html.replace("$TITLE", "Sourcery Database")
-        
+        if 'loginMessage' in self.configDict.keys():
+            html=html.replace("$LOGIN_MESSAGE", "<p>%s</p>" % (self.configDict['loginMessage']))
+        else:
+            html=html.replace("$LOGIN_MESSAGE", "")
+            
         return html
     
     
     @cherrypy.expose
     def login(self, username=None, password=None, from_page=cherrypy.request.script_name):
-        if self.usersList == None:
+        if self.usersDict == {}:
             username="public"
             cherrypy.session[sourceryAuth.SESSION_KEY] = cherrypy.request.login = username
             self.onLogin(username) 
@@ -1326,7 +1321,7 @@ class SourceBrowser(object):
             if username is None or password is None:
                 return self.getLoginForm("", from_page=from_page)
         
-        error_msg = sourceryAuth.checkCredentials(username, password, self.usersList, contactStr = self.contactInfo)
+        error_msg = sourceryAuth.checkCredentials(username, password, self.usersDict, contactStr = self.contactInfo)
         if error_msg:
             return self.getLoginForm(username, error_msg, from_page)
         else:
@@ -1418,6 +1413,21 @@ class SourceBrowser(object):
             
         </script>
         
+        <style>
+        #logout a:link, #logout a:visited {
+            background-color: white;
+            color: black;
+            padding: 5px 5px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        #logout a:hover, #logout a:active {
+            background-color: white;
+        }
+        </style>
+        
         <body style="font-family: sans-serif; vertical align: top; justify: full;" onload="hideShow()">
         <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
             <tbody>
@@ -1426,6 +1436,10 @@ class SourceBrowser(object):
                         text-align: center; vertical-align: middle; font-size: 150%;">
                         <b>$TITLE</b>
                     </td>
+                    <div id='logout' style="text-align: right; vertical-align: middle; font-size: 100%;  
+                        position: absolute; right: 20px; top: 20px;">
+                        <a href='$SCRIPT_NAME/logout' color>logout</a>
+                    </div>
                 </tr>
             </tbody>
         </table>
@@ -1495,7 +1509,8 @@ class SourceBrowser(object):
         """
                 
         html=templatePage
-        
+        html=html.replace("$SCRIPT_NAME", cherrypy.request.script_name)
+
         if 'indexTitle' in self.configDict.keys():
             html=html.replace("$TITLE", self.configDict['indexTitle'])
         else:
@@ -1531,7 +1546,10 @@ class SourceBrowser(object):
         html=html.replace("$QUERY_OTHERCONSTRAINTS", queryOtherConstraints)
         html=html.replace("$OBJECT_TYPE_STRING", self.configDict['objectTypeString'])
         html=html.replace("$NUMBER_SOURCES", str(numPosts))#str(len(queryPosts)))
-        html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
+        if 'hostedBy' in self.configDict.keys():
+            html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
+        else:
+            html=html.replace("$HOSTER_STR", "")
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
         # Table columns - as well as defaults, add ones we query on
@@ -1585,13 +1603,21 @@ class SourceBrowser(object):
         else:
             cacheRebuildStr=""
         
+        # For users with hiddenConstraints set
+        hiddenConstraintsMessage=""
+        user=cherrypy.session['_sourcery_username']
+        for userNameKey in self.usersDict.keys():
+            userDict=self.usersDict[userNameKey]
+            if userNameKey == user and 'hiddenConstraintsMessage' in userDict.keys():
+                hiddenConstraintsMessage="; %s" % (userDict['hiddenConstraintsMessage'])
+        
         metaData="""<br><fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>expand</span><b>Source List Information</b></legend>
-        Total number of %s: %d (original source list: %d) %s %s
+        Total number of %s: %d (original source list: %d%s) %s %s
         <p>Original source list = %s</p>
         <p>%s</p>
         $NEWS
-        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), latestNewsStr,
+        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), hiddenConstraintsMessage, latestNewsStr,
                           cacheRebuildStr, os.path.split(self.configDict['catalogFileName'])[-1], commentsString)
         if 'newsItems' in self.configDict.keys():
             newsStr="<p>News:<ul>\n"
@@ -1864,8 +1890,9 @@ class SourceBrowser(object):
         # Hidden constraints: for access control, e.g., show only DES users regions inside DES footprint
         user=cherrypy.session['_sourcery_username']
         hiddenConstraints=""
-        for userDict in self.usersList:
-            if userDict['name'] == user and 'hiddenConstraints' in userDict.keys():
+        for userNameKey in self.usersDict.keys():
+            userDict=self.usersDict[userNameKey]
+            if userNameKey == user and 'hiddenConstraints' in userDict.keys():
                 hiddenConstraints=userDict['hiddenConstraints']
                 if hiddenConstraints[0] == '"' or hiddenConstraints[0] == "'":
                     hiddenConstraints=hiddenConstraints[1:]
