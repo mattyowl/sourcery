@@ -150,8 +150,8 @@ class SourceBrowser(object):
             os.makedirs(wiseCacheDir)
             
         # tileDirs set-up - KiDS, IAC-S82 etc..
+        self.tileDirs={}
         if 'tileDirs' in self.configDict.keys():
-            self.tileDirs={}
             for tileDirDict in self.configDict['tileDirs']:
                 if tileDirDict['label'] not in self.tileDirs.keys():
                     self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], self.cacheDir)
