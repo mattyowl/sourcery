@@ -969,6 +969,8 @@ class SourceBrowser(object):
             xMatchLabels=[]
             if 'crossMatchCatalogs' in self.configDict.keys():
                 for xMatchDict in self.configDict['crossMatchCatalogs']:
+                    if "plotXMatch" in xMatchDict.keys() and xMatchDict['plotXMatch'] == False:
+                        continue
                     label=xMatchDict['label']
                     RAKey='%s_RADeg' % (label)
                     decKey='%s_decDeg' % (label)
@@ -978,14 +980,18 @@ class SourceBrowser(object):
                         if obj[RAKey] != obj['RADeg'] and obj[decKey] != obj['decDeg']:
                             xMatchRAs.append(obj[RAKey])
                             xMatchDecs.append(obj[decKey])
-                            xMatchLabels.append(label)
+                            xMatchLabels.append(label)            
             # Other coords in obj dictionary that weren't yet picked up (useful for e.g. editable BCG coords)
-            for key in obj.keys():
+            # Editable fields
+            fieldsList=[]
+            for fieldDict in self.configDict['fields']:
+                fieldsList.append(str(fieldDict['name']))
+            for key in fieldsList:
                 if key.split("_")[-1] == 'RADeg':
-                    if key not in xMatchRAs and key != "RADeg":
+                    if key.split("_")[0] not in xMatchLabels and key != "RADeg":
                         xMatchRAs.append(obj[key])
                         xMatchDecs.append(obj[key.replace("RADeg", "decDeg")])
-                        xMatchLabels.append(key.split("_")[0]) 
+                        xMatchLabels.append(str(key.split("_")[0])) 
 
             if len(xMatchRAs) > 0:
                 p.addPlotObjects(xMatchRAs, xMatchDecs, 'xMatchObjects', objLabels = xMatchLabels,
@@ -2331,7 +2337,7 @@ class SourceBrowser(object):
 
         <br>
 
-        <div style="display: table; width: 80%; margin:0 auto;">
+        <div style="display: table; width: 85%; margin:0 auto;">
             <div style="display: table-row; height: auto; margin:0 auto;">
                 <div style="display: table-cell;">
                     <div style="display: block;">
