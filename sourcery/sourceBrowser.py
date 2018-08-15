@@ -1472,6 +1472,7 @@ class SourceBrowser(object):
         <textarea style="width:100%" name="queryOtherConstraints">$QUERY_OTHERCONSTRAINTS</textarea>
         <input type="submit" class="f" style="font-size: 1.05em;" name="queryApply" value="Apply">
         <input type="submit" class="f" style="font-size: 1.05em;" name="queryReset" value="Reset"><br>
+        <div style="display: table-cell; vertical-align: middle;"><i>$SHARE_QUERY_LINK</i></div>
         </p>
         </fieldset>
         </form>
@@ -1557,6 +1558,16 @@ class SourceBrowser(object):
         else:
             html=html.replace("$HOSTER_STR", "")
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
+        
+        # Shareable query link
+        # NOTE: python2 here (quote_plus) - would need to be changed for python3
+        shareQueryURL=cherrypy.request.base+cherrypy.request.script_name+"/"
+        url="updateQueryParams?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=" % (urllib.quote_plus(queryRADeg), 
+                                                                                                               urllib.quote_plus(queryDecDeg), 
+                                                                                                               urllib.quote_plus(querySearchBoxArcmin))
+        url=url+urllib.quote_plus(queryOtherConstraints)
+        shareQueryURL=shareQueryURL+url
+        html=html.replace("$SHARE_QUERY_LINK", "<a href='%s'>Shareable link for this query</a>" %  (shareQueryURL))
         
         # Table columns - as well as defaults, add ones we query on
         columnsShownList=[]
