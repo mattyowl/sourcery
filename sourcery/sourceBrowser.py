@@ -361,7 +361,7 @@ class SourceBrowser(object):
                 tab.add_column(atpy.Column(np.zeros(len(tab), dtype = int), '%s_match' % (label)))
                 tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
                 tab['%s_match' % (label)][mask]=1
-                tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]
+                tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]*60.0
             tab.remove_column("matchIndices")
         
         # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
@@ -1560,12 +1560,12 @@ class SourceBrowser(object):
         html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
         
         # Shareable query link
-        # NOTE: python2 here (quote_plus) - would need to be changed for python3
+        # NOTE: we should do this properly really...
         shareQueryURL=cherrypy.request.base+cherrypy.request.script_name+"/"
-        url="updateQueryParams?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=" % (urllib.quote_plus(queryRADeg), 
-                                                                                                               urllib.quote_plus(queryDecDeg), 
-                                                                                                               urllib.quote_plus(querySearchBoxArcmin))
-        url=url+urllib.quote_plus(queryOtherConstraints)
+        url="updateQueryParams?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=" % (self.sourceNameToURL(str(queryRADeg)), 
+                                                                                                               self.sourceNameToURL(str(queryDecDeg)), 
+                                                                                                               self.sourceNameToURL(str(querySearchBoxArcmin)))
+        url=url+self.sourceNameToURL(queryOtherConstraints)
         shareQueryURL=shareQueryURL+url
         html=html.replace("$SHARE_QUERY_LINK", "<a href='%s'>Shareable link for this query</a>" %  (shareQueryURL))
         
@@ -1885,14 +1885,14 @@ class SourceBrowser(object):
         """Replaces + and spaces in source names so that they will be valid URLs.
         
         """
-        return name.replace("+", "%2b").replace(" ", "%20")
+        return name.replace("+", "%2B").replace(" ", "%20").replace(":", "%2A")
 
         
     def URLToSourceName(self, url):
         """Replaces %20 and %2b in URLs with spaces and + signs.
         
         """
-        return url.replace("%2b", "+").replace("%20", " ")
+        return url.replace("%2b", "+").replace("%20", " ").replace("%2A", ":")
 
 
     def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints, collection = 'source'):           
