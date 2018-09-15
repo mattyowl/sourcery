@@ -1565,7 +1565,7 @@ class SourceBrowser(object):
         url="updateQueryParams?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=" % (self.sourceNameToURL(str(queryRADeg)), 
                                                                                                                self.sourceNameToURL(str(queryDecDeg)), 
                                                                                                                self.sourceNameToURL(str(querySearchBoxArcmin)))
-        url=url+self.sourceNameToURL(queryOtherConstraints)
+        url=url+self.sourceNameToURL(queryOtherConstraints)+"&queryApply=Apply"
         shareQueryURL=shareQueryURL+url
         html=html.replace("$SHARE_QUERY_LINK", "<a href='%s'>Shareable link for this query</a>" %  (shareQueryURL))
         
@@ -1885,14 +1885,14 @@ class SourceBrowser(object):
         """Replaces + and spaces in source names so that they will be valid URLs.
         
         """
-        return name.replace("+", "%2B").replace(" ", "%20").replace(":", "%2A")
+        return name.replace("+", "%2B").replace(" ", "%20").replace(":", "%3A")
 
         
     def URLToSourceName(self, url):
         """Replaces %20 and %2b in URLs with spaces and + signs.
         
         """
-        return url.replace("%2b", "+").replace("%20", " ").replace("%2A", ":")
+        return url.replace("%2b", "+").replace("%20", " ").replace("%3A", ":")
 
 
     def runQuery(self, queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints, collection = 'source'):           
