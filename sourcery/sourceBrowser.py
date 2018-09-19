@@ -3193,6 +3193,16 @@ class SourceBrowser(object):
                                     rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
                                     minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
                                     cuts=[clip['data'].min(), clip['data'].max()]
+                                elif scaling == 'log':
+                                    logClip=np.array(clip['data'])
+                                    logClip[logClip > 0]=np.log10(logClip[logClip > 0])
+                                    logCutMin=logClip[clip['data'] < imDirDict['cuts'][0]].max()
+                                    logCutMax=logClip[clip['data'] > imDirDict['cuts'][1]].min()
+                                    logClip=(logClip-logCutMin)/logCutMax
+                                    logClip[clip['data'] < imDirDict['cuts'][0]]=0.0
+                                    logClip[clip['data'] > imDirDict['cuts'][1]]=1.0
+                                    clip['data']=logClip
+                                    cuts=[0, 1]
                                 else:
                                     scaleMin, scaleMax=scaling.split(":")
                                     scaleMin=float(scaleMin)
@@ -3201,8 +3211,8 @@ class SourceBrowser(object):
                                 
                                 # This should guard against picking up edges of images, if source position is not actually visible
                                 # (e.g., XMM images)
-                                if cuts[0] == 0 and cuts[1] == 0:
-                                    continue
+                                #if cuts[0] == 0 and cuts[1] == 0:
+                                    #continue
                                 
                                 dpi=96.0
                                 f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
@@ -3215,7 +3225,6 @@ class SourceBrowser(object):
                                     raise Exception, "if you see this, you probably need to update PIL/Pillow"
                                 plt.close()
 
-        
         
         
         
