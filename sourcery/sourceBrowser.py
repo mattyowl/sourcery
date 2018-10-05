@@ -1569,6 +1569,25 @@ class SourceBrowser(object):
         shareQueryURL=shareQueryURL+url
         html=html.replace("$SHARE_QUERY_LINK", "<a href='%s'>Shareable link for this query</a>" %  (shareQueryURL))
         
+        # This would hide censored columns, but still permit queries based on them to be shown
+        #columnsHiddenList=[]
+        #for userNameKey in self.usersDict.keys():
+            #userDict=self.usersDict[userNameKey]
+            #if userNameKey == user and 'hiddenXMatchTables' in userDict.keys():
+                #for prefix in userDict['hiddenXMatchTables']:
+                    #for key in viewPosts[0].keys():
+                        #if key.find(prefix) != -1 and key[:len(prefix)] == prefix:
+                            #columnsHiddenList.append(key)
+        # This is a crude way of breaking queries on censored columns by users who don't have permission to see them...
+        user=cherrypy.session['_sourcery_username']
+        for userNameKey in self.usersDict.keys():
+            userDict=self.usersDict[userNameKey]
+            if userNameKey == user and 'hiddenXMatchTables' in userDict.keys():
+                for prefix in userDict['hiddenXMatchTables']:
+                    if queryOtherConstraints.find(prefix) != -1:
+                        numPosts=0
+                        viewPosts=[]
+      
         # Table columns - as well as defaults, add ones we query on
         columnsShownList=[]
         for colDict in self.tableDisplayColumns:
@@ -1582,7 +1601,7 @@ class SourceBrowser(object):
             for c in constraints:
                 for o in operators:
                     colName=c.split(o)[0].lstrip().rstrip()
-                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in columnsShownList:
+                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in columnsShownList:# and colName not in columnsHiddenList:
                         fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
                         dispDict={'name': colName, 'label': colName}
                         if fieldTypeDict['type'] == 'number':
@@ -1849,6 +1868,18 @@ class SourceBrowser(object):
         tab.remove_columns(['tag_RADeg', 'tag_decDeg', 'sourceryID', 'cacheBuilt'])
         t5=time.time()
         
+        # Zap any columns that this user shouldn't see
+        user=cherrypy.session['_sourcery_username']
+        for userNameKey in self.usersDict.keys():
+            userDict=self.usersDict[userNameKey]
+            if userNameKey == user and 'hiddenXMatchTables' in userDict.keys():
+                for prefix in userDict['hiddenXMatchTables']:
+                    colsToDelete=[]
+                    for key in tab.keys():
+                        if key.find(prefix) != -1 and key[:len(prefix)] == prefix:
+                            colsToDelete.append(key)
+                    tab.remove_columns(colsToDelete)
+        
         print "time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4)
 
         tmpFile, tmpFileName=tempfile.mkstemp()
@@ -1909,7 +1940,7 @@ class SourceBrowser(object):
         hiddenConstraints=""
         for userNameKey in self.usersDict.keys():
             userDict=self.usersDict[userNameKey]
-            if userNameKey == user and 'hiddenConstraints' in userDict.keys():
+            if userNameKey == user and 'hiddenConstraints' in userDict.keys() and userDict['hiddenConstraints'] != None:
                 hiddenConstraints=userDict['hiddenConstraints']
                 if hiddenConstraints[0] == '"' or hiddenConstraints[0] == "'":
                     hiddenConstraints=hiddenConstraints[1:]
@@ -1957,7 +1988,7 @@ class SourceBrowser(object):
             queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')
         else:
             raise Exception, "collection should be 'source' or 'tags' only"
-        
+                        
         # If we wanted to store all this in its own collection
         #self.makeSessionCollection(queryPosts)
                 
@@ -2322,6 +2353,8 @@ class SourceBrowser(object):
         queryDecDeg=cherrypy.session.get('queryDecDeg')
         querySearchBoxArcmin=cherrypy.session.get('querySearchBoxArcmin')
         queryOtherConstraints=cherrypy.session.get('queryOtherConstraints')
+        
+        user=cherrypy.session['_sourcery_username']
 
         sourceryID=self.URLToSourceName(sourceryID)
                 
@@ -2411,6 +2444,15 @@ class SourceBrowser(object):
             if matchKey in obj.keys() and obj[matchKey] == 0 and prefix not in skipColumnPrefixList:
                 skipColumnPrefixList.append(prefix)
         
+        # For censoring some cross match tables from particular users
+        for userNameKey in self.usersDict.keys():
+            userDict=self.usersDict[userNameKey]
+            if userNameKey == user and 'hiddenXMatchTables' in userDict.keys():
+                for prefix in userDict['hiddenXMatchTables']:
+                    matchKey="%s_match" % (prefix)
+                    if matchKey in obj.keys() and obj[matchKey] == 1 and prefix not in skipColumnPrefixList:
+                        skipColumnPrefixList.append(prefix)
+                
         # Pick the best available image given the preference given in the config file
         if imageType == 'best':
             for key in self.configDict['imagePrefs']:
