@@ -40,7 +40,7 @@ class TileDir:
     
     """
     
-    def __init__(self, label, tileDir, sourceryCacheDir, WCSTabPath = None):
+    def __init__(self, label, tileDir, sourceryCacheDir, WCSTabPath = None, sizePix = 1024):
         """Initialise a TileDir object. TileDirs handle directories that contain preview .jpg
         images of an entire survey, broken into tiles. We follow how this was done for DES 
         DR1, and adapt it to other surveys.
@@ -71,7 +71,9 @@ class TileDir:
         self.label=label
         self.tileDir=tileDir
         self.outputCacheDir=sourceryCacheDir+os.path.sep+label
-                
+        
+        self.sizePix=sizePix
+        
         # For DES, we can fetch .tif images of tiles and convert to .jpg as needed
         # If doing that, we need to make sure this directory exists...
         if os.path.exists(self.tileDir) == False:
@@ -152,7 +154,7 @@ class TileDir:
             
             # Blank WCS
             CRVAL1, CRVAL2=RADeg, decDeg
-            sizePix=1024
+            sizePix=self.sizePix
             xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
             xSizePix=sizePix
             ySizePix=sizePix

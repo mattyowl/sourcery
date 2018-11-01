@@ -154,7 +154,8 @@ class SourceBrowser(object):
         if 'tileDirs' in self.configDict.keys():
             for tileDirDict in self.configDict['tileDirs']:
                 if tileDirDict['label'] not in self.tileDirs.keys():
-                    self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], self.cacheDir)
+                    self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], 
+                                                                        self.cacheDir, sizePix = tileDirDict['sizePix'])
         
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
         self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
@@ -308,6 +309,11 @@ class SourceBrowser(object):
         tab=atpy.Table().read(self.configDict['catalogFileName'])
         tab.sort(["RADeg", "decDeg"])
         
+        # Optionally zap all but first 10 rows (for testing)
+        if 'quickTest' in self.configDict.keys() and self.configDict['quickTest'] == True:
+            tab=tab[:10]
+            print("... WARNING: quickTest mode enabled ...")
+            
         # In case we don't have a 'name' column, we relabel a given column
         if 'nameColumn' in self.configDict.keys() and self.configDict['nameColumn'] != "":
             if 'name' not in tab.keys():
@@ -680,7 +686,7 @@ class SourceBrowser(object):
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
                           
         outFileName=sdssCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        SDSSWidth=1200.0
+        SDSSWidth=int(round((1200.0/8.0)*self.configDict['plotSizeArcmin']))
         SDSSScale=(self.configDict['plotSizeArcmin']*60.0)/SDSSWidth # 0.396127
         if os.path.exists(outFileName) == False or refetch == True:
             #urlString="http://skyservice.pha.jhu.edu/DR10/ImgCutout/getjpeg.aspx?ra="+str(RADeg)+"&dec="+str(decDeg)
@@ -705,9 +711,12 @@ class SourceBrowser(object):
         """
         
         wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
-        
+                
         # 2.75" pixels in the unWISE images (max for query is 250 pixels though)
-        sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))
+        sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))  
+        if sizePix > 250:
+            raise Exception("WISE web service does not work for images > 250 WISE pixels - use tileDir set-up instead or use smaller plotSizeArcmin")
+        
         outFileName=wiseCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         tmpDirPath=tempfile.mkdtemp()
         targzPath=tmpDirPath+os.path.sep+"wise.tar.gz"
@@ -846,7 +855,11 @@ class SourceBrowser(object):
         RADeg=float(RADeg)
         decDeg=float(decDeg)
         
-        sizeDeg=self.configDict['plotSizeArcmin']/60.0
+        # This is only used for scaling the size of plotted points
+        if clipSizeArcmin == None:
+            sizeDeg=self.configDict['plotSizeArcmin']/60.0
+        else:
+            sizeDeg=float(clipSizeArcmin)/60.
         
         # Load data
         inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
@@ -1738,7 +1751,7 @@ class SourceBrowser(object):
                 htmlKey="$"+string.upper(key)+"_KEY"
                 if key == "name":
                     #linksDir="dummy"
-                    linkURL="displaySourcePage?sourceryID=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['sourceryID']), self.configDict['plotSizeArcmin'])
+                    linkURL="displaySourcePage?sourceryID=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['sourceryID']), self.configDict['defaultViewSizeArcmin'])
                     if 'defaultImageType' in self.configDict.keys():
                         linkURL=linkURL+"&imageType=%s" % (self.configDict['defaultImageType'])
                     nameLink="<a href=\"%s\" target=new>%s</a>" % \
@@ -2488,7 +2501,7 @@ class SourceBrowser(object):
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
-                            clipSizeArcmin: $("#clipSizeArcmin").val(),
+                            clipSizeArcmin: $DEFAULT_CLIP_SIZE_ARCMIN,
                             gamma: $("#gamma").val()}, 
                             function(data) {
                                 // directly insert the image
@@ -2507,34 +2520,6 @@ class SourceBrowser(object):
             });
             
             $CLICKABLE_RADEC_SCRIPT
-            
-            $(document).ready(function() {
-                $("#imagePlot").on("click", function(event) {
-                    var x = event.pageX - this.offsetLeft;
-                    var y = event.pageY - this.offsetTop;
-                    var width = $("#imagePlot").width();
-                    var height = $("#imagePlot").height();
-                    var CDELT1 = ($("#sizeSliderValue").val()/60.0) / width;
-                    var CDELT2 = ($("#sizeSliderValue").val()/60.0) / height;
-                    var CRPIX1 = (width/2.0)+1;
-                    var CRPIX2 = (height/2.0)+1;
-                    var CRVAL1 = $OBJECT_RADEG;
-                    var CRVAL2 = $OBJECT_DECDEG;                    
-                    var ra = (CRPIX1-x)*CDELT1+CRVAL1;
-                    var dec = (CRPIX2-y)*CDELT2+CRVAL2;
-
-                    // debugging
-                    //alert("X Coordinate / RA: " + x + " / " + ra + " Y Coordinate / dec: " + y + " / " + dec);
-                    
-                    if ($('input:checkbox[name=showAxes]').prop('checked') == true)  {
-                        alert("Coords not recorded when showing coordinate axes - deselect 'Show coordinate axes'");
-                    } else {
-                        $('[name=$CLICKABLE_RA]').val(ra);
-                        $('[name=$CLICKABLE_DEC]').val(dec);
-                    };
-                    
-                });
-            });
             
             $(function() {
                 // When the form is submitted...
@@ -2632,6 +2617,7 @@ class SourceBrowser(object):
         
         # For cache build and downloadable thumbnail buttons
         plotFormCode=plotFormCode.replace("$SOURCERY_ID", obj['sourceryID'])
+        plotFormCode=plotFormCode.replace("$DEFAULT_CLIP_SIZE_ARCMIN", str(self.configDict['defaultViewSizeArcmin']))
         plotFormCode=plotFormCode.replace("$SOURCERY_URL_ID", self.sourceNameToURL(obj['sourceryID']))        
         if 'downloadableFITS' in self.configDict.keys():
             plotFormCode=plotFormCode.replace('$THUMB_FORM_DECLARED', '<form id="downloadThumbnail" method="get" action="downloadThumbnailFITS">')
@@ -2649,6 +2635,7 @@ class SourceBrowser(object):
         # Clickable coordinate script
         clickCoordScript="""$(document).ready(function() {
                 $("#imagePlot").on("click", function(event) {
+                
                     var x = event.pageX - this.offsetLeft;
                     var y = event.pageY - this.offsetTop;
                     var width = $("#imagePlot").width();
@@ -2658,10 +2645,34 @@ class SourceBrowser(object):
                     var CRPIX1 = (width/2.0)+1;
                     var CRPIX2 = (height/2.0)+1;
                     var CRVAL1 = $OBJECT_RADEG;
-                    var CRVAL2 = $OBJECT_DECDEG;                    
-                    var ra = (CRPIX1-(x+1))*CDELT1+CRVAL1;
-                    var dec = (CRPIX2-(y+1))*CDELT2+CRVAL2;
+                    var CRVAL2 = $OBJECT_DECDEG; 
+                    
+                    // debugging
+                    //alert("CDELT1=" + CDELT1 + " CDELT2=" + CDELT2 + " CRPIX1=" + CRPIX1 + " CRPIX2=" + CRPIX2 + " CRVAL1=" + CRVAL1 + " CRVAL2=" + CRVAL2);
+                    
+                    // Adjust for different origin to FITS
+                    x=width-x;
+                    y=height-y;
+                    
+                    // Intermediate coords
+                    var deg2Rad = Math.PI / 180;
+                    var xint = deg2Rad*(CDELT1*(x-CRPIX1));
+                    var yint = deg2Rad*(CDELT2*(y-CRPIX2));
 
+                    var Rtheta = Math.sqrt(Math.pow(xint, 2) + Math.pow(yint, 2));
+                    var phi = Math.atan2(xint, -yint);
+                    var theta = Math.atan(1./Rtheta);
+
+                    var alpha_p = deg2Rad*(CRVAL1);
+                    var delta_p = deg2Rad*(CRVAL2);
+                    var phi_p = deg2Rad*(180.);
+
+                    var ra = alpha_p + Math.atan2(-Math.cos(theta)*Math.sin(phi-phi_p), Math.sin(theta)*Math.cos(delta_p) - Math.cos(theta)*Math.sin(delta_p)*Math.cos(phi-phi_p));
+                    var dec = Math.asin(Math.sin(theta)*Math.sin(delta_p) + Math.cos(theta)*Math.cos(delta_p)*Math.cos(phi-phi_p));
+                    
+                    ra=(180/Math.PI)*ra;
+                    dec=(180/Math.PI)*dec;
+                    
                     // debugging
                     //alert("X Coordinate / RA: " + x + " / " + ra + " Y Coordinate / dec: " + y + " / " + dec);
                     
@@ -2731,7 +2742,7 @@ class SourceBrowser(object):
             
         plotFormCode=plotFormCode.replace("$MAX_SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))        
         if clipSizeArcmin == None:
-            plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))
+            plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(self.configDict['defaultViewSizeArcmin']))
         else:
             plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(clipSizeArcmin))
         
@@ -2991,7 +3002,8 @@ class SourceBrowser(object):
             print(">>> Setting up tileDir WCS info ...")
             for tileDirDict in self.configDict['tileDirs']:
                 if tileDirDict['label'] not in self.tileDirs.keys():
-                    self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], self.cacheDir)
+                    self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], self.cacheDir,
+                                                                        sizePix = tileDirDict['sizePix'])
                 self.tileDirs[tileDirDict['label']].setUpWCSDict()
                 
         # Make .jpg images from local, user-supplied .fits images
