@@ -139,6 +139,9 @@ class SourceBrowser(object):
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
         if os.path.exists(sdssCacheDir) == False:
             os.makedirs(sdssCacheDir)
+        decalsCacheDir=self.cacheDir+os.path.sep+"DECaLS"
+        if os.path.exists(decalsCacheDir) == False:
+            os.makedirs(decalsCacheDir)
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1"
         if os.path.exists(ps1CacheDir) == False:
             os.makedirs(ps1CacheDir)
@@ -219,6 +222,8 @@ class SourceBrowser(object):
         self.imDirLabelsList=[]
         if self.configDict['addSDSSImage'] == True:
             self.imDirLabelsList.append("SDSS")
+        if self.configDict['addDECaLSImage'] == True:
+            self.imDirLabelsList.append("DECaLS")
         if self.configDict['addPS1Image'] == True:
             self.imDirLabelsList.append("PS1")
         if self.configDict['addPS1IRImage'] == True:
@@ -516,6 +521,9 @@ class SourceBrowser(object):
                                     self.configDict[k][i][pathKey]=rootDir+os.path.sep+self.configDict[k][i][pathKey]                                
                     else:
                         self.configDict[k]=rootDir+os.path.sep+self.configDict[k]
+        
+        if 'defaultViewSizeArcmin' not in self.configDict.keys():
+            self.configDict['defaultViewSizeArcmin']=self.configDict['plotSizeArcmin']
      
 
     def addNews(self):
@@ -703,7 +711,27 @@ class SourceBrowser(object):
                 #print "... WARNING: couldn't get SDSS image ..."
                 #print urlString
                 #outFileName=None
-                    
+
+
+    def fetchDECaLSImage(self, name, RADeg, decDeg, refetch = False):
+        """Fetches DECaLS .jpg cut-out. Unfortunatly at the moment, these are limited to 512 pixels
+        maximum at the moment (DR7).
+        
+        """
+    
+        decalsCacheDir=self.cacheDir+os.path.sep+"DECaLS"
+                          
+        outFileName=decalsCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        decalsWidth=512 # Max set by DECaLS server
+        decalsPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(decalsWidth)
+        if os.path.exists(outFileName) == False or refetch == True:
+            #urlString="http://skyservice.pha.jhu.edu/DR10/ImgCutout/getjpeg.aspx?ra="+str(RADeg)+"&dec="+str(decDeg)
+            urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=decals-dr7&pixscale=%.4f&bands=grz" % (RADeg, decDeg, decalsWidth, decalsPixScale)
+            resp=self.http.request('GET', urlString)
+            with open(outFileName, 'wb') as f:
+                f.write(resp.data)
+                f.close()
+                
 
     def fetchUnWISEImage(self, name, RADeg, decDeg, refetch = False):
         """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
@@ -3077,6 +3105,8 @@ class SourceBrowser(object):
             catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg)
         if self.configDict['addSDSSImage'] == True:
             self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
+        if self.configDict['addDECaLSImage'] == True:
+            self.fetchDECaLSImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addPS1Image'] == True:
             self.fetchPS1Image(name, RADeg, decDeg, refetch = refetch, bands = 'gri')
         if self.configDict['addPS1IRImage'] == True:

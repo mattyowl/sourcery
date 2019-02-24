@@ -113,6 +113,7 @@ figSize: [8.25, 7.5]
 
 # Images to fetch/make: using webservices
 addSDSSImage: True
+addDECaLSImage: True
 addUnWISEImage: True
 addPS1Image: True
 addPS1IRImage: True
