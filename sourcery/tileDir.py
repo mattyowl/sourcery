@@ -23,6 +23,7 @@ import astropy.io.fits as pyfits
 import astropy.table as atpy
 from astLib import astWCS
 import numpy as np
+from scipy import interpolate
 import pyvips
 from PIL import Image
 import os
@@ -78,6 +79,9 @@ class TileDir:
         # If doing that, we need to make sure this directory exists...
         if os.path.exists(self.tileDir) == False:
             os.makedirs(self.tileDir)
+        
+        # For fetching DES .tif images if needed
+        self.http=urllib3.PoolManager()
 
         if os.path.exists(self.outputCacheDir) == False:
             os.makedirs(self.outputCacheDir)
@@ -241,20 +245,44 @@ class TileDir:
                     else:
                         print("... tile %s missing from %s tiles .jpg preview directory (probably missing i or g-band coverage) ..." % (tileName, self.label))
                         continue
-
+                    
+                    #---
+                    # Old
                     # Splat pixels from the .jpg into our small image WCS, from which we'll make a new .jpg
+                    #d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
+                    #d=np.flipud(d)
+                    #inWCS=self.WCSDict[tileName]
+                    #for y in range(sizePix):
+                        #for x in range(sizePix):
+                            #outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
+                            #inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
+                            #inX=int(round(inX))
+                            #inY=int(round(inY))
+                            #if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
+                                #outData[y, x]=d[inY, inX]                    
+                    #---
+                    # New - several orders of magnitude quicker
+                    # Assumes images are aligned N vertically, E at left
                     d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
                     d=np.flipud(d)
                     inWCS=self.WCSDict[tileName]
-                    for y in range(sizePix):
-                        for x in range(sizePix):
-                            outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
-                            inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
-                            inX=int(round(inX))
-                            inY=int(round(inY))
-                            if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
-                                outData[y, x]=d[inY, inX]
-                    
+                    inRADecCoords=np.array(inWCS.pix2wcs(np.arange(im.width), np.arange(im.height)))
+                    inRA=inRADecCoords[:, 0]
+                    inDec=inRADecCoords[:, 1]
+                    RAToX=interpolate.interp1d(inRA, np.arange(im.width), fill_value = 'extrapolate')
+                    DecToY=interpolate.interp1d(inDec, np.arange(im.height), fill_value = 'extrapolate')
+                    xOut=np.arange(sizePix)
+                    yOut=np.arange(sizePix)
+                    outRADecCoords=np.array(outWCS.pix2wcs(xOut, yOut))
+                    outRA=outRADecCoords[:, 0]
+                    outDec=outRADecCoords[:, 1]
+                    xIn=np.array(RAToX(outRA), dtype = int)
+                    yIn=np.array(DecToY(outDec), dtype = int)
+                    xMask=np.logical_and(xIn >= 0, xIn < im.width)
+                    yMask=np.logical_and(yIn >= 0, yIn < im.height)
+                    for i in yOut[yMask]:
+                        outData[i][xMask]=d[yIn[i], xIn[xMask]]
+
                 # Flips needed to get N at top, E at left
                 outData=np.flipud(outData)
                 outData=np.fliplr(outData)

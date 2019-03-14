@@ -725,7 +725,6 @@ class SourceBrowser(object):
         decalsWidth=512 # Max set by DECaLS server
         decalsPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(decalsWidth)
         if os.path.exists(outFileName) == False or refetch == True:
-            #urlString="http://skyservice.pha.jhu.edu/DR10/ImgCutout/getjpeg.aspx?ra="+str(RADeg)+"&dec="+str(decDeg)
             urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=decals-dr7&pixscale=%.4f&bands=grz" % (RADeg, decDeg, decalsWidth, decalsPixScale)
             resp=self.http.request('GET', urlString)
             with open(outFileName, 'wb') as f:
