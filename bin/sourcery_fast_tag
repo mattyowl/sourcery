@@ -27,7 +27,7 @@ import atpy
 from sourcery.sourceBrowser import SourceBrowser
 
 if len(sys.argv) < 3:
-    print "Run: % sourcery_fast_tag <sourcery.config> <.fits table containing tags>"
+    print("Run: % sourcery_fast_tag <sourcery.config> <.fits table containing tags>")
 else:
     
     configFileName=sys.argv[1]
