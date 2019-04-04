@@ -6,7 +6,6 @@ from distutils.core import setup
 from distutils.extension import Extension
 from Cython.Distutils import build_ext
 import numpy
-import popen2
 
 setup(name='sourcery',
       version="git",

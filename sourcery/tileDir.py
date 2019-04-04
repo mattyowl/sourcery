@@ -221,7 +221,7 @@ class TileDir:
                         tileJPGFileName=tiffFileName.replace(".tiff", ".jpg")
                         if os.path.exists(tileJPGFileName) == False:
                             if os.path.exists(tiffFileName) == False:
-                                print "... downloading .tiff image for tileName = %s ..." % (tileName)
+                                print("... downloading .tiff image for tileName = %s ..." % (tileName))
                                 resp=self.http.request('GET', str(matchTab['TIFF_COLOR_IMAGE']))
                                 with open(tiffFileName, 'wb') as f:
                                     f.write(resp.data)
@@ -233,7 +233,7 @@ class TileDir:
                                     #raise Exception, "downloading DES .tiff image failed"
                             # NOTE: we use pyvips, because images are too big for PIL
                             # We save disk space by caching a lower quality version of the entire tile
-                            print "... converting .tiff for tileName = %s to .jpg ..." % (tileName)
+                            print("... converting .tiff for tileName = %s to .jpg ..." % (tileName))
                             im=pyvips.Image.new_from_file(tiffFileName, access = 'sequential')
                             im.write_to_file(tileJPGFileName+'[Q=80]')
                             os.remove(tiffFileName)

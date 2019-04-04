@@ -101,7 +101,7 @@ def clipSmoothedTanResampledImage(obj, mapData, mapWCS, sizeDeg, gaussSmoothArcS
     try:
         tanClip=astImages.resampleToTanProjection(tanClip['data'], tanClip['wcs'], outputPixDimensions = [sizePix, sizePix])
     except:
-        print "WARNING: image needs clipping over 0h RA? Fix later"
+        print("WARNING: image needs clipping over 0h RA? Fix later")
         return None
     
     #tanClip=astImages.clipImageSectionWCS(tanClip['data'], tanClip['wcs'], RADeg, decDeg, sizeDeg*1.01)
@@ -244,7 +244,7 @@ def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg):
         SDSSRedshifts=[]
     elif len(lines) > 1 and lines[1] == '"ERROR: Maximum 60 queries allowed per minute. Rejected query: SELECT \n':
         os.remove(outFileName)
-        raise Exception, "Exceeded 60 queries/min on SDSS server. Take a breather and rerun (previous queries cached)."
+        raise Exception("Exceeded 60 queries/min on SDSS server. Take a breather and rerun (previous queries cached).")
     else:
         SDSSRedshifts=[]
         for line in lines[2:]: # first line (DR7) always heading, first two lines (DR10) always heading
@@ -257,9 +257,9 @@ def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg):
                     zDict['decDeg']=float(bits[2])
                 except:
                     if len(lines) > 1 and lines[1].find('"ERROR: Maximum 60 queries allowed per minute. Rejected query: SELECT') != -1:
-                        raise Exception, "Exceeded 60 queries/min on SDSS server. Take a breather and rerun nemo (previous queries cached)."
+                        raise Exception("Exceeded 60 queries/min on SDSS server. Take a breather and rerun nemo (previous queries cached).")
                     else:
-                        print "Probably asking for too many queries from SDSS... waiting then trying again."
+                        print("Probably asking for too many queries from SDSS... waiting then trying again.")
                         time.sleep(60)
                         os.remove(outFileName)
                         SDSSRedshifts=fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg)

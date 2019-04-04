@@ -200,7 +200,7 @@ class SourceBrowser(object):
                 elif fieldDict['type'] == 'text':
                     dispDict['fmt']='%s'
                 else:
-                    raise Exception, "only valid field types are 'number' and 'text'"
+                    raise Exception("only valid field types are 'number' and 'text'")
                 if 'tableAlign' in fieldDict:
                     dispDict['tableAlign']=fieldDict['tableAlign']
                 if 'displaySize' in fieldDict:
@@ -303,7 +303,7 @@ class SourceBrowser(object):
         
         """
         
-        print ">>> Building database ..."
+        print(">>> Building database ...")
         t0=time.time()
         
         # Delete any pre-existing entries
@@ -430,7 +430,7 @@ class SourceBrowser(object):
                         fieldTypesDict[key]="number"
                     newPost[key]=bool(row[key])
                 else:
-                    raise Exception, "Unknown data type in column '%s' of table cross match table '%s'" % (key, label)            
+                    raise Exception("Unknown data type in column '%s' of table cross match table '%s'" % (key, label))
                         
             # NED cross match
             if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
@@ -472,7 +472,7 @@ class SourceBrowser(object):
             index=index+1
 
         t1=time.time()
-        print "... building database complete: took %.1f sec ..." % (t1-t0)
+        print("... building database complete: took %.1f sec ..." % (t1-t0))
             
 
     def parseColumnDescriptionsFile(self):
@@ -557,7 +557,7 @@ class SourceBrowser(object):
         decMax=decDeg+halfMatchBoxLengthDeg
         outFileName=self.nedDir+os.path.sep+name.replace(" ", "_")+".txt"        
         if os.path.exists(outFileName) == False:
-            print "... fetching NED info for %s ..." % (name)
+            print("... fetching NED info for %s ..." % (name))
             urlString="http://ned.ipac.caltech.edu/cgi-bin/objsearch?search_type=Near+Position+Search&in_csys=Equatorial&in_equinox=J2000.0&lon=%.6fd&lat=%.6fd&radius=%.2f&dot_include=ANY&in_objtypes1=GGroups&in_objtypes1=GClusters&in_objtypes1=QSO&in_objtypes2=Radio&in_objtypes2=SmmS&in_objtypes2=Infrared&in_objtypes2=Xray&nmp_op=ANY&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=ascii_tab&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (RADeg, decDeg, halfMatchBoxLengthDeg*60.0)
             resp=self.http.request('GET', urlString)
             with open(outFileName, 'wb') as f:
@@ -643,7 +643,7 @@ class SourceBrowser(object):
         ps1CacheDir=self.cacheDir+os.path.sep+cacheDirLabel
         
         if decDeg < -30:
-            print "... outside PS1 area - skipping ..."
+            print("... outside PS1 area - skipping ...")
             return None
         
         outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
@@ -748,7 +748,7 @@ class SourceBrowser(object):
         tmpDirPath=tempfile.mkdtemp()
         targzPath=tmpDirPath+os.path.sep+"wise.tar.gz"
         if os.path.exists(outFileName) == False or refetch == True:
-            print "... fetching unWISE data for %s ..." % (name) 
+            print("... fetching unWISE data for %s ..." % (name))
             resp=self.http.request('GET', "http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix))
             with open(targzPath, 'wb') as f:
                 f.write(resp.data)
@@ -828,7 +828,7 @@ class SourceBrowser(object):
             try:
                 gClip={'wcs': rClip['wcs'], 'data': (rClip['data']+bClip['data'])/2.0}
             except:
-                raise Exception, "W1, W2 images not same dimensions"
+                raise Exception("W1, W2 images not same dimensions")
 
             # Clean up
             fileList=os.listdir(tmpDirPath)
@@ -1649,7 +1649,7 @@ class SourceBrowser(object):
                         elif fieldTypeDict['type'] == 'text':
                             dispDict['fmt']='%s'
                         else:
-                            raise Exception, "unknown type for field '%s'" % (colName)
+                            raise Exception("unknown type for field '%s'" % (colName))
                         displayColumns.append(dispDict)
                         
         columnHeadings=""
@@ -1768,7 +1768,7 @@ class SourceBrowser(object):
                     try:
                         value=obj[key]
                     except:
-                        raise Exception, "missing key %s" % (key)
+                        raise Exception("missing key %s" % (key))
                 else:
                     # No entry in MongoDB tags yet
                     if colDict['fmt'] != "%s":
@@ -1796,7 +1796,7 @@ class SourceBrowser(object):
                     except:
                         IPython.embed()
                         sys.exit()
-                        raise Exception, """IndexError: check .config file tableDisplayColumns are actually in the .fits table, or for mixed '' "" inside [] """ 
+                        raise Exception("""IndexError: check .config file tableDisplayColumns are actually in the .fits table, or for mixed '' "" inside [] """ )
                            
             tableData=tableData+rowString
             
@@ -1920,7 +1920,7 @@ class SourceBrowser(object):
                             colsToDelete.append(key)
                     tab.remove_columns(colsToDelete)
         
-        print "time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4)
+        print("time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4))
 
         tmpFile, tmpFileName=tempfile.mkstemp()
         if fileFormat == 'cat':
@@ -2027,7 +2027,7 @@ class SourceBrowser(object):
             #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')) 
             queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')
         else:
-            raise Exception, "collection should be 'source' or 'tags' only"
+            raise Exception("collection should be 'source' or 'tags' only")
                         
         # If we wanted to store all this in its own collection
         #self.makeSessionCollection(queryPosts)
@@ -3097,7 +3097,7 @@ class SourceBrowser(object):
         decDeg=obj['decDeg']
         fileNameLabel=catalogTools.makeRADecString(RADeg, decDeg)
             
-        print ">>> Fetching data to cache for object %s" % (name)            
+        print(">>> Fetching data to cache for object %s" % (name))
         self.fetchNEDInfo(name, RADeg, decDeg)
         # Web services
         if self.configDict['addSDSSRedshifts'] == True:
@@ -3155,7 +3155,7 @@ class SourceBrowser(object):
         in...
                         
         """
-        print ">>> Making imageDir .jpgs ..."
+        print(">>> Making imageDir .jpgs ...")
         for imDirDict in self.configDict['imageDirs']:
             
             imageDir=imDirDict['path']
@@ -3166,10 +3166,10 @@ class SourceBrowser(object):
             scaling=imDirDict['scaling']
             matchKey=imDirDict['matchKey']
             
-            print "... %s ..." % (label)
+            print("... %s ..." % (label))
 
             if 'skipMakingNewImages' in self.configDict.keys() and label in self.configDict['skipMakingNewImages']:
-                print "... WARNING: skipMakingNewImages enabled for %s ..." % (label)
+                print("... WARNING: skipMakingNewImages enabled for %s ..." % (label))
                 continue
                     
             # NOTE: Need to worry at some point about labels with spaces...
@@ -3190,7 +3190,7 @@ class SourceBrowser(object):
             else:
                 headerDict={}
                 # Takes ~160 sec to build the first time for ~10,000 images, ~2 sec for subsequent runs
-                print "... building headerDict pickle for .fits images under %s/ ..." % (imageDir)
+                print("... building headerDict pickle for .fits images under %s/ ..." % (imageDir))
                 t0=time.time()
                 origLength=len(headerDict.keys())
                 for imgFileName in imgList:
@@ -3200,7 +3200,7 @@ class SourceBrowser(object):
                 t1=time.time()
                 # Write pickled headerDict, in case it was updated
                 if len(headerDict.keys()) > origLength:
-                    print "... writing updated headerDict pickle to %s/ ..." % (imageDir)
+                    print("... writing updated headerDict pickle to %s/ ..." % (imageDir))
                     pickleFile=file(pickleFileName, "wb")
                     pickler=pickle.Pickler(pickleFile)
                     pickler.dump(headerDict)
@@ -3227,7 +3227,7 @@ class SourceBrowser(object):
                 outFileName=outDir+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".jpg"
                 
                 if os.path.exists(outFileName) == False:
-                    print "... making image for %s ..." % (obj['name'])
+                    print("... making image for %s ..." % (obj['name']))
                                         
                     for imgFileName in imgList:
 
@@ -3305,7 +3305,7 @@ class SourceBrowser(object):
                                 try:
                                     plt.savefig(outFileName, dpi = dpi)
                                 except:
-                                    raise Exception, "if you see this, you probably need to update PIL/Pillow"
+                                    raise Exception("if you see this, you probably need to update PIL/Pillow")
                                 plt.close()
 
         
