@@ -125,7 +125,7 @@ def tab2DS9(tab, outFileName, color = "cyan"):
     
     """
 
-    outFile=file(outFileName, "w")
+    outFile=open(outFileName, "w")
     timeStamp=datetime.datetime.today().date().isoformat()
     comment="# DS9 region file"
     outFile.write(comment)
@@ -144,7 +144,7 @@ def parseNEDResult(inFileName, onlyObjTypes = None):
     """
     
     if inFileName != None and os.path.exists(inFileName):
-        inFile=file(inFileName, "r")
+        inFile=open(inFileName, "r")
         lines=inFile.readlines()
         inFile.close()
     else:
@@ -231,7 +231,7 @@ def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg):
                 f.write(resp.data)
                 f.close()
       
-        inFile=file(outFileName, "r")
+        inFile=open(outFileName, "r")
         lines=inFile.readlines()
         inFile.close()
 

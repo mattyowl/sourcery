@@ -29,7 +29,6 @@ import operator
 import urllib3
 import urllib
 import glob
-import subprocess32
 import tarfile
 from astLib import *
 import astropy.io.fits as pyfits
@@ -40,7 +39,7 @@ from scipy import ndimage
 import sourcery
 from sourcery import catalogTools
 #from sourcery import specFeatures
-import ConfigParser
+#import ConfigParser
 import yaml
 import requests
 import sys
@@ -51,7 +50,10 @@ import re
 import base64
 from PIL import Image
 import copy
-import StringIO
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
 import tempfile
 import pymongo
 from bson.son import SON
@@ -109,16 +111,16 @@ class SourceBrowser(object):
             self.skyviewPath=None#os.environ['HOME']+os.path.sep+".sourcery"+os.path.sep+"skyview.jar"
 
         # For DES usage - load credentials, if they are there...
-        if 'DESServicesConfigPath' in self.configDict.keys():
-            configParser=ConfigParser.RawConfigParser()   
-            DESConfigPath=self.configDict['DESServicesConfigPath']#os.environ['HOME']+os.path.sep+".desservices.ini"
-            configParser.read(DESConfigPath)
-            self.DESUser=configParser.get('db-dessci', 'user')
-            self.DESPasswd=configParser.get('db-dessci', 'passwd')
-        else:
-            self.DESUser=None
-            self.DESPasswd=None
-        self.DESTokenID=None    # Used for interacting with DESCuts server
+        #if 'DESServicesConfigPath' in self.configDict.keys():
+            #configParser=ConfigParser.RawConfigParser()   
+            #DESConfigPath=self.configDict['DESServicesConfigPath']#os.environ['HOME']+os.path.sep+".desservices.ini"
+            #configParser.read(DESConfigPath)
+            #self.DESUser=configParser.get('db-dessci', 'user')
+            #self.DESPasswd=configParser.get('db-dessci', 'passwd')
+        #else:
+            #self.DESUser=None
+            #self.DESPasswd=None
+        #self.DESTokenID=None    # Used for interacting with DESCuts server
         
         # Below will be enabled if we have exactly one image in an imageDir
         self.mapPageEnabled=False
@@ -414,7 +416,7 @@ class SourceBrowser(object):
                     if key not in fieldTypesList:
                         fieldTypesList.append(key)
                         fieldTypesDict[key]="number"
-                elif tab.columns[key].dtype.name.find("string") != -1:
+                elif tab.columns[key].dtype.name.find("str") != -1 or tab.columns[key].dtype.name.find("bytes") != -1:
                     newPost[key]=str(row[key])
                     if key not in fieldTypesList:
                         fieldTypesList.append(key)
@@ -430,7 +432,7 @@ class SourceBrowser(object):
                         fieldTypesDict[key]="number"
                     newPost[key]=bool(row[key])
                 else:
-                    raise Exception("Unknown data type in column '%s' of table cross match table '%s'" % (key, label))
+                    raise Exception("Unknown data type in column '%s'" % (key))
                         
             # NED cross match
             if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
@@ -488,7 +490,7 @@ class SourceBrowser(object):
         
         descriptionsDict={}
         if 'descriptionsFileName' in self.configDict.keys():
-            inFile=file(self.configDict['descriptionsFileName'], "r")
+            inFile=open(self.configDict['descriptionsFileName'], "r")
             lines=inFile.readlines()
             inFile.close()
             for line in lines:
@@ -532,7 +534,7 @@ class SourceBrowser(object):
         """
         
         if os.path.exists(self.configDict['newsFileName']) == True:
-            inFile=file(self.configDict['newsFileName'], "r")
+            inFile=open(self.configDict['newsFileName'], "r")
             lines=inFile.readlines()
             inFile.close()
         else:
@@ -659,7 +661,7 @@ class SourceBrowser(object):
                 f.write(resp.data)
                 f.close()
 
-            inFile=file(tmpFileName, 'r')
+            inFile=open(tmpFileName, 'r')
             lines=inFile.readlines()
             inFile.close()
             foundLine=False
@@ -1933,7 +1935,7 @@ class SourceBrowser(object):
         cherrypy.response.headers['Content-Disposition']='attachment; filename="%s.%s"' % (self.configDict['catalogDownloadFileName'], fileFormat)
         
         # This may not be the nicest thing to do... but seems to work
-        f=file(tmpFileName+"."+fileFormat, 'rb')
+        f=open(tmpFileName+"."+fileFormat, 'rb')
         
         return f
     
@@ -1947,7 +1949,7 @@ class SourceBrowser(object):
         obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
         imgPath=self.cacheDir+os.path.sep+self.configDict['downloadableFITS']+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".fits"
         cherrypy.response.headers['Content-Disposition']='attachment; filename="%s.%s"' % (obj['name'].replace(" ", "_"), 'fits')
-        f=file(imgPath, 'rb')
+        f=open(imgPath, 'rb')
         
         return f
         
@@ -3021,7 +3023,7 @@ class SourceBrowser(object):
         """
         
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
-        outFile=file(self.lockFileName, "wb")
+        outFile=open(self.lockFileName, "wb")
         outFile.close()
 
         # tileDirs set-up - DES, KiDS, IAC-S82 etc..
@@ -3183,7 +3185,7 @@ class SourceBrowser(object):
             # Pickled dictionary of WCS headers, for speed
             pickleFileName=imageDir+os.path.sep+"headerDict.pickled"
             if os.path.exists(pickleFileName) == True:
-                pickleFile=file(pickleFileName, "rb")
+                pickleFile=open(pickleFileName, "rb")
                 unpickler=pickle.Unpickler(pickleFile)
                 headerDict=unpickler.load()
                 pickleFile.close()
@@ -3201,7 +3203,7 @@ class SourceBrowser(object):
                 # Write pickled headerDict, in case it was updated
                 if len(headerDict.keys()) > origLength:
                     print("... writing updated headerDict pickle to %s/ ..." % (imageDir))
-                    pickleFile=file(pickleFileName, "wb")
+                    pickleFile=open(pickleFileName, "wb")
                     pickler=pickle.Pickler(pickleFile)
                     pickler.dump(headerDict)
                     pickleFile.close()

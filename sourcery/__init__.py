@@ -19,9 +19,9 @@
 
 """
 
-import sourceBrowser
-import catalogTools
-import specFeatures
-import tileDir
+from . import sourceBrowser
+from . import catalogTools
+from . import specFeatures
+from . import tileDir
 
 __version__ = "git"
