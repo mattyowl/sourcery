@@ -29,6 +29,7 @@ try:
 except:
     print("WARNNG: couldn't import pyvips - won't be able to handle large DES .tiffs")
 from PIL import Image
+Image.MAX_IMAGE_PIXELS=100000001 
 import os
 import sourcery
 from sourcery import catalogTools
@@ -244,7 +245,10 @@ class TileDir:
                     # Everything...
                     tileJPGFileName=self.tileDir+os.path.sep+tileName+".jpg"
                     if os.path.exists(tileJPGFileName) == True:
-                        im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
+                        #try:
+                        #im=pyvips.Image.new_from_file(tileJPGFileName, access = 'sequential')
+                        #except:
+                        im=Image.open(tileJPGFileName)
                     else:
                         print("... tile %s missing from %s tiles .jpg preview directory (probably missing i or g-band coverage) ..." % (tileName, self.label))
                         continue
@@ -266,7 +270,8 @@ class TileDir:
                     #---
                     # New - several orders of magnitude quicker
                     # Assumes images are aligned N vertically, E at left
-                    d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
+                    #d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
+                    d=np.array(im)
                     d=np.flipud(d)
                     inWCS=self.WCSDict[tileName]
                     inRADecCoords=np.array(inWCS.pix2wcs(np.arange(im.width), np.arange(im.height)))

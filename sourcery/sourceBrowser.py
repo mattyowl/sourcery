@@ -53,6 +53,7 @@ import string
 import re
 import base64
 from PIL import Image
+Image.MAX_IMAGE_PIXELS=100000001 
 import copy
 try:
     from StringIO import StringIO
