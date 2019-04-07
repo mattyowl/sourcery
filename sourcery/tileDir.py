@@ -24,7 +24,10 @@ import astropy.table as atpy
 from astLib import astWCS
 import numpy as np
 from scipy import interpolate
-import pyvips
+try:
+    import pyvips
+except:
+    print("WARNNG: couldn't import pyvips - won't be able to handle large DES .tiffs")
 from PIL import Image
 import os
 import sourcery

@@ -28,6 +28,10 @@ from astropy.coordinates import match_coordinates_sky
 import operator
 import urllib3
 import urllib
+try:
+    from urllib import quote_plus  # Python 2.X
+except ImportError:
+    from urllib.parse import quote_plus  # Python 3+
 import glob
 import tarfile
 from astLib import *
@@ -61,7 +65,7 @@ import pyximport; pyximport.install()
 import sourceryCython
 import cherrypy
 import pickle
-import pyvips
+#import pyvips
 import IPython
 from sourcery import sourceryAuth
 from sourcery import tileDir
@@ -1714,7 +1718,7 @@ class SourceBrowser(object):
         shortFITSName=shortCatalogName.replace(".cat", ".fits")
         shortRegName=shortCatalogName.replace(".cat", ".reg")
         downloadLinkStr="downloadCatalog?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=%s&" % (queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
-        downloadLinkStr=urllib.quote_plus(downloadLinkStr, safe='&?=')
+        downloadLinkStr=quote_plus(downloadLinkStr, safe='&?=')
         downloadLinks="""<fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Download Catalog</b></legend>
         <ul>
@@ -1737,7 +1741,11 @@ class SourceBrowser(object):
             # Row for each object in table
             rowString="<tr>\n"
             for colDict in displayColumns:
-                htmlKey="$"+string.upper(colDict['name'])+"_KEY"
+                # Python 2/3 thing
+                try:
+                    htmlKey="$"+string.upper(colDict['name'])+"_KEY"
+                except:
+                    htmlKey="$"+colDict['name'].upper()+"_KEY"                    
                 if 'tableAlign' in colDict.keys():
                     alignStr=colDict['tableAlign']
                 else:
@@ -1777,7 +1785,11 @@ class SourceBrowser(object):
                         value=0.0
                     else:
                         value=""
-                htmlKey="$"+string.upper(key)+"_KEY"
+                # Python 2/3 thing
+                try:
+                    htmlKey="$"+string.upper(key)+"_KEY"
+                except:
+                    htmlKey="$"+key.upper()+"_KEY"
                 if key == "name":
                     #linksDir="dummy"
                     linkURL="displaySourcePage?sourceryID=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['sourceryID']), self.configDict['defaultViewSizeArcmin'])
