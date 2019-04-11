@@ -1695,16 +1695,15 @@ class SourceBrowser(object):
                 hiddenConstraintsMessage="; %s" % (userDict['hiddenConstraintsMessage'])
         
         metaData="""<br><fieldset>
-        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>expand</span><b>Source List Information</b></legend>
+        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
         Total number of %s: %d (original source list: %d%s) %s %s
-        <p>Original source list = %s</p>
         <p>%s</p>
         $NEWS
         </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), hiddenConstraintsMessage, latestNewsStr,
-                          cacheRebuildStr, os.path.split(self.configDict['catalogFileName'])[-1], commentsString)
+                          cacheRebuildStr, commentsString)
         if 'newsItems' in self.configDict.keys():
             newsStr="<p>News:<ul>\n"
-            for item in self.configDict['newsItems']:
+            for item in self.configDict['newsItems'][-5:]:
                 newsStr=newsStr+"<li>%s</li>\n" % (item)
             newsStr=newsStr+"</ul></p>\n"
             metaData=metaData.replace("$NEWS", newsStr)
