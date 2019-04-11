@@ -193,20 +193,8 @@ class TileDir:
                 RAMin=RAMax
                 RAMax=temp
             checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
-                        
-            # Old
-            # Spin though all tile WCSs and identify which tiles contain our image (use all four corners; takes 0.4 sec)
-            #matchTilesList=[]
-            #for tileName in self.WCSDict.keys():
-                #wcs=self.WCSDict[tileName]
-                #for c in checkCoordsList:
-                    #pixCoords=wcs.wcs2pix(c[0], c[1])
-                    #if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']: 
-                        #if tileName not in matchTilesList:
-                            #matchTilesList.append(tileName)
-            # Faster
-            matchTilesList=self.tileTab['TILENAME'][tileMask].tolist()
-                        
+
+            matchTilesList=self.tileTab['TILENAME'][tileMask].tolist()                        
             if matchTilesList == []:
                 print("... object not in any %s tiles ..." % (self.label))
                 return None
@@ -253,21 +241,6 @@ class TileDir:
                         print("... tile %s missing from %s tiles .jpg preview directory (probably missing i or g-band coverage) ..." % (tileName, self.label))
                         continue
                     
-                    #---
-                    # Old
-                    # Splat pixels from the .jpg into our small image WCS, from which we'll make a new .jpg
-                    #d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
-                    #d=np.flipud(d)
-                    #inWCS=self.WCSDict[tileName]
-                    #for y in range(sizePix):
-                        #for x in range(sizePix):
-                            #outRADeg, outDecDeg=outWCS.pix2wcs(x, y)
-                            #inX, inY=inWCS.wcs2pix(outRADeg, outDecDeg)
-                            #inX=int(round(inX))
-                            #inY=int(round(inY))
-                            #if inX >= 0 and inX < d.shape[1]-1 and inY >= 0 and inY < d.shape[0]-1:
-                                #outData[y, x]=d[inY, inX]                    
-                    #---
                     # New - several orders of magnitude quicker
                     # Assumes images are aligned N vertically, E at left
                     #d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])

@@ -441,7 +441,7 @@ class SourceBrowser(object):
                         
             # NED cross match
             if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
-                self.findNEDMatch(newPost)
+                self.findNEDMatch(newPost, NEDObjType = self.configDict['NEDObjType'])
                 stringKeys=['NED_name']
                 numberKeys=['NED_z', 'NED_distArcmin', 'NED_RADeg', 'NED_decDeg']
                 typesList=['text', 'number']
@@ -531,6 +531,9 @@ class SourceBrowser(object):
         
         if 'defaultViewSizeArcmin' not in self.configDict.keys():
             self.configDict['defaultViewSizeArcmin']=self.configDict['plotSizeArcmin']
+            
+        if "NEDObjType" not in self.configDict.keys():
+            self.configDict['NEDObjType']='GClstr'
      
 
     def addNews(self):
@@ -585,12 +588,9 @@ class SourceBrowser(object):
         crossMatchRadiusArcmin.
         
         """
-        
-        if "NEDObjType" in self.configDict.keys():
-            NEDObjType=self.configDict['NEDObjType']
-            
+                    
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
-        nedObjs=catalogTools.parseNEDResult(nedFileName)
+        nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = NEDObjType)
             
         # Flag matches against clusters - choose nearest one
         rMin=10000
@@ -988,7 +988,7 @@ class SourceBrowser(object):
         if plotNEDObjects == "true":
             # We should already have the files for this from doing addNEDInfo earlier
             nedFileName=self.nedDir+os.path.sep+name.replace(" ", "_")+".txt"
-            nedObjs=catalogTools.parseNEDResult(nedFileName)
+            nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjType'])
             if len(nedObjs['RAs']) > 0:
                 p.addPlotObjects(nedObjs['RAs'], nedObjs['decs'], 'nedObjects', objLabels = nedObjs['labels'],
                                     size = sizeDeg/40.0*3600.0, color = "#7cfc00")
@@ -1078,10 +1078,10 @@ class SourceBrowser(object):
                                         highAccuracy = False)
                 else:
                     plt.figtext(0.05, 0.05, "Adding contours failed - missing file: %s" % (clipFileName), color = 'red', backgroundcolor = 'black')
-
         
+        # NOTE: Currently, this is not displaying images under python3 - something encoding related?
         cherrypy.response.headers['Content-Type']="image/jpg"
-        buf=StringIO.StringIO()
+        buf=StringIO()
         plt.savefig(buf, dpi = 96, format = 'jpg')
         plt.close()
         
@@ -2901,9 +2901,9 @@ class SourceBrowser(object):
                             
         # NED matches table
         self.fetchNEDInfo(obj['name'], obj['RADeg'], obj['decDeg'])
-        self.findNEDMatch(obj)
+        self.findNEDMatch(obj, NEDObjType = self.configDict['NEDObjType'])
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
-        nedObjs=catalogTools.parseNEDResult(nedFileName)
+        nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjType'])
         if len(nedObjs['RAs']) > 0:
             nedTable="""<br><table frame=border cellspacing=0 cols=6 rules=all border=2 width=80% align=center>
             <tbody>
@@ -3111,6 +3111,20 @@ class SourceBrowser(object):
         RADeg=obj['RADeg']
         decDeg=obj['decDeg']
         fileNameLabel=catalogTools.makeRADecString(RADeg, decDeg)
+        
+        # Add imageDir tags (clunky - we do this again later - but avoids being devoid of them while cache rebuilds)
+        # NOTE: we look in other survey dirs (e.g., SDSS) while we're here
+        minSizeBytes=40000
+        for label in self.imDirLabelsList:
+            f=self.configDict['cacheDir']+os.path.sep+label+os.path.sep+fileNameLabel+".jpg"
+            if os.path.exists(f) == True:
+                # image size check: don't include SDSS if image size is tiny as no data
+                skipImage=False
+                if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
+                    skipImage=True
+                if skipImage == False:
+                    post={'image_%s' % (label): 1}
+                    self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
             
         print(">>> Fetching data to cache for object %s" % (name))
         self.fetchNEDInfo(name, RADeg, decDeg)
@@ -3240,14 +3254,10 @@ class SourceBrowser(object):
 
             for obj in objList:
                 outFileName=outDir+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".jpg"
-                
                 if os.path.exists(outFileName) == False:
                     print("... making image for %s ..." % (obj['name']))
-                                        
                     for imgFileName in imgList:
-
                         wcs=wcsDict[imgFileName]
-                        
                         useThisImage=False
                         if matchKey != None:
                             if imgFileName.find(obj[matchKey]) != -1:
@@ -3256,72 +3266,65 @@ class SourceBrowser(object):
                             pixCoords=wcs.wcs2pix(obj['RADeg'], obj['decDeg'])
                             if pixCoords[0] >= 0 and pixCoords[0] < wcs.header['NAXIS1'] and pixCoords[1] >= 0 and pixCoords[1] < wcs.header['NAXIS2']:
                                 useThisImage=True
-                                   
-                        data=None
-                        
-                        if useThisImage == True:                           
-                                
-                            if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
-                                fitsOutFileName=outFileName.replace(".jpg", ".fits")
-                            else:
-                                fitsOutFileName=None
-                            if fitsOutFileName != None and os.path.exists(fitsOutFileName) == False:
-                                if data == None:
-                                    img=pyfits.open(imgFileName)
-                                    data=img[0].data
-                                clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
-                                                                self.configDict['plotSizeArcmin']/60.0)
-                                astImages.saveFITS(fitsOutFileName, clip['data'], clip['wcs'])
-                            if os.path.exists(outFileName) == False:
-                                
-                                if np.any(data) == None:
-                                    img=pyfits.open(imgFileName)
-                                    data=img[0].data
-                                clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
-                                                                self.configDict['plotSizeArcmin']/60.0)
+                        if useThisImage == False:
+                            continue
 
-                                # Try to pick sensible cut levels
-                                # Min-Max scaling
-                                # Should probably stick with this, but also add log option for optical
-                                if scaling == 'auto' and minMaxRadiusArcmin != None:
-                                    clip['data']=catalogTools.byteSwapArr(clip['data'])
-                                    # Avoid cython type troubles
-                                    if clip['data'].dtype != np.float32:
-                                        clip['data']=np.array(clip['data'], dtype = np.float32)
-                                    rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
-                                    minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
-                                    cuts=[clip['data'].min(), clip['data'].max()]
-                                elif scaling == 'log':
-                                    logClip=np.array(clip['data'])
-                                    logClip[logClip > 0]=np.log10(logClip[logClip > 0])
-                                    logCutMin=logClip[clip['data'] < imDirDict['cuts'][0]].max()
-                                    logCutMax=logClip[clip['data'] > imDirDict['cuts'][1]].min()
-                                    logClip=(logClip-logCutMin)/logCutMax
-                                    logClip[clip['data'] < imDirDict['cuts'][0]]=0.0
-                                    logClip[clip['data'] > imDirDict['cuts'][1]]=1.0
-                                    clip['data']=logClip
-                                    cuts=[0, 1]
-                                else:
-                                    scaleMin, scaleMax=scaling.split(":")
-                                    scaleMin=float(scaleMin)
-                                    scaleMax=float(scaleMax)
-                                    cuts=[scaleMin, scaleMax]
-                                
-                                # This should guard against picking up edges of images, if source position is not actually visible
-                                # (e.g., XMM images)
-                                #if cuts[0] == 0 and cuts[1] == 0:
-                                    #continue
-                                
-                                dpi=96.0
-                                f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
-                                plt.axes([0, 0, 1, 1])
-                                plt.imshow(clip['data'], interpolation = "none", origin = 'lower', 
-                                           cmap = colorMap, norm = plt.Normalize(cuts[0], cuts[1]))
-                                try:
-                                    plt.savefig(outFileName, dpi = dpi)
-                                except:
-                                    raise Exception("if you see this, you probably need to update PIL/Pillow")
-                                plt.close()
+                        # Clip image
+                        with pyfits.open(imgFileName) as img:
+                            data=img[0].data                     
+                        clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
+                                                           self.configDict['plotSizeArcmin']/60.0)
+                        
+                        # Sanity check - did we pick an image where object is in zeroed border?
+                        pixCoords=clip['wcs'].wcs2pix(obj['RADeg'], obj['decDeg'])
+                        if clip['data'][int(pixCoords[1]), int(pixCoords[0])] == 0:
+                            continue
+                        if clip['data'].sum() == 0:
+                            continue
+                        
+                        # Save .fits if needed
+                        if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
+                            fitsOutFileName=outFileName.replace(".jpg", ".fits")
+                            astImages.saveFITS(fitsOutFileName, clip['data'], clip['wcs'])
+
+                        # Save .jpg                            
+                        # Try to pick sensible cut levels
+                        # Min-Max scaling
+                        # Should probably stick with this, but also add log option for optical
+                        if scaling == 'auto' and minMaxRadiusArcmin is not None:
+                            clip['data']=catalogTools.byteSwapArr(clip['data'])
+                            # Avoid cython type troubles
+                            if clip['data'].dtype != np.float32:
+                                clip['data']=np.array(clip['data'], dtype = np.float32)
+                            rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
+                            minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
+                            cuts=[clip['data'].min(), clip['data'].max()]
+                        elif scaling == 'log':
+                            logClip=np.array(clip['data'])
+                            logClip[logClip > 0]=np.log10(logClip[logClip > 0])
+                            logCutMin=logClip[clip['data'] < imDirDict['cuts'][0]].max()
+                            logCutMax=logClip[clip['data'] > imDirDict['cuts'][1]].min()
+                            logClip=(logClip-logCutMin)/logCutMax
+                            logClip[clip['data'] < imDirDict['cuts'][0]]=0.0
+                            logClip[clip['data'] > imDirDict['cuts'][1]]=1.0
+                            clip['data']=logClip
+                            cuts=[0, 1]
+                        else:
+                            scaleMin, scaleMax=scaling.split(":")
+                            scaleMin=float(scaleMin)
+                            scaleMax=float(scaleMax)
+                            cuts=[scaleMin, scaleMax]
+                        
+                        dpi=96.0
+                        f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
+                        plt.axes([0, 0, 1, 1])
+                        plt.imshow(clip['data'], interpolation = "none", origin = 'lower', 
+                                    cmap = colorMap, norm = plt.Normalize(cuts[0], cuts[1]))
+                        try:
+                            plt.savefig(outFileName, dpi = dpi)
+                        except:
+                            raise Exception("if you see this, you probably need to update PIL/Pillow")
+                        plt.close()
 
         
         
