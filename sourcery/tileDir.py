@@ -247,11 +247,14 @@ class TileDir:
                     d=np.array(im)
                     d=np.flipud(d)
                     inWCS=self.WCSDict[tileName]
-                    inRADecCoords=np.array(inWCS.pix2wcs(np.arange(im.width), np.arange(im.height)))
-                    inRA=inRADecCoords[:, 0]
-                    inDec=inRADecCoords[:, 1]
-                    RAToX=interpolate.interp1d(inRA, np.arange(im.width), fill_value = 'extrapolate')
-                    DecToY=interpolate.interp1d(inDec, np.arange(im.height), fill_value = 'extrapolate')
+                    xIn=np.arange(d.shape[1])
+                    yIn=np.arange(d.shape[0])
+                    inRACoords=np.array(inWCS.pix2wcs(xIn, [0]*len(xIn)))
+                    inDecCoords=np.array(inWCS.pix2wcs([0]*len(yIn), yIn))
+                    inRA=inRACoords[:, 0]
+                    inDec=inDecCoords[:, 1]
+                    RAToX=interpolate.interp1d(inRA, xIn, fill_value = 'extrapolate')
+                    DecToY=interpolate.interp1d(inDec, yIn, fill_value = 'extrapolate')
                     xOut=np.arange(sizePix)
                     yOut=np.arange(sizePix)
                     outRADecCoords=np.array(outWCS.pix2wcs(xOut, yOut))

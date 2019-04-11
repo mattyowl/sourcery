@@ -175,7 +175,7 @@ def parseNEDResult(inFileName, onlyObjTypes = None):
                     else:
                         redshifts.append(str(bits[6]))
             except:
-                raise Exception("Failed to parse NED results file %s - delete and try again?" % (inFileName))
+                continue # Probably a mal-formed line (we have seen things like '\t0\n' in the middle of the data)
                 
     return {'labels': labels, 'names': names, 'RAs': RAs, 'decs': decs, 'sourceTypes': sourceTypes, 'redshifts': redshifts}
 
