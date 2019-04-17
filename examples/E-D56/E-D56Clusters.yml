@@ -89,9 +89,14 @@ MongoDBCrossMatchRadiusArcmin: 1.0
 # SNR2p4:   Signal-to-noise measured at 2.4' scale
 descriptionsFileName: "E-D56Columns.txt"
 
-# Cross matches with external databases
+# NED cross matching - the first entry in NEDObjTypes sets what to match the catalog against
+# (e.g., if 'GClstr', will get NED_* columns that match against nearest cluster)
+# The other entries in NEDObjTypes set the ones that can be displayed in the table on the candidate page
 addNEDMatches: True
+NEDObjTypes: ['GClstr', 'RadioS', 'QSO', 'XrayS']
 NEDCrossMatchRadiusArcmin: 2.5
+
+# Fetch SDSS redshifts and show in a table below image
 addSDSSRedshifts: True
 
 # Optional: Cross matches with local catalogs (e.g., .fits tables - anything that astropy.table understands automatically)

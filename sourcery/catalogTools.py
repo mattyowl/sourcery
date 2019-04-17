@@ -136,7 +136,7 @@ def tab2DS9(tab, outFileName, color = "cyan"):
     outFile.close()
             
 #-------------------------------------------------------------------------------------------------------------
-def parseNEDResult(inFileName, onlyObjTypes = None):
+def parseNEDResult(inFileName, onlyObjTypes = []):
     """Parses NED tab-delimited text file query result, returns dictionary.
     
     onlyObjTypes can be a string indicating types of objects only to include e.g. GClstr
@@ -164,7 +164,7 @@ def parseNEDResult(inFileName, onlyObjTypes = None):
             dataStarted=True
         if dataStarted == True:
             try:
-                if onlyObjTypes == str(bits[4]) or onlyObjTypes == None:
+                if str(bits[4]) in onlyObjTypes:
                     labels.append(bits[0])
                     names.append(bits[1])
                     RAs.append(float(bits[2]))

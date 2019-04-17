@@ -167,8 +167,9 @@ class SourceBrowser(object):
                     self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], 
                                                                         self.cacheDir, sizePix = tileDirDict['sizePix'])
         
-        # So we can display a status message on the index page in other processes if the cache is being rebuilt
-        self.lockFileName=self.cacheDir+os.path.sep+"cache.lock"
+        # So we can display a status message on the index page in other processes if the database or cache is being rebuilt
+        self.dbLockFileName=self.cacheDir+os.path.sep+"db.lock"
+        self.cacheLockFileName=self.cacheDir+os.path.sep+"cache.lock"
         
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
@@ -212,7 +213,8 @@ class SourceBrowser(object):
                     dispDict['tableAlign']=fieldDict['tableAlign']
                 if 'displaySize' in fieldDict:
                     dispDict['displaySize']=fieldDict['displaySize']
-                self.tableDisplayColumns.append(dispDict)
+                if 'showOnIndexPage' in fieldDict and fieldDict['showOnIndexPage'] == True:
+                    self.tableDisplayColumns.append(dispDict)
                 
         if 'classifications' in self.configDict.keys():
             dispDict={'name': "classification", 'label': "classification", 'fmt': "%s"}
@@ -312,7 +314,9 @@ class SourceBrowser(object):
         
         print(">>> Building database ...")
         t0=time.time()
-        
+        with open(self.dbLockFileName, "w") as dbLockFile:
+            pass
+
         # Delete any pre-existing entries
         self.db.drop_collection('sourceCollection')
         self.db.drop_collection('fieldTypes')
@@ -441,7 +445,7 @@ class SourceBrowser(object):
                         
             # NED cross match
             if 'addNEDMatches' in self.configDict.keys() and self.configDict['addNEDMatches'] == True:
-                self.findNEDMatch(newPost, NEDObjType = self.configDict['NEDObjType'])
+                self.findNEDMatch(newPost, NEDObjTypes = self.configDict['NEDObjTypes'])
                 stringKeys=['NED_name']
                 numberKeys=['NED_z', 'NED_distArcmin', 'NED_RADeg', 'NED_decDeg']
                 typesList=['text', 'number']
@@ -479,6 +483,9 @@ class SourceBrowser(object):
             index=index+1
 
         t1=time.time()
+        if os.path.exists(self.dbLockFileName) ==True:
+            os.remove(self.dbLockFileName)
+
         print("... building database complete: took %.1f sec ..." % (t1-t0))
             
 
@@ -532,8 +539,8 @@ class SourceBrowser(object):
         if 'defaultViewSizeArcmin' not in self.configDict.keys():
             self.configDict['defaultViewSizeArcmin']=self.configDict['plotSizeArcmin']
             
-        if "NEDObjType" not in self.configDict.keys():
-            self.configDict['NEDObjType']='GClstr'
+        if "NEDObjTypes" not in self.configDict.keys():
+            self.configDict['NEDObjTypes']=['GClstr']
      
 
     def addNews(self):
@@ -583,14 +590,14 @@ class SourceBrowser(object):
                 #outFileName=None
 
 
-    def findNEDMatch(self, obj, NEDObjType = "GClstr"):
+    def findNEDMatch(self, obj, NEDObjTypes = ["GClstr"]):
         """Checks if there is a NED match for obj. Uses matching radius specified in config file by
-        crossMatchRadiusArcmin.
+        crossMatchRadiusArcmin. Only returns match if it matches the first entry in NEDObjTypes list.
         
         """
                     
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
-        nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = NEDObjType)
+        nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = NEDObjTypes)
             
         # Flag matches against clusters - choose nearest one
         rMin=10000
@@ -599,7 +606,7 @@ class SourceBrowser(object):
         if len(nedObjs['RAs']) > 0:
             for i in range(len(nedObjs['RAs'])):
                 ned=nedObjs
-                if ned['sourceTypes'][i] == NEDObjType:
+                if ned['sourceTypes'][i] == NEDObjTypes[0]:
                     r=astCoords.calcAngSepDeg(ned['RAs'][i], ned['decs'][i], obj['RADeg'], obj['decDeg'])
                     if r < rMin and r < crossMatchRadiusDeg:
                         keepName=False
@@ -988,7 +995,7 @@ class SourceBrowser(object):
         if plotNEDObjects == "true":
             # We should already have the files for this from doing addNEDInfo earlier
             nedFileName=self.nedDir+os.path.sep+name.replace(" ", "_")+".txt"
-            nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjType'])
+            nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjTypes'])
             if len(nedObjs['RAs']) > 0:
                 p.addPlotObjects(nedObjs['RAs'], nedObjs['decs'], 'nedObjects', objLabels = nedObjs['labels'],
                                     size = sizeDeg/40.0*3600.0, color = "#7cfc00")
@@ -1401,6 +1408,9 @@ class SourceBrowser(object):
         
         """
         
+        if os.path.exists(self.dbLockFileName) == True:
+            return("""Apologies for the inconvenience - the database is being rebuilt. Please check again in about 10 minutes (probably much sooner).""")
+        
         # Session variables: where in the table are we looking, query constraints
         if not cherrypy.session.loaded: cherrypy.session.load()
         if 'viewTopRow' not in cherrypy.session:
@@ -1610,8 +1620,8 @@ class SourceBrowser(object):
         # NOTE: we should do this properly really...
         shareQueryURL=cherrypy.request.base+cherrypy.request.script_name+"/"
         url="updateQueryParams?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=" % (self.sourceNameToURL(str(queryRADeg)), 
-                                                                                                               self.sourceNameToURL(str(queryDecDeg)), 
-                                                                                                               self.sourceNameToURL(str(querySearchBoxArcmin)))
+         self.sourceNameToURL(str(queryDecDeg)), 
+         self.sourceNameToURL(str(querySearchBoxArcmin)))
         url=url+self.sourceNameToURL(queryOtherConstraints)+"&queryApply=Apply"
         shareQueryURL=shareQueryURL+url
         html=html.replace("$SHARE_QUERY_LINK", "<a href='%s'>Shareable link for this query</a>" %  (shareQueryURL))
@@ -1681,7 +1691,7 @@ class SourceBrowser(object):
             latestNewsStr=""
         
         # We now display a message if cache rebuild is in progress
-        if os.path.exists(self.lockFileName) == True:
+        if os.path.exists(self.cacheLockFileName) == True:
             cacheRebuildStr="    &#8211;    [REBUILDING IMAGE CACHE]"
         else:
             cacheRebuildStr=""
@@ -2900,9 +2910,9 @@ class SourceBrowser(object):
                             
         # NED matches table
         self.fetchNEDInfo(obj['name'], obj['RADeg'], obj['decDeg'])
-        self.findNEDMatch(obj, NEDObjType = self.configDict['NEDObjType'])
+        self.findNEDMatch(obj, NEDObjTypes = self.configDict['NEDObjTypes'])
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
-        nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjType'])
+        nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjTypes'])
         if len(nedObjs['RAs']) > 0:
             nedTable="""<br><table frame=border cellspacing=0 cols=6 rules=all border=2 width=80% align=center>
             <tbody>
@@ -3022,6 +3032,46 @@ class SourceBrowser(object):
                 
         return html   
     
+    
+    def addImageDirTags(self):
+        """Adds image_ fields to the database for image dirs where matching images are found in the cache.
+        This takes about 1-2 min to run (serial) for databases with ~30,000 objects.
+        
+        """
+        print(">>> Adding image_* tags ...")
+        for label in self.imDirLabelsList:
+            if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
+                keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
+                fieldDict={}
+                fieldDict['name']='image_%s' % (label)
+                fieldDict['type']='number'
+                fieldDict['description']='1 if object has image in the database; 0 otherwise'
+                fieldDict['index']=len(keysList)+1
+                self.fieldTypesCollection.insert(fieldDict)
+        t0=time.time()
+        posts=self.sourceCollection.find({}).sort('decDeg').sort('RADeg')
+        for obj in posts:
+            name=obj['name']
+            RADeg=obj['RADeg']
+            decDeg=obj['decDeg']
+            #print("... %s ..." % (name))
+            fileNameLabel=catalogTools.makeRADecString(RADeg, decDeg)
+            # Add imageDir tags
+            # NOTE: we look in other survey dirs (e.g., SDSS) while we're here
+            minSizeBytes=40000
+            for label in self.imDirLabelsList:
+                f=self.configDict['cacheDir']+os.path.sep+label+os.path.sep+fileNameLabel+".jpg"
+                if os.path.exists(f) == True:
+                    # image size check: don't include SDSS if image size is tiny as no data
+                    skipImage=False
+                    if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
+                        skipImage=True
+                    if skipImage == False:
+                        post={'image_%s' % (label): 1}
+                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)      
+        t1=time.time()
+        print("... took %.3f sec ..." % (t1-t0))
+        
         
     def preprocess(self):
         """This re-runs pre-processing steps (e.g., NED matching, SDSS image fetching etc.).
@@ -3035,9 +3085,12 @@ class SourceBrowser(object):
         """
         
         # So we can display a status message on the index page in other processes if the cache is being rebuilt
-        outFile=open(self.lockFileName, "wb")
+        outFile=open(self.cacheLockFileName, "wb")
         outFile.close()
 
+        # Add image_* tags first - so that queries that need this still work while cache rebuilding
+        self.addImageDirTags()
+        
         # tileDirs set-up - DES, KiDS, IAC-S82 etc..
         if 'tileDirs' in self.configDict.keys():
             print(">>> Setting up tileDir WCS info ...")
@@ -3053,7 +3106,7 @@ class SourceBrowser(object):
                               
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
-
+        
         # Threaded
         if 'threadedCacheBuild' in self.configDict.keys() and self.configDict['threadedCacheBuild'] == True:
             cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
@@ -3071,21 +3124,10 @@ class SourceBrowser(object):
             for obj in cursor:
                 self.buildCacheForObject(obj['sourceryID'], refetch = False)
             cursor.close()
-        
-        # Now add imageDir tags to field types database
-        for label in self.imDirLabelsList:
-            if self.fieldTypesCollection.find_one({'name': 'image_%s' % (label)}) == None:
-                keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes()
-                fieldDict={}
-                fieldDict['name']='image_%s' % (label)
-                fieldDict['type']='number'
-                fieldDict['description']='1 if object has image in the database; 0 otherwise'
-                fieldDict['index']=len(keysList)+1
-                self.fieldTypesCollection.insert(fieldDict)
-        
+                
         # This will stop index displaying "cache rebuilding" message
-        if os.path.exists(self.lockFileName) == True:
-            os.remove(self.lockFileName)
+        if os.path.exists(self.cacheLockFileName) == True:
+            os.remove(self.cacheLockFileName)
 
     
     @cherrypy.expose
@@ -3110,21 +3152,7 @@ class SourceBrowser(object):
         RADeg=obj['RADeg']
         decDeg=obj['decDeg']
         fileNameLabel=catalogTools.makeRADecString(RADeg, decDeg)
-        
-        # Add imageDir tags (clunky - we do this again later - but avoids being devoid of them while cache rebuilds)
-        # NOTE: we look in other survey dirs (e.g., SDSS) while we're here
-        minSizeBytes=40000
-        for label in self.imDirLabelsList:
-            f=self.configDict['cacheDir']+os.path.sep+label+os.path.sep+fileNameLabel+".jpg"
-            if os.path.exists(f) == True:
-                # image size check: don't include SDSS if image size is tiny as no data
-                skipImage=False
-                if os.stat(f).st_size < minSizeBytes and label == 'SDSS':
-                    skipImage=True
-                if skipImage == False:
-                    post={'image_%s' % (label): 1}
-                    self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
-            
+                    
         print(">>> Fetching data to cache for object %s" % (name))
         self.fetchNEDInfo(name, RADeg, decDeg)
         # Web services
@@ -3168,7 +3196,6 @@ class SourceBrowser(object):
         # If using for spot fixes in web interface, need to refresh page when done
         if from_page != None:
             raise cherrypy.HTTPRedirect(cherrypy.request.script_name+"/"+from_page)
-            
     
     
     def makeImageDirJPEGs(self):
