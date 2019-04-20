@@ -180,7 +180,7 @@ class TileDir:
             newHead['CRVAL2']=CRVAL2
             newHead['CRPIX1']=xRefPix+1
             newHead['CRPIX2']=yRefPix+1
-            newHead['CDELT1']=xOutPixScale
+            newHead['CDELT1']=-xOutPixScale
             newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
             newHead['CUNIT1']='DEG'
             newHead['CUNIT2']='DEG'
@@ -193,7 +193,7 @@ class TileDir:
                 RAMin=RAMax
                 RAMax=temp
             checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
-
+    
             matchTilesList=self.tileTab['TILENAME'][tileMask].tolist()                        
             if matchTilesList == []:
                 print("... object not in any %s tiles ..." % (self.label))
@@ -247,29 +247,37 @@ class TileDir:
                     d=np.array(im)
                     d=np.flipud(d)
                     inWCS=self.WCSDict[tileName]
+
+                    # NOTE: Linear interpolation like this is v. quick but wrong for TAN at large dec.
+                    # Since we're only using this for display purposes, the trick we use here should be okay
+                    # (well, introduces a little rotation on DES images)
+                    RAc, decc=outWCS.getCentreWCSCoords()
+                    xc, yc=inWCS.wcs2pix(RAc, decc)
+                    xc, yc=int(xc), int(yc)
                     xIn=np.arange(d.shape[1])
                     yIn=np.arange(d.shape[0])
-                    inRACoords=np.array(inWCS.pix2wcs(xIn, [0]*len(xIn)))
-                    inDecCoords=np.array(inWCS.pix2wcs([0]*len(yIn), yIn))
+                    inRACoords=np.array(inWCS.pix2wcs(xIn, [yc]*len(xIn)))
+                    inDecCoords=np.array(inWCS.pix2wcs([xc]*len(yIn), yIn))
                     inRA=inRACoords[:, 0]
                     inDec=inDecCoords[:, 1]
                     RAToX=interpolate.interp1d(inRA, xIn, fill_value = 'extrapolate')
                     DecToY=interpolate.interp1d(inDec, yIn, fill_value = 'extrapolate')
-                    xOut=np.arange(sizePix)
-                    yOut=np.arange(sizePix)
-                    outRADecCoords=np.array(outWCS.pix2wcs(xOut, yOut))
-                    outRA=outRADecCoords[:, 0]
-                    outDec=outRADecCoords[:, 1]
+                    outRACoords=np.array(outWCS.pix2wcs(np.arange(outData.shape[1]), [0]*outData.shape[1]))
+                    outDecCoords=np.array(outWCS.pix2wcs([0]*np.arange(outData.shape[0]), np.arange(outData.shape[0])))
+                    outRA=outRACoords[:, 0]
+                    outDec=outDecCoords[:, 1]
                     xIn=np.array(RAToX(outRA), dtype = int)
                     yIn=np.array(DecToY(outDec), dtype = int)
                     xMask=np.logical_and(xIn >= 0, xIn < im.width)
                     yMask=np.logical_and(yIn >= 0, yIn < im.height)
+                    xOut=np.arange(outData.shape[1])
+                    yOut=np.arange(outData.shape[0])
                     for i in yOut[yMask]:
                         outData[i][xMask]=d[yIn[i], xIn[xMask]]
 
                 # Flips needed to get N at top, E at left
                 outData=np.flipud(outData)
-                outData=np.fliplr(outData)
+                #outData=np.fliplr(outData)
                 
                 # We could do this with vips... but lazy...
                 outIm=Image.fromarray(outData)

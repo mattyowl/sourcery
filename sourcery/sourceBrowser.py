@@ -912,7 +912,7 @@ class SourceBrowser(object):
         data=np.power(data, 1.0/float(gamma))
         try:
             data=np.flipud(data)
-            data=np.fliplr(data)
+            #data=np.fliplr(data)
         except:
             #"... something odd about image (1d?) - aborting ..."
             return None
@@ -948,7 +948,7 @@ class SourceBrowser(object):
         newHead['CRVAL2']=CRVAL2
         newHead['CRPIX1']=xRefPix+1
         newHead['CRPIX2']=yRefPix+1
-        newHead['CDELT1']=xOutPixScale
+        newHead['CDELT1']=-xOutPixScale
         newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
         newHead['CUNIT1']='DEG'
         newHead['CUNIT2']='DEG'
@@ -3049,6 +3049,8 @@ class SourceBrowser(object):
                 fieldDict['index']=len(keysList)+1
                 self.fieldTypesCollection.insert(fieldDict)
         t0=time.time()
+        # We need to do this to avoid hitting 32 Mb limit below when using large databases
+        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
         posts=self.sourceCollection.find({}).sort('decDeg').sort('RADeg')
         for obj in posts:
             name=obj['name']
