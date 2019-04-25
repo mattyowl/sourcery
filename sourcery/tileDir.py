@@ -193,8 +193,14 @@ class TileDir:
                 RAMin=RAMax
                 RAMax=temp
             checkCoordsList=[[RAMin, decMin], [RAMin, decMax], [RAMax, decMin], [RAMax, decMax]]
-    
-            matchTilesList=self.tileTab['TILENAME'][tileMask].tolist()                        
+
+            # This is just dealing with bytes versus strings in python3
+            matchTilesList=[]
+            for item in self.tileTab['TILENAME'][tileMask].tolist():
+                if type(item) == bytes:
+                    matchTilesList.append(item.decode('utf-8'))
+                else:
+                    matchTilesList.append(str(item))
             if matchTilesList == []:
                 print("... object not in any %s tiles ..." % (self.label))
                 return None
