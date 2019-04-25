@@ -3109,7 +3109,8 @@ class SourceBrowser(object):
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
         
-        # Threaded
+        # Threaded - NOTE: We're still calling it threading but switched to processes
+        # Threads are sometimes giving weird results on Cyclops (image mismatch, corrupted NED or SDSS catalogs)
         if 'threadedCacheBuild' in self.configDict.keys() and self.configDict['threadedCacheBuild'] == True:
             cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
             sourceryIDs=[]
@@ -3117,8 +3118,8 @@ class SourceBrowser(object):
                 sourceryIDs.append(obj['sourceryID'])
             cursor.close()
             import multiprocessing
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers = multiprocessing.cpu_count()) as executor:
+            from concurrent.futures import ProcessPoolExecutor
+            with ProcessPoolExecutor(max_workers = multiprocessing.cpu_count()) as executor:
                 executor.map(self.buildCacheForObject, sourceryIDs)
         else:
             # Serial - still useful if debugging
