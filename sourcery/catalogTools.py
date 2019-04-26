@@ -207,33 +207,32 @@ def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg):
         url='http://skyserver.sdss.org/dr14/en/tools/search/x_results.aspx'
         outFileName=cacheDir+os.path.sep+"%s.csv" % (name.replace(" ", "_"))
         if os.path.exists(outFileName) == False:
-            sql="""SELECT
-            p.objid,p.ra,p.dec,p.r,
-            s.specobjid,s.z, 
-            dbo.fSpecZWarningN(s.zWarning) as warning,
-            s.plate, s.mjd, s.fiberid
-            FROM PhotoObj AS p
-            JOIN SpecObj AS s ON s.bestobjid = p.objid
-            WHERE 
-            p.ra < %.6f+0.1 and p.ra > %.6f-0.1
-            AND p.dec < %.6f+0.1 and p.dec > %.6f-0.1
-            """ % (RADeg, RADeg, decDeg, decDeg)
-            # Filter SQL so that it'll work
-            fsql = ''
-            for line in sql.split('\n'):
-                fsql += line.split('--')[0] + ' ' + os.linesep;
-            http=urllib3.PoolManager()
-            resp=http.request('GET', url, fields = {'searchtool': 'SQL', 
-                                                    'TaskName': 'Skyserver.Search.SQL', 
-                                                    'cmd': fsql, 
-                                                    'format': "csv"})
+            # Open file straightaway in case running threaded
             with open(outFileName, 'wb') as f:
+                sql="""SELECT
+                p.objid,p.ra,p.dec,p.r,
+                s.specobjid,s.z, 
+                dbo.fSpecZWarningN(s.zWarning) as warning,
+                s.plate, s.mjd, s.fiberid
+                FROM PhotoObj AS p
+                JOIN SpecObj AS s ON s.bestobjid = p.objid
+                WHERE 
+                p.ra < %.6f+0.1 and p.ra > %.6f-0.1
+                AND p.dec < %.6f+0.1 and p.dec > %.6f-0.1
+                """ % (RADeg, RADeg, decDeg, decDeg)
+                # Filter SQL so that it'll work
+                fsql = ''
+                for line in sql.split('\n'):
+                    fsql += line.split('--')[0] + ' ' + os.linesep;
+                http=urllib3.PoolManager()
+                resp=http.request('GET', url, fields = {'searchtool': 'SQL', 
+                                                        'TaskName': 'Skyserver.Search.SQL', 
+                                                        'cmd': fsql, 
+                                                        'format': "csv"})
                 f.write(resp.data)
-                f.close()
       
-        inFile=open(outFileName, "r")
-        lines=inFile.readlines()
-        inFile.close()
+        with open(outFileName, "r") as inFile:
+            lines=inFile.readlines()
 
     else:
         return []

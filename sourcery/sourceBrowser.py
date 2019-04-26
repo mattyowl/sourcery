@@ -574,20 +574,13 @@ class SourceBrowser(object):
         decMax=decDeg+halfMatchBoxLengthDeg
         outFileName=self.nedDir+os.path.sep+name.replace(" ", "_")+".txt"        
         if os.path.exists(outFileName) == False:
-            print("... fetching NED info for %s ..." % (name))
-            urlString="http://ned.ipac.caltech.edu/cgi-bin/objsearch?search_type=Near+Position+Search&in_csys=Equatorial&in_equinox=J2000.0&lon=%.6fd&lat=%.6fd&radius=%.2f&dot_include=ANY&in_objtypes1=GGroups&in_objtypes1=GClusters&in_objtypes1=QSO&in_objtypes2=Radio&in_objtypes2=SmmS&in_objtypes2=Infrared&in_objtypes2=Xray&nmp_op=ANY&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=ascii_tab&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (RADeg, decDeg, halfMatchBoxLengthDeg*60.0)
-            resp=self.http.request('GET', urlString)
+            # Open the file straightaway so we don't clash if running threaded
             with open(outFileName, 'wb') as f:
+                print("... fetching NED info for %s ..." % (name))
+                urlString="http://ned.ipac.caltech.edu/cgi-bin/objsearch?search_type=Near+Position+Search&in_csys=Equatorial&in_equinox=J2000.0&lon=%.6fd&lat=%.6fd&radius=%.2f&dot_include=ANY&in_objtypes1=GGroups&in_objtypes1=GClusters&in_objtypes1=QSO&in_objtypes2=Radio&in_objtypes2=SmmS&in_objtypes2=Infrared&in_objtypes2=Xray&nmp_op=ANY&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=ascii_tab&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (RADeg, decDeg, halfMatchBoxLengthDeg*60.0)
+                resp=self.http.request('GET', urlString)
                 f.write(resp.data)
                 f.close()
-            # Old
-            #try:                
-                #urllib.urlretrieve(urlString, filename = outFileName)
-            #except:
-                ## This will block if our server can't see NED - so, we'll write something in the file
-                ## We can test for this above and re-do the query if needed
-                #print "WARNING: couldn't get NED info"
-                #outFileName=None
 
 
     def findNEDMatch(self, obj, NEDObjTypes = ["GClstr"]):
@@ -759,96 +752,96 @@ class SourceBrowser(object):
             raise Exception("WISE web service does not work for images > 250 WISE pixels - use tileDir set-up instead or use smaller plotSizeArcmin")
         
         outFileName=wiseCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        tmpDirPath=tempfile.mkdtemp()
-        targzPath=tmpDirPath+os.path.sep+"wise.tar.gz"
         if os.path.exists(outFileName) == False or refetch == True:
-            print("... fetching unWISE data for %s ..." % (name))
-            resp=self.http.request('GET', "http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix))
-            with open(targzPath, 'wb') as f:
-                f.write(resp.data)
-                f.close()
-            with tarfile.open(targzPath) as t:
-                t.extractall(path = os.path.split(targzPath)[0])
-                t.close()
-            wiseFiles=glob.glob(tmpDirPath+os.path.sep+"unwise-*-img-m.fits")
-            w1FileName=None
-            w2FileName=None
-            for w in wiseFiles:
-                # Weirdly, the archives sometimes have multiple images, some of odd dimensions
-                if w.find("-img-m.fits") != -1:
-                    img=pyfits.open(w)
-                    if img[0].data.shape == (sizePix, sizePix):
-                        if w.find("-w1-img") != -1:
-                            w1FileName=w
-                        if w.find("-w2-img") != -1:
-                            w2FileName=w
-            if w1FileName == None or w2FileName == None:
-                # In this case, we have to stitch all the images together
-                # Takes ~1.6 sec per image
-                for band in ['w1', 'w2']:
-                    # Make a WCS
-                    CRVAL1, CRVAL2=RADeg, decDeg
-                    sizeArcmin=self.configDict['plotSizeArcmin']
-                    xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
-                    xSizePix=sizePix
-                    ySizePix=sizePix
-                    xRefPix=xSizePix/2.0
-                    yRefPix=ySizePix/2.0
-                    xOutPixScale=xSizeDeg/xSizePix
-                    yOutPixScale=ySizeDeg/ySizePix
-                    newHead=pyfits.Header()
-                    newHead['NAXIS']=2
-                    newHead['NAXIS1']=xSizePix
-                    newHead['NAXIS2']=ySizePix
-                    newHead['CTYPE1']='RA---TAN'
-                    newHead['CTYPE2']='DEC--TAN'
-                    newHead['CRVAL1']=CRVAL1
-                    newHead['CRVAL2']=CRVAL2
-                    newHead['CRPIX1']=xRefPix+1
-                    newHead['CRPIX2']=yRefPix+1
-                    newHead['CDELT1']=xOutPixScale
-                    newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
-                    newHead['CUNIT1']='DEG'
-                    newHead['CUNIT2']='DEG'
-                    wcs=astWCS.WCS(newHead, mode='pyfits')
-                    outData=np.zeros([sizePix, sizePix])
-                    imgFileNames=glob.glob(("*-%s-img-m.fits" % (band)))
-                    for fileName in imgFileNames:
-                        img=pyfits.open(fileName)
-                        imgWCS=astWCS.WCS(img[0].header, mode = 'pyfits')
-                        for y in range(sizePix):
-                            for x in range(sizePix):
-                                outRADeg, outDecDeg=wcs.pix2wcs(x, y)
-                                inX, inY=imgWCS.wcs2pix(outRADeg, outDecDeg)
-                                # Once, this returned infinity...
-                                try:
-                                    inX=int(round(inX))
-                                    inY=int(round(inY))
-                                except:
-                                    continue
-                                if inX >= 0 and inX < img[0].data.shape[1]-1 and inY >= 0 and inY < img[0].data.shape[0]-1:
-                                    outData[y, x]=img[0].data[inY, inX]
-                    if band == 'w1':
-                        bClip={'wcs': wcs, 'data': outData}
-                    elif band == 'w2':
-                        rClip={'wcs': wcs, 'data': outData}
-            else:
-                wcs=astWCS.WCS(w1FileName)
-                bImg=pyfits.open(w1FileName)
-                rImg=pyfits.open(w2FileName)
-                bClip={'wcs': wcs, 'data': bImg[0].data}
-                rClip={'wcs': wcs, 'data': rImg[0].data}
-        
-            try:
-                gClip={'wcs': rClip['wcs'], 'data': (rClip['data']+bClip['data'])/2.0}
-            except:
-                raise Exception("W1, W2 images not same dimensions")
+            with tempfile.TemporaryDirectory() as tmpDirPath:
+                targzPath=tmpDirPath+os.path.sep+"wise.tar.gz"            
+                print("... fetching unWISE data for %s ..." % (name))
+                resp=self.http.request('GET', "http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix))
+                with open(targzPath, 'wb') as f:
+                    f.write(resp.data)
+                    f.close()
+                with tarfile.open(targzPath) as t:
+                    t.extractall(path = os.path.split(targzPath)[0])
+                    t.close()
+                wiseFiles=glob.glob(tmpDirPath+os.path.sep+"unwise-*-img-m.fits")
+                w1FileName=None
+                w2FileName=None
+                for w in wiseFiles:
+                    # Weirdly, the archives sometimes have multiple images, some of odd dimensions
+                    if w.find("-img-m.fits") != -1:
+                        img=pyfits.open(w)
+                        if img[0].data.shape == (sizePix, sizePix):
+                            if w.find("-w1-img") != -1:
+                                w1FileName=w
+                            if w.find("-w2-img") != -1:
+                                w2FileName=w
+                if w1FileName == None or w2FileName == None:
+                    # In this case, we have to stitch all the images together
+                    # Takes ~1.6 sec per image
+                    for band in ['w1', 'w2']:
+                        # Make a WCS
+                        CRVAL1, CRVAL2=RADeg, decDeg
+                        sizeArcmin=self.configDict['plotSizeArcmin']
+                        xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
+                        xSizePix=sizePix
+                        ySizePix=sizePix
+                        xRefPix=xSizePix/2.0
+                        yRefPix=ySizePix/2.0
+                        xOutPixScale=xSizeDeg/xSizePix
+                        yOutPixScale=ySizeDeg/ySizePix
+                        newHead=pyfits.Header()
+                        newHead['NAXIS']=2
+                        newHead['NAXIS1']=xSizePix
+                        newHead['NAXIS2']=ySizePix
+                        newHead['CTYPE1']='RA---TAN'
+                        newHead['CTYPE2']='DEC--TAN'
+                        newHead['CRVAL1']=CRVAL1
+                        newHead['CRVAL2']=CRVAL2
+                        newHead['CRPIX1']=xRefPix+1
+                        newHead['CRPIX2']=yRefPix+1
+                        newHead['CDELT1']=xOutPixScale
+                        newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
+                        newHead['CUNIT1']='DEG'
+                        newHead['CUNIT2']='DEG'
+                        wcs=astWCS.WCS(newHead, mode='pyfits')
+                        outData=np.zeros([sizePix, sizePix])
+                        imgFileNames=glob.glob(("*-%s-img-m.fits" % (band)))
+                        for fileName in imgFileNames:
+                            img=pyfits.open(fileName)
+                            imgWCS=astWCS.WCS(img[0].header, mode = 'pyfits')
+                            for y in range(sizePix):
+                                for x in range(sizePix):
+                                    outRADeg, outDecDeg=wcs.pix2wcs(x, y)
+                                    inX, inY=imgWCS.wcs2pix(outRADeg, outDecDeg)
+                                    # Once, this returned infinity...
+                                    try:
+                                        inX=int(round(inX))
+                                        inY=int(round(inY))
+                                    except:
+                                        continue
+                                    if inX >= 0 and inX < img[0].data.shape[1]-1 and inY >= 0 and inY < img[0].data.shape[0]-1:
+                                        outData[y, x]=img[0].data[inY, inX]
+                        if band == 'w1':
+                            bClip={'wcs': wcs, 'data': outData}
+                        elif band == 'w2':
+                            rClip={'wcs': wcs, 'data': outData}
+                else:
+                    wcs=astWCS.WCS(w1FileName)
+                    with pyfits.open(w1FileName) as bImg:
+                        bClip={'wcs': wcs, 'data': bImg[0].data}
+                    with pyfits.open(w2FileName) as rImg:
+                        rClip={'wcs': wcs, 'data': rImg[0].data}
+            
+                try:
+                    gClip={'wcs': rClip['wcs'], 'data': (rClip['data']+bClip['data'])/2.0}
+                except:
+                    raise Exception("W1, W2 images not same dimensions")
 
-            # Clean up
-            fileList=os.listdir(tmpDirPath)
-            for f in fileList:
-                os.remove(tmpDirPath+os.path.sep+f)
-            os.removedirs(tmpDirPath)
+            ## Clean up
+            #fileList=os.listdir(tmpDirPath)
+            #for f in fileList:
+                #os.remove(tmpDirPath+os.path.sep+f)
+            #os.removedirs(tmpDirPath)
             
             # Make colour .jpg
             # Nicer log scaling - twiddle with the min, max levels here and cuts below as you like
@@ -3101,16 +3094,13 @@ class SourceBrowser(object):
                     self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], self.cacheDir,
                                                                         sizePix = tileDirDict['sizePix'])
                 self.tileDirs[tileDirDict['label']].setUpWCSDict()
-                
-        # Make .jpg images from local, user-supplied .fits images
-        if 'imageDirs' in self.configDict.keys():
-            self.makeImageDirJPEGs()
-                              
+                                              
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
         
-        # Threaded - NOTE: We're still calling it threading but switched to processes
-        # Threads are sometimes giving weird results on Cyclops (image mismatch, corrupted NED or SDSS catalogs)
+        # Threaded
+        # NOTE: Threads have occassionally given weird issues (e.g., mismatched WISE images)
+        # Check that when thread write to disk they don't clash with each other
         if 'threadedCacheBuild' in self.configDict.keys() and self.configDict['threadedCacheBuild'] == True:
             cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
             sourceryIDs=[]
@@ -3118,8 +3108,8 @@ class SourceBrowser(object):
                 sourceryIDs.append(obj['sourceryID'])
             cursor.close()
             import multiprocessing
-            from concurrent.futures import ProcessPoolExecutor
-            with ProcessPoolExecutor(max_workers = multiprocessing.cpu_count()) as executor:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers = multiprocessing.cpu_count()) as executor:
                 executor.map(self.buildCacheForObject, sourceryIDs)
         else:
             # Serial - still useful if debugging
@@ -3128,6 +3118,11 @@ class SourceBrowser(object):
                 self.buildCacheForObject(obj['sourceryID'], refetch = False)
             cursor.close()
                 
+        # Make .jpg images from local, user-supplied .fits images
+        if 'imageDirs' in self.configDict.keys():
+            self.makeImageDirJPEGs()
+        self.addImageDirTags()
+            
         # This will stop index displaying "cache rebuilding" message
         if os.path.exists(self.cacheLockFileName) == True:
             os.remove(self.cacheLockFileName)
