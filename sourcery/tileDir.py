@@ -251,7 +251,10 @@ class TileDir:
                     # Assumes images are aligned N vertically, E at left
                     #d=np.ndarray(buffer = im.write_to_memory(), dtype = np.uint8, shape = [im.height, im.width, im.bands])
                     d=np.array(im)
-                    d=np.flipud(d)
+                    try:
+                        d=np.flipud(d)
+                    except:
+                        raise Exception("error while making image for object named '%s' - tileDir image %s is corrupted - remove and re-make/re-download" % (name, tileJPGFileName))
                     inWCS=self.WCSDict[tileName]
 
                     # NOTE: Linear interpolation like this is v. quick but wrong for TAN at large dec.
