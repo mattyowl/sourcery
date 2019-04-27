@@ -59,6 +59,10 @@ try:
     from StringIO import StringIO
 except ImportError:
     from io import StringIO
+if sys.version_info.major == 2:
+    from backports.tempfile import TemporaryDirectory
+else:
+    from tempfile import TemporaryDirectory
 import tempfile
 import pymongo
 from bson.son import SON
@@ -753,7 +757,7 @@ class SourceBrowser(object):
         
         outFileName=wiseCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         if os.path.exists(outFileName) == False or refetch == True:
-            with tempfile.TemporaryDirectory() as tmpDirPath:
+            with TemporaryDirectory() as tmpDirPath:
                 targzPath=tmpDirPath+os.path.sep+"wise.tar.gz"            
                 print("... fetching unWISE data for %s ..." % (name))
                 resp=self.http.request('GET', "http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix))
