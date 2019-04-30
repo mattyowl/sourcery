@@ -234,9 +234,7 @@ def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg):
         with open(outFileName, "r") as inFile:
             lines=inFile.readlines()
         if len(lines) == 0:
-            print("... file %s is empty - retrying ..." % (outFileName))
-            os.remove(outFileName)
-            fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg)
+            return []
 
     else:
         return []
