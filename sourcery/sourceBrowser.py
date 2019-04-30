@@ -232,23 +232,35 @@ class SourceBrowser(object):
                                        
         # Full list of image directories - for adding image_ tags in buildCacheForObject
         # NOTE: handling of surveys (e.g., SDSS) is clunky and getting unwieldy...
+        # NOTE: made clunkier to allow different size images (imageDirs only for now)
         self.imDirLabelsList=[]
+        self.imDirMaxSizeArcminList=[]
         if self.configDict['addSDSSImage'] == True:
             self.imDirLabelsList.append("SDSS")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addDECaLSImage'] == True:
             self.imDirLabelsList.append("DECaLS")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addPS1Image'] == True:
             self.imDirLabelsList.append("PS1")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addPS1IRImage'] == True:
             self.imDirLabelsList.append("PS1IR")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addUnWISEImage'] == True:
             self.imDirLabelsList.append("unWISE")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if 'tileDirs' in self.configDict.keys():
             for tileDirDict in self.configDict['tileDirs']:
                 self.imDirLabelsList.append(tileDirDict['label'])
+                self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if 'imageDirs' in self.configDict.keys():
             for imDirDict in self.configDict['imageDirs']:
                 self.imDirLabelsList.append(imDirDict['label'])
+                if 'maxSizeArcmin' in imDirDict.keys():
+                    self.imDirMaxSizeArcminList.append(imDirDict['maxSizeArcmin'])
+                else:
+                    self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
                     
         # Pre-processing - building image cache etc.
         self.http=urllib3.PoolManager()
@@ -917,7 +929,7 @@ class SourceBrowser(object):
         R=data[:, :, 0]
         G=data[:, :, 1]
         B=data[:, :, 2]
-        
+                
         # HACK: for ACT maps, with huge pixels, we can get offsets in .jpg relative to original
         # So, if we have a .fits image, load that and use to set centre coords
         fitsFileName=inJPGPath.replace(".jpg", ".fits")
@@ -927,7 +939,10 @@ class SourceBrowser(object):
         else:
             CRVAL1, CRVAL2=RADeg, decDeg
         # Make a WCS
-        sizeArcmin=self.configDict['plotSizeArcmin']
+        for imageType, maxSizeArcmin in zip(self.imDirLabelsList, self.imDirMaxSizeArcminList):
+            if imageType == surveyLabel:
+                sizeArcmin=maxSizeArcmin
+                break
         xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
         xSizePix=float(R.shape[1])
         ySizePix=float(R.shape[0])
@@ -2532,6 +2547,15 @@ class SourceBrowser(object):
             var y = document.getElementById(sliderID);
             x.value = y.value;
         }
+        function updateSlider(value) {
+            slider = document.getElementById('sizeSlider');
+            slider.value = value;
+            printValue('sizeSlider','sizeSliderValue');
+        }
+        function parseImageTypeValue(imageType, index) {
+            var res = imageType.split(";")[index];
+            return res;
+        }
         window.onload = function() { printValue('sizeSlider', 'sizeSliderValue'); printValue('gammaSlider', 'gammaSliderValue');}
         </script>
 
@@ -2542,7 +2566,7 @@ class SourceBrowser(object):
                            {name: '$OBJECT_NAME',
                             RADeg: $OBJECT_RADEG,
                             decDeg: $OBJECT_DECDEG,
-                            surveyLabel: $('input:radio[name=imageType]:checked').val(),
+                            surveyLabel: parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 0),
                             plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
                             plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
@@ -2572,11 +2596,18 @@ class SourceBrowser(object):
             $(function() {
                 // When the form is submitted...
                 $("#imageForm").submit(function() {   
+                    var maxSizeArcmin = parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 1);
+                    if (maxSizeArcmin > $DEFAULT_CLIP_SIZE_ARCMIN) {
+                        updateSlider(parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 1));
+                    }
+                    if (parseFloat($("#sizeSliderValue").val()) > maxSizeArcmin) {
+                        updateSlider(maxSizeArcmin);
+                    }
                     $.post('makePlotFromJPEG', 
                            {name: '$OBJECT_NAME',
                             RADeg: $OBJECT_RADEG,
                             decDeg: $OBJECT_DECDEG,
-                            surveyLabel: $('input:radio[name=imageType]:checked').val(),
+                            surveyLabel: parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 0),
                             plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
                             plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
@@ -2755,12 +2786,14 @@ class SourceBrowser(object):
         else:
             plotFormCode=plotFormCode.replace("$CONTOUR_CODE", "")
         
+        # NOTE: a bit of hack here: we're incorporated max size arcmin into imageType value
+        # We use javascript ^^^ above to split that around ; delimiter
         imageTypesCode=""            
-        for label in self.imDirLabelsList:
+        for label, maxSizeArcmin in zip(self.imDirLabelsList, self.imDirMaxSizeArcminList):
             if label == imageType:
-                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s" checked>%s</span>\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s;%.1f" checked>%s</span>\n' % (label, maxSizeArcmin, label)
             else:
-                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s">%s</span>\n' % (label, label)
+                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s;%.1f">%s</span>\n' % (label, maxSizeArcmin, label)
         plotFormCode=plotFormCode.replace("$IMAGE_TYPES", imageTypesCode)
         
         if plotNEDObjects == "true":
@@ -2787,8 +2820,15 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", "")
-            
-        plotFormCode=plotFormCode.replace("$MAX_SIZE_ARCMIN", str(self.configDict['plotSizeArcmin']))        
+        
+        # This block here probably is hardly useful
+        imageMaxSizeArcmin=30.
+        #for imType, maxSizeArcmin in zip(self.imDirLabelsList, self.imDirMaxSizeArcminList):
+            #if imType == imageType:
+                #imageMaxSizeArcmin=mdaxSizeArcmin
+                #break
+        
+        plotFormCode=plotFormCode.replace("$MAX_SIZE_ARCMIN", str(imageMaxSizeArcmin))        
         if clipSizeArcmin == None:
             plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(self.configDict['defaultViewSizeArcmin']))
         else:
@@ -3219,9 +3259,16 @@ class SourceBrowser(object):
             label=imDirDict['label']
             colorMap=imDirDict['colorMap']
             sizePix=imDirDict['sizePix']
-            minMaxRadiusArcmin=imDirDict['minMaxRadiusArcmin']
+            if 'minMaxRadiusArcmin' in imDirDict.keys():
+                minMaxRadiusArcmin=imDirDict['minMaxRadiusArcmin']
+            else:
+                minMaxRadiusArcmin=None
             scaling=imDirDict['scaling']
             matchKey=imDirDict['matchKey']
+            if 'maxSizeArcmin' in imDirDict.keys():
+                maxSizeArcmin=imDirDict['maxSizeArcmin']
+            else:
+                maxSizeArcmin=self.configDict['plotSizeArcmin']
             
             print("... %s ..." % (label))
 
@@ -3301,7 +3348,7 @@ class SourceBrowser(object):
                         with pyfits.open(imgFileName) as img:
                             data=img[0].data                     
                         clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
-                                                           self.configDict['plotSizeArcmin']/60.0)
+                                                           maxSizeArcmin/60.0)
                         
                         # Sanity check - did we pick an image where object is in zeroed border?
                         pixCoords=clip['wcs'].wcs2pix(obj['RADeg'], obj['decDeg'])
