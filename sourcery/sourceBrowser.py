@@ -382,11 +382,9 @@ class SourceBrowser(object):
         # it left off without checking every single object again
         tab.add_column(atpy.Column(np.zeros(len(tab)), "cacheBuilt"))
         
-        # Cross match all tables in turn... quicker than object by object...
+        # Cross matching based on sourceryID
+        # We do this first before position matching, because the join operation jumbles row order
         if 'crossMatchCatalogs' in self.configDict.keys():
-            tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
-            origLen=len(tab)
-            cat1=SkyCoord(ra = tab['RADeg'], dec = tab['decDeg'], unit = 'deg')
             for xMatchDict in self.configDict['crossMatchCatalogs']:
                 f=xMatchDict['fileName']
                 label=xMatchDict['label']
@@ -394,6 +392,7 @@ class SourceBrowser(object):
                 xTab=atpy.Table().read(f)
                 # Cross match based on sourceryID
                 if 'sourceList' in xTab.keys():
+                    print("... matching %s based on sourceryID ..." % (label))
                     excludeKeys=['name', 'RADeg', 'decDeg', 'sourceList']
                     for key in xTab.keys():
                         if key not in excludeKeys:
@@ -404,28 +403,40 @@ class SourceBrowser(object):
                     for key in xTab.keys():
                         tab[key][tab[key].mask]=-99
                     tab=atpy.Table(tab, masked = False)
-                    continue
-                # Cross match based on position
-                xMatchRadiusDeg=radiusArcmin/60.
-                cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
-                xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
-                mask=np.less(rDeg.value, xMatchRadiusDeg)
-                for key in xTab.keys():
-                    xTab.rename_column(key, '%s_%s' % (label, key))
-                tab['matchIndices'][:]=-1
-                tab['matchIndices']=xIndices
-                # Could not get join to work
-                for key in xTab.keys():
-                    if key not in tab.keys():
-                        if xTab[key].dtype.kind == 'S':
-                            tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
-                        else:
-                            tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
-                        tab[key][mask]=xTab[key][xIndices[mask]]
-                tab.add_column(atpy.Column(np.zeros(len(tab), dtype = int), '%s_match' % (label)))
-                tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
-                tab['%s_match' % (label)][mask]=1
-                tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]*60.0
+                    tab.sort(["RADeg", "decDeg"]) # For some reason join jumbles row order
+        
+        # Cross matching based on positions
+        if 'crossMatchCatalogs' in self.configDict.keys():
+            tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
+            origLen=len(tab)
+            cat1=SkyCoord(ra = tab['RADeg'], dec = tab['decDeg'], unit = 'deg')
+            for xMatchDict in self.configDict['crossMatchCatalogs']:
+                f=xMatchDict['fileName']
+                label=xMatchDict['label']
+                radiusArcmin=xMatchDict['crossMatchRadiusArcmin']
+                xTab=atpy.Table().read(f)
+                if 'sourceList' not in xTab.keys():
+                    print("... matching %s based on position ..." % (label))
+                    xMatchRadiusDeg=radiusArcmin/60.
+                    cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
+                    xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
+                    mask=np.less(rDeg.value, xMatchRadiusDeg)
+                    for key in xTab.keys():
+                        xTab.rename_column(key, '%s_%s' % (label, key))
+                    tab['matchIndices'][:]=-1
+                    tab['matchIndices']=xIndices
+                    # Could not get join to work
+                    for key in xTab.keys():
+                        if key not in tab.keys():
+                            if xTab[key].dtype.kind == 'S':
+                                tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
+                            else:
+                                tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
+                            tab[key][mask]=xTab[key][xIndices[mask]]
+                    tab.add_column(atpy.Column(np.zeros(len(tab), dtype = int), '%s_match' % (label)))
+                    tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
+                    tab['%s_match' % (label)][mask]=1
+                    tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]*60.0
             tab.remove_column("matchIndices")
         
         # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
