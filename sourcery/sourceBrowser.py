@@ -314,6 +314,26 @@ class SourceBrowser(object):
     
         return mongoDict
     
+    
+    def addSourceryIDs(self, tab):
+        """Adds a sourceryID column to the given astropy table object.
+        
+        Returns astropy table object
+        
+        """
+        
+        sourceryIDs=[]
+        if 'sourceList' in tab.keys():
+            # Takes < 1 sec for 36,000 sources
+            for row in tab:
+                sourceryIDs.append(row['sourceList']+"_"+row['name'].replace(" ", "_"))           
+        else:
+            for row in tab:
+                sourceryIDs.append(row['name'].replace(" ", "_"))
+        tab.add_column(atpy.Column(sourceryIDs, "sourceryID"))
+        
+        return tab
+        
 
     def buildDatabase(self):
         """Import .fits table into MongoDB database as sourceCollection. Delete any pre-existing catalog
@@ -353,16 +373,8 @@ class SourceBrowser(object):
         
         # NOTE: sourceList is now a special column: if present, we use that to make a hidden sourceryID column
         # We need this to ensure that on displaySourcePage, we show the right properties table for the selected object
-        # However, we don't want to put this info in the tags table... as that need to be based on positional matching
-        sourceryIDs=[]
-        if 'sourceList' in tab.keys():
-            # Takes < 1 sec for 36,000 sources
-            for row in tab:
-                sourceryIDs.append(row['sourceList']+"_"+row['name'].replace(" ", "_"))           
-        else:
-            for row in tab:
-                sourceryIDs.append(row['name'].replace(" ", "_"))
-        tab.add_column(atpy.Column(sourceryIDs, "sourceryID"))
+        # However, we don't want to put this info in the tags table... as that needs to be based on positional matching
+        tab=self.addSourceryIDs(tab)
         
         # NOTE: another special column - this is for tracking whether the cache files (images, redshifts) have been
         # fetched or not, for a given object. We set this to 0 each time we rebuild the database, and set to 1 each
@@ -380,6 +392,20 @@ class SourceBrowser(object):
                 label=xMatchDict['label']
                 radiusArcmin=xMatchDict['crossMatchRadiusArcmin']
                 xTab=atpy.Table().read(f)
+                # Cross match based on sourceryID
+                if 'sourceList' in xTab.keys():
+                    excludeKeys=['name', 'RADeg', 'decDeg', 'sourceList']
+                    for key in xTab.keys():
+                        if key not in excludeKeys:
+                            xTab.rename_column(key, '%s_%s' % (label, key))
+                    xTab=self.addSourceryIDs(xTab)
+                    xTab.remove_columns(excludeKeys)
+                    tab=atpy.join(tab, xTab, keys = ['sourceryID'], join_type = 'left')
+                    for key in xTab.keys():
+                        tab[key][tab[key].mask]=-99
+                    tab=atpy.Table(tab, masked = False)
+                    continue
+                # Cross match based on position
                 xMatchRadiusDeg=radiusArcmin/60.
                 cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
                 xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
