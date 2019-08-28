@@ -359,6 +359,7 @@ class SourceBrowser(object):
         
         # Table set up
         tab=atpy.Table().read(self.configDict['catalogFileName'])
+        origLen=len(tab)
         tab.sort(["RADeg", "decDeg"])
         
         # Optionally zap all but first 10 rows (for testing)
@@ -404,6 +405,7 @@ class SourceBrowser(object):
                         tab[key][tab[key].mask]=-99
                     tab=atpy.Table(tab, masked = False)
                     tab.sort(["RADeg", "decDeg"]) # For some reason join jumbles row order
+        assert(len(tab) == origLen)
         
         # Cross matching based on positions
         if 'crossMatchCatalogs' in self.configDict.keys():
@@ -438,14 +440,13 @@ class SourceBrowser(object):
                     tab['%s_match' % (label)][mask]=1
                     tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]*60.0
             tab.remove_column("matchIndices")
+        assert(len(tab) == origLen)
         
         # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
         # Otherwise, for large catalogs, we're hitting memory issues
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
-        if os.path.exists(cachedTabFileName) == True:
-            os.remove(cachedTabFileName)
-        tab.write(cachedTabFileName)
-
+        tab.write(cachedTabFileName, overwrite = True)
+        
         # Import each object into MongoDB - now doing this in bulk (slightly quicker)
         idCount=0
         fieldTypesList=[]   # Used for making sensible column order later
