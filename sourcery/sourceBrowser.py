@@ -999,16 +999,17 @@ class SourceBrowser(object):
             elif surveyLabel == 'DES':
                 layer='des-dr1'
             else:
-                layer=None                
-            urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=%s&pixscale=%.4f&bands=grz" % (RADeg, decDeg, fetchWidth, layer, fetchPixScale)
-            resp=self.http.request('GET', urlString)
-            #with open('test.jpg', 'wb') as f:
-                #f.write(resp.data)
-            im=Image.open(io.BytesIO(resp.data))
-            data=np.array(im)
-            data=np.power(data, 1.0/float(gamma))
-            if data.shape != (fetchWidth, fetchWidth, 3):
-                layer=None  # We get (256, 256) if not in footprint (I think)
+                layer=None 
+            if layer is not None:
+                urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=%s&pixscale=%.4f&bands=grz" % (RADeg, decDeg, fetchWidth, layer, fetchPixScale)
+                resp=self.http.request('GET', urlString)
+                #with open('test.jpg', 'wb') as f:
+                    #f.write(resp.data)
+                im=Image.open(io.BytesIO(resp.data))
+                data=np.array(im)
+                data=np.power(data, 1.0/float(gamma))
+                if data.shape != (fetchWidth, fetchWidth, 3):
+                    layer=None  # We get (256, 256) if not in footprint (I think)
             if layer is None:
                 inJPGPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
             else:
@@ -3231,6 +3232,10 @@ class SourceBrowser(object):
         # Add image_* tags first - so that queries that need this still work while cache rebuilding
         self.addImageDirTags()
         
+        # Make .jpg images from local, user-supplied .fits images
+        if 'imageDirs' in self.configDict.keys():
+            self.makeImageDirJPEGs()
+            
         # tileDirs set-up - DES, KiDS, IAC-S82 etc..
         if 'tileDirs' in self.configDict.keys():
             print(">>> Setting up tileDir WCS info ...")
@@ -3263,9 +3268,6 @@ class SourceBrowser(object):
                 self.buildCacheForObject(obj['sourceryID'], refetch = False)
             cursor.close()
                 
-        # Make .jpg images from local, user-supplied .fits images
-        if 'imageDirs' in self.configDict.keys():
-            self.makeImageDirJPEGs()
         self.addImageDirTags()
             
         # This will stop index displaying "cache rebuilding" message
