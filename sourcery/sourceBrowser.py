@@ -333,6 +333,35 @@ class SourceBrowser(object):
         tab.add_column(atpy.Column(sourceryIDs, "sourceryID"))
         
         return tab
+    
+    
+    def addFootprintColumns(self, tab):
+        """Adds footprint_ columns to the table, for finding overlap with e.g. DES Y3.
+        
+        """
+        
+        for footprintDict in self.configDict['footprints']:
+            colLabel='footprint_%s' % (footprintDict['label'])
+            print("... adding %s ..." % (colLabel))
+            tab.add_column(atpy.Column(np.zeros(len(tab)), colLabel))
+            for maskPath in footprintDict['maskList']:
+                with pyfits.open(maskPath) as img:
+                    for extName in range(0, 2):
+                        mask=img[extName].data
+                        if mask is not None:
+                            break
+                    wcs=astWCS.WCS(img[extName].header, mode = 'pyfits')
+                xy=np.array(wcs.wcs2pix(tab['RADeg'].data, tab['decDeg'].data))
+                xs=np.array(xy[:, 0], dtype = int)
+                ys=np.array(xy[:, 1], dtype = int)
+                for i in range(len(tab)):
+                    x=xs[i]
+                    y=ys[i]
+                    if x >= 0 and x < mask.shape[1] and y >= 0 and y < mask.shape[0]:
+                        if mask[y, x] > 0:
+                            tab[colLabel][i]=1
+        
+        return tab
         
 
     def buildDatabase(self):
@@ -376,6 +405,10 @@ class SourceBrowser(object):
         # We need this to ensure that on displaySourcePage, we show the right properties table for the selected object
         # However, we don't want to put this info in the tags table... as that needs to be based on positional matching
         tab=self.addSourceryIDs(tab)
+
+        # Add footprints, if any
+        if 'footprints' in self.configDict.keys():
+            tab=self.addFootprintColumns(tab)
         
         # NOTE: another special column - this is for tracking whether the cache files (images, redshifts) have been
         # fetched or not, for a given object. We set this to 0 each time we rebuild the database, and set to 1 each
@@ -446,6 +479,7 @@ class SourceBrowser(object):
         # Otherwise, for large catalogs, we're hitting memory issues
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
         tab.write(cachedTabFileName, overwrite = True)
+        print("... written %s ..." % (cachedTabFileName))
         
         # Import each object into MongoDB - now doing this in bulk (slightly quicker)
         idCount=0
