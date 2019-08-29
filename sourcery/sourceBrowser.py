@@ -53,6 +53,7 @@ import string
 import re
 import base64
 from PIL import Image
+import io
 Image.MAX_IMAGE_PIXELS=100000001 
 import copy
 try:
@@ -986,31 +987,59 @@ class SourceBrowser(object):
         # Load data
         inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         if os.path.exists(inJPGPath) == False:
-            inJPGPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
+            # Testing fall back option of live fetch from legacysurvey.org
+            fetchWidth=512 # Max set by DECaLS server
+            fetchPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(fetchWidth)
+            if surveyLabel == 'SDSS':
+                layer='sdss'
+            elif surveyLabel == 'DECaLS':
+                layer='decals-dr7'
+            elif surveyLabel == 'unWISE':
+                layer='unwise-w1w2'
+            elif surveyLabel == 'DES':
+                layer='des-dr1'
+            else:
+                layer=None                
+            urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=%s&pixscale=%.4f&bands=grz" % (RADeg, decDeg, fetchWidth, layer, fetchPixScale)
+            resp=self.http.request('GET', urlString)
+            #with open('test.jpg', 'wb') as f:
+                #f.write(resp.data)
+            im=Image.open(io.BytesIO(resp.data))
+            data=np.array(im)
+            data=np.power(data, 1.0/float(gamma))
+            if data.shape != (fetchWidth, fetchWidth, 3):
+                layer=None  # We get (256, 256) if not in footprint (I think)
+            if layer is None:
+                inJPGPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
+            else:
+                inJPGPath=None # success in this case
         
-        im=Image.open(inJPGPath)
-        data=np.array(im)
-        data=np.power(data, 1.0/float(gamma))
-        try:
-            data=np.flipud(data)
-            #data=np.fliplr(data)
-        except:
-            #"... something odd about image (1d?) - aborting ..."
-            return None
-        
+        # Gets set to None if we got it from legacysurvey.org and we didn't write to disk
+        if inJPGPath is not None:
+            im=Image.open(inJPGPath)
+            data=np.array(im)
+            data=np.power(data, 1.0/float(gamma))
+            try:
+                data=np.flipud(data)
+                #data=np.fliplr(data)
+            except:
+                #"... something odd about image (1d?) - aborting ..."
+                return None
+                    
         R=data[:, :, 0]
         G=data[:, :, 1]
         B=data[:, :, 2]
                 
         # HACK: for ACT maps, with huge pixels, we can get offsets in .jpg relative to original
         # So, if we have a .fits image, load that and use to set centre coords
-        fitsFileName=inJPGPath.replace(".jpg", ".fits")
-        if os.path.exists(fitsFileName) == True:
-            hackWCS=astWCS.WCS(fitsFileName)
-            CRVAL1, CRVAL2=hackWCS.getCentreWCSCoords()
-        else:
-            CRVAL1, CRVAL2=RADeg, decDeg
+        #fitsFileName=inJPGPath.replace(".jpg", ".fits")
+        #if os.path.exists(fitsFileName) == True:
+            #hackWCS=astWCS.WCS(fitsFileName)
+            #CRVAL1, CRVAL2=hackWCS.getCentreWCSCoords()
+        #else:
+            #CRVAL1, CRVAL2=RADeg, decDeg
         # Make a WCS
+        CRVAL1, CRVAL2=RADeg, decDeg
         for imageType, maxSizeArcmin in zip(self.imDirLabelsList, self.imDirMaxSizeArcminList):
             if imageType == surveyLabel:
                 sizeArcmin=maxSizeArcmin
