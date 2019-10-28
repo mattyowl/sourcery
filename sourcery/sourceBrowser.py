@@ -425,6 +425,16 @@ class SourceBrowser(object):
                 label=xMatchDict['label']
                 radiusArcmin=xMatchDict['crossMatchRadiusArcmin']
                 xTab=atpy.Table().read(f)
+                if 'nameCol' in xMatchDict.keys():
+                    xTab.rename_column(xMatchDict['nameCol'], 'name')
+                RAKeys=['ra', 'RA', 'Ra']
+                decKeys=['dec', 'DEC', 'Dec']
+                for r in RAKeys:
+                    if r in xTab.keys():
+                        xTab.rename_column(r, 'RADeg')
+                for d in decKeys:
+                    if d in xTab.keys():
+                        xTab.rename_column(d, 'decDeg')
                 # Cross match based on sourceryID
                 if 'sourceList' in xTab.keys():
                     print("... matching %s based on sourceryID ..." % (label))
@@ -439,7 +449,8 @@ class SourceBrowser(object):
                         tab[key][tab[key].mask]=-99
                     tab=atpy.Table(tab, masked = False)
                     tab.sort(["RADeg", "decDeg"]) # For some reason join jumbles row order
-        assert(len(tab) == origLen)
+                    if len(tab) != origLen:
+                        raise Exception("Length of table has changed - this probably means multiple objects with the same name but with the same sourceList. Fix table %s." % (f))
         
         # Cross matching based on positions
         if 'crossMatchCatalogs' in self.configDict.keys():
@@ -451,6 +462,17 @@ class SourceBrowser(object):
                 label=xMatchDict['label']
                 radiusArcmin=xMatchDict['crossMatchRadiusArcmin']
                 xTab=atpy.Table().read(f)
+                # Repetition...
+                if 'nameCol' in xMatchDict.keys():
+                    xTab.rename_column(xMatchDict['nameCol'], 'name')
+                RAKeys=['ra', 'RA', 'Ra']
+                decKeys=['dec', 'DEC', 'Dec']
+                for r in RAKeys:
+                    if r in xTab.keys():
+                        xTab.rename_column(r, 'RADeg')
+                for d in decKeys:
+                    if d in xTab.keys():
+                        xTab.rename_column(d, 'decDeg')
                 if 'sourceList' not in xTab.keys():
                     print("... matching %s based on position ..." % (label))
                     xMatchRadiusDeg=radiusArcmin/60.
