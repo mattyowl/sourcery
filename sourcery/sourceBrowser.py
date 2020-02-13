@@ -56,14 +56,8 @@ from PIL import Image
 import io
 Image.MAX_IMAGE_PIXELS=100000001 
 import copy
-try:
-    from StringIO import StringIO
-except ImportError:
-    from io import StringIO
-if sys.version_info.major == 2:
-    from backports.tempfile import TemporaryDirectory
-else:
-    from tempfile import TemporaryDirectory
+from io import BytesIO
+from tempfile import TemporaryDirectory
 import tempfile
 import pymongo
 from bson.son import SON
@@ -992,10 +986,10 @@ class SourceBrowser(object):
         
         To test zoom:
         
-        http://localhost:8080/makePlotFromJPEG?name=XMMXCS%20J001737.5-005234.2&RADeg=4.406325&decDeg=-0.876192&surveyLabel=SDSS&clipSizeArcmin=3.0
+        http://localhost:8080/sourcery/makePlotFromJPEG?name=XMMXCS%20J001737.5-005234.2&RADeg=4.406325&decDeg=-0.876192&surveyLabel=SDSS&clipSizeArcmin=3.0
         
         """
-        
+               
         # Just in case they are passed as strings (e.g., if direct from the url)
         RADeg=float(RADeg)
         decDeg=float(decDeg)
@@ -1223,11 +1217,13 @@ class SourceBrowser(object):
                     plt.figtext(0.05, 0.05, "Adding contours failed - missing file: %s" % (clipFileName), color = 'red', backgroundcolor = 'black')
         
         # NOTE: Currently, this is not displaying images under python3 - something encoding related?
-        cherrypy.response.headers['Content-Type']="image/jpg"
-        buf=StringIO()
+        #cherrypy.response.headers['Content-Type']="image/jpg"
+        cherrypy.response.headers['Content-Type']="data:image/jpg;base64"
+        buf=BytesIO()
         plt.savefig(buf, dpi = 96, format = 'jpg')
         plt.close()
-        
+        buf.seek(0)
+
         return base64.b64encode(buf.getvalue())
     
     
