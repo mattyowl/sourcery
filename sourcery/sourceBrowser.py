@@ -660,7 +660,11 @@ class SourceBrowser(object):
         # We start with SDSS but this could (should?) be made generic
         if 'SDSSRedshiftsTable' not in self.configDict.keys():
             self.configDict['SDSSRedshiftsTable']=None
-     
+        else:
+            if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
+                rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
+                self.configDict['SDSSRedshiftsTable']=rootDir+os.path.sep+self.configDict['SDSSRedshiftsTable']
+
 
     def addNews(self):
         """Parse news file, if there is one, filling up self.configDict['newsItems'].
