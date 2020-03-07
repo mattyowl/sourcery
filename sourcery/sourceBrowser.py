@@ -164,7 +164,16 @@ class SourceBrowser(object):
             for tileDirDict in self.configDict['tileDirs']:
                 if tileDirDict['label'] not in self.tileDirs.keys():
                     self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], 
-                                                                        self.cacheDir, sizePix = tileDirDict['sizePix'])
+                                                                        self.cacheDir, sizePix = tileDirDict['sizePix'])            
+        
+        # Big redshifts table - let's try and keep it in memory (may be a challenge on the webserver)
+        # Really we should just put into a database table...
+        if self.configDict['SDSSRedshiftsTable'] is not None:
+            self.SDSSRedshiftsTab=atpy.Table().read(self.configDict['SDSSRedshiftsTable'])
+            self.SDSSRedshiftsTab=self.SDSSRedshiftsTab[np.where(self.SDSSRedshiftsTab['z'] > 0.01)]
+            self.SDSSRedshiftsTab=self.SDSSRedshiftsTab[np.where(self.SDSSRedshiftsTab['warning'] == 'OK')]    
+        else:
+            self.SDSSRedshiftsTab=None
         
         # So we can display a status message on the index page in other processes if the database or cache is being rebuilt
         self.dbLockFileName=self.cacheDir+os.path.sep+"db.lock"
@@ -646,6 +655,11 @@ class SourceBrowser(object):
             
         if "NEDObjTypes" not in self.configDict.keys():
             self.configDict['NEDObjTypes']=['GClstr']
+        
+        # We now support keeping a huge .fits table of spec-zs
+        # We start with SDSS but this could (should?) be made generic
+        if 'SDSSRedshiftsTable' not in self.configDict.keys():
+            self.configDict['SDSSRedshiftsTable']=None
      
 
     def addNews(self):
@@ -1131,7 +1145,8 @@ class SourceBrowser(object):
                                     size = sizeDeg/40.0*3600.0, color = "#7cfc00")
     
         if plotSDSSObjects == "true":
-            SDSSRedshifts=catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg)
+            SDSSRedshifts=catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg, 
+                                                          redshiftsTable = self.SDSSRedshiftsTab)
             if SDSSRedshifts != None:
                 sdssRAs=[]
                 sdssDecs=[]
@@ -2785,7 +2800,7 @@ class SourceBrowser(object):
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>
-        <label for="plotSDSSObjects">SDSS DR14 objects</label>
+        <label for="plotSDSSObjects">SDSS redshifts</label>
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>
@@ -3113,8 +3128,8 @@ class SourceBrowser(object):
         
         # SDSS matches table
         if 'addSDSSRedshifts' in self.configDict.keys() and self.configDict['addSDSSRedshifts'] == True:
-            SDSSRedshifts=catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'],
-                                                          obj['decDeg'])
+            SDSSRedshifts=catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'], obj['decDeg'], 
+                                                          redshiftsTable = self.SDSSRedshiftsTab)
             sdssTable="""<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=80% align=center>
             <tbody>
             <tr>
@@ -3320,7 +3335,8 @@ class SourceBrowser(object):
         self.fetchNEDInfo(name, RADeg, decDeg)
         # Web services
         if self.configDict['addSDSSRedshifts'] == True:
-            catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg)
+            catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg,
+                                            redshiftsTable = self.SDSSRedshiftsTab)
         if self.configDict['addSDSSImage'] == True:
             self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addDECaLSImage'] == True:

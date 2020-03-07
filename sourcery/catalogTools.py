@@ -21,7 +21,7 @@
 
 from astLib import *
 from scipy import ndimage
-import numpy
+import numpy as np
 import operator
 import os
 import urllib3
@@ -68,7 +68,7 @@ def clipSmoothedTanResampledImage(obj, mapData, mapWCS, sizeDeg, gaussSmoothArcS
         maxGuess=sign*targetHalfSizeSkyDeg*2.0
         minGuess=sign*targetHalfSizeSkyDeg/10.0
         guessStep=(maxGuess-minGuess)/10.0
-        guesses=numpy.arange(minGuess+c, maxGuess+c, guessStep)
+        guesses=np.arange(minGuess+c, maxGuess+c, guessStep)
         for i in range(60):
             minSizeDiff=1e6
             bestGuess=None
@@ -84,7 +84,7 @@ def clipSmoothedTanResampledImage(obj, mapData, mapWCS, sizeDeg, gaussSmoothArcS
                 maxGuess=bestGuess+guessRange/4.0
                 minGuess=bestGuess-guessRange/4.0
                 guessStep=(maxGuess-minGuess)/10.0
-                guesses=numpy.arange(minGuess, maxGuess, guessStep)
+                guesses=np.arange(minGuess, maxGuess, guessStep)
         results.append(bestGuess)
     RAMax=results[0]
     RAMin=results[1]
@@ -192,12 +192,48 @@ def byteSwapArr(arr):
     return arr
 
 #-------------------------------------------------------------------------------------------------------------
-def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg):
-    """Queries SDSS DR13 for redshifts, writing output into cacheDir.
+def getSDSSRedshiftsFromFITSTable(cacheDir, name, RADeg, decDeg, redshiftsTable):
+    """Extracts SDSS redshifts from a big FITS table and returns them in the format we're already using.
+    
+    Returns a list of dictionaries containing the redshift catalog
+    
+    """
+    
+    tab=redshiftsTable
+    RAMask=np.logical_and(np.greater(tab['ra'], RADeg-0.1), np.less(tab['ra'], RADeg+0.1))
+    decMask=np.logical_and(np.greater(tab['dec'], decDeg-0.1), np.less(tab['dec'], decDeg+0.1))
+    mask=np.logical_and(RAMask, decMask)
+    SDSSRedshifts=[]
+    for row in tab[mask]:
+        zDict={}
+        zDict['objID']=row['objid']
+        zDict['RADeg']=row['ra']
+        zDict['decDeg']=row['dec']
+        zDict['rMag']=row['r']
+        zDict['specObjID']=row['specobjid']
+        zDict['z']=row['z']
+        zDict['zWarning']=row['warning']
+        zDict['plate']=row['plate']
+        zDict['mjd']=row['mjd']
+        zDict['fiberID']=row['fiberid']
+        # NOTE: We already threw out stars/junk
+        SDSSRedshifts.append(zDict)
+    
+    return SDSSRedshifts
+    
+#-------------------------------------------------------------------------------------------------------------
+def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg, redshiftsTable = None):
+    """Queries SDSS for redshifts, writing output into cacheDir. If redshiftsTable is given, then we
+    get the redshifts from that. Otherwise, we fetch over the internet.
     
     Returns a list of dictionaries containing the redshift catalog.
     
     """
+    
+    if redshiftsTable is not None:
+        SDSSRedshifts=getSDSSRedshiftsFromFITSTable(cacheDir, name, RADeg, decDeg, 
+                                                    redshiftsTable = redshiftsTable)
+        return SDSSRedshifts
     
     if os.path.exists(cacheDir) == False:
         os.makedirs(cacheDir)
