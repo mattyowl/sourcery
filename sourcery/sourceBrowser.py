@@ -2017,10 +2017,15 @@ class SourceBrowser(object):
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
         xTab=atpy.Table().read(cachedTabFileName)
                 
-        t0=time.time()
-        posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)                
-        tabLength=posts.count()
-        t1=time.time()
+        posts=list(self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints))
+        tabLength=len(posts)#posts.count()
+        
+        # Trim xTab to match posts based on sourceryID
+        keepIndices=[]
+        for p in posts:
+            if p['sourceryID'] in xTab['sourceryID']:
+                keepIndices.append(np.where(xTab['sourceryID'] == p['sourceryID'])[0][0])
+        xTab=xTab[keepIndices]
 
         # Need this and change below for overloading with e.g. editable BCG coords
         editableFieldsList=[]
@@ -2032,15 +2037,14 @@ class SourceBrowser(object):
         
         # NOTE: there may be fun unicode-related stuff here: e.g., u'BCG_RADeg' versus 'BCG_RADeg'
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
-        keysToAdd=['RADeg', 'decDeg']
-        typeNamesToAdd=['number', 'number']
+        keysToAdd=['sourceryID', 'RADeg', 'decDeg']
+        typeNamesToAdd=['text', 'number', 'number']
         for k, t in zip(keysList, typeNamesList):
             if k not in xTab.keys() or k in editableFieldsList:
                 if k not in keysToAdd:
                     keysToAdd.append(k)
                     typeNamesToAdd.append(t)
                 
-        t2=time.time()
         tab=atpy.Table()
         tab.table_name=self.configDict['catalogDownloadFileName']
         for key, typeName in zip(keysToAdd, typeNamesToAdd):
@@ -2057,31 +2061,9 @@ class SourceBrowser(object):
             count=count+1
         tab.rename_column('RADeg', 'tag_RADeg')
         tab.rename_column('decDeg', 'tag_decDeg')
-        t3=time.time()
         
-        newOrder=xTab.keys()+tab.keys()
-        
-        tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
-        origLen=len(tab)
-        cat1=SkyCoord(ra = tab['tag_RADeg'], dec = tab['tag_decDeg'], unit = 'deg')
-        xMatchRadiusDeg=self.configDict['MongoDBCrossMatchRadiusArcmin']/60.
-        cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
-        xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
-        mask=np.less(rDeg.value, xMatchRadiusDeg)
-        tab['matchIndices'][:]=-1
-        tab['matchIndices']=xIndices
-        # Could not get join to work
-        for key in xTab.keys():
-            if key not in tab.keys():
-                if xTab[key].dtype.kind == 'S':
-                    tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
-                else:
-                    tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
-                tab[key][mask]=xTab[key][xIndices[mask]]
-        t4=time.time()
-        tab=tab[newOrder]
+        tab=atpy.join(xTab, tab, keys = ['sourceryID'])
         tab.remove_columns(['tag_RADeg', 'tag_decDeg', 'sourceryID', 'cacheBuilt'])
-        t5=time.time()
         
         # Zap any columns that this user shouldn't see
         user=cherrypy.session['_sourcery_username']
@@ -2095,8 +2077,6 @@ class SourceBrowser(object):
                             colsToDelete.append(key)
                     tab.remove_columns(colsToDelete)
         
-        print("time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4))
-
         tmpFile, tmpFileName=tempfile.mkstemp()
         if fileFormat == 'cat':
             tab.write(tmpFileName+".cat", format = 'ascii')
