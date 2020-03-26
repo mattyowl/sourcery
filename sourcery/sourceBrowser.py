@@ -1745,7 +1745,7 @@ class SourceBrowser(object):
             quickLinkStr="<p><i>Quick links:</i> "
             for linkDict in self.configDict['quickLinks']:
                 url="updateQueryParams?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints="
-                url=url+linkDict['constraints']
+                url=url+linkDict['constraints'].replace("+", "%2B") # quick and dirty fix for + in query constraints text
                 url=url+"&queryApply=Apply"
                 quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (url, linkDict['label'])
                 quickLinkStr=quickLinkStr+" - "
