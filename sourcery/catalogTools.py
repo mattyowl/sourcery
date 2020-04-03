@@ -220,7 +220,22 @@ def getSDSSRedshiftsFromFITSTable(cacheDir, name, RADeg, decDeg, redshiftsTable)
         SDSSRedshifts.append(zDict)
     
     return SDSSRedshifts
+
+#-------------------------------------------------------------------------------------------------------------
+def fetchSpecRedshifts(name, RADeg, decDeg, redshiftsTable):
+    """Extracts redshifts from within +/- 0.1 degrees of the given position from a big FITS table.
     
+    Returns the redshift catalog as an astropy table
+    
+    """
+    
+    tab=redshiftsTable
+    cosDec=np.cos(np.radians(decDeg))
+    RAMask=np.logical_and(np.greater(tab['RADeg'], RADeg-0.1/cosDec), np.less(tab['RADeg'], RADeg+0.1/cosDec))
+    decMask=np.logical_and(np.greater(tab['decDeg'], decDeg-0.1), np.less(tab['decDeg'], decDeg+0.1))
+    mask=np.logical_and(RAMask, decMask)
+    return tab[mask]
+                    
 #-------------------------------------------------------------------------------------------------------------
 def fetchSDSSRedshifts(cacheDir, name, RADeg, decDeg, redshiftsTable = None):
     """Queries SDSS for redshifts, writing output into cacheDir. If redshiftsTable is given, then we

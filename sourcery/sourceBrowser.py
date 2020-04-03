@@ -168,12 +168,10 @@ class SourceBrowser(object):
         
         # Big redshifts table - let's try and keep it in memory (may be a challenge on the webserver)
         # Really we should just put into a database table...
-        if self.configDict['SDSSRedshiftsTable'] is not None:
-            self.SDSSRedshiftsTab=atpy.Table().read(self.configDict['SDSSRedshiftsTable'])
-            self.SDSSRedshiftsTab=self.SDSSRedshiftsTab[np.where(self.SDSSRedshiftsTab['z'] > 0.01)]
-            self.SDSSRedshiftsTab=self.SDSSRedshiftsTab[np.where(self.SDSSRedshiftsTab['warning'] == 'OK')]    
+        if self.configDict['specRedshiftsTable'] is not None:
+            self.specRedshiftsTab=atpy.Table().read(self.configDict['specRedshiftsTable'])  
         else:
-            self.SDSSRedshiftsTab=None
+            self.specRedshiftsTab=None
         
         # So we can display a status message on the index page in other processes if the database or cache is being rebuilt
         self.dbLockFileName=self.cacheDir+os.path.sep+"db.lock"
@@ -658,12 +656,12 @@ class SourceBrowser(object):
         
         # We now support keeping a huge .fits table of spec-zs
         # We start with SDSS but this could (should?) be made generic
-        if 'SDSSRedshiftsTable' not in self.configDict.keys():
-            self.configDict['SDSSRedshiftsTable']=None
+        if 'specRedshiftsTable' not in self.configDict.keys():
+            self.configDict['specRedshiftsTable']=None
         #else:
         #    if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
         #        rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-        #        self.configDict['SDSSRedshiftsTable']=rootDir+os.path.sep+self.configDict['SDSSRedshiftsTable']
+        #        self.configDict['specRedshiftsTable']=rootDir+os.path.sep+self.configDict['specRedshiftsTable']
 
 
     def addNews(self):
@@ -994,7 +992,7 @@ class SourceBrowser(object):
 
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", 
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSpecObjects = "false", 
                          plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", clipSizeArcmin = None, gamma = 1.0):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
@@ -1148,21 +1146,21 @@ class SourceBrowser(object):
                 p.addPlotObjects(nedObjs['RAs'], nedObjs['decs'], 'nedObjects', objLabels = nedObjs['labels'],
                                     size = sizeDeg/40.0*3600.0, color = "#7cfc00")
     
-        if plotSDSSObjects == "true":
-            SDSSRedshifts=catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg, 
-                                                          redshiftsTable = self.SDSSRedshiftsTab)
-            if SDSSRedshifts != None:
-                sdssRAs=[]
-                sdssDecs=[]
-                sdssLabels=[]
-                sdssCount=0
-                for sdssObj in SDSSRedshifts:
-                    sdssCount=sdssCount+1
-                    sdssRAs.append(sdssObj['RADeg'])
-                    sdssDecs.append(sdssObj['decDeg'])
-                    sdssLabels.append(str(sdssCount))
-                if len(sdssRAs) > 0:
-                    p.addPlotObjects(sdssRAs, sdssDecs, 'sdssObjects', objLabels = sdssLabels,
+        if plotSpecObjects == "true":
+            specRedshifts=catalogTools.fetchSpecRedshifts(name, RADeg, decDeg, 
+                                                          redshiftsTable = self.specRedshiftsTab)
+            if specRedshifts is not None:
+                specRAs=[]
+                specDecs=[]
+                specLabels=[]
+                specCount=0
+                for specObj in specRedshifts:
+                    specCount=specCount+1
+                    specRAs.append(specObj['RADeg'])
+                    specDecs.append(specObj['decDeg'])
+                    specLabels.append(str(specCount))
+                if len(specRAs) > 0:
+                    p.addPlotObjects(specRAs, specDecs, 'specObjects', objLabels = specLabels,
                                     size = sizeDeg/40.0*3600.0, symbol = 'box', color = "red")
                               
         if plotXMatch == "true":
@@ -2524,7 +2522,7 @@ class SourceBrowser(object):
     
     @cherrypy.expose
     @sourceryAuth.require()
-    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", gamma = 1.0):
+    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSpecObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", gamma = 1.0):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2605,7 +2603,7 @@ class SourceBrowser(object):
         </tr>
 
         <tr>
-            <td align=center>$SDSS_MATCHES_TABLE</td>
+            <td align=center>$SPEC_MATCHES_TABLE</td>
         </tr>
         
         <tr>
@@ -2687,7 +2685,7 @@ class SourceBrowser(object):
                             decDeg: $OBJECT_DECDEG,
                             surveyLabel: parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 0),
                             plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
-                            plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
+                            plotSpecObjects: $('input:checkbox[name=plotSpecObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
@@ -2728,7 +2726,7 @@ class SourceBrowser(object):
                             decDeg: $OBJECT_DECDEG,
                             surveyLabel: parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 0),
                             plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
-                            plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
+                            plotSpecObjects: $('input:checkbox[name=plotSpecObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
@@ -2783,8 +2781,8 @@ class SourceBrowser(object):
         <label for="plotNEDObjects">NED objects</label>
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>
-        <label for="plotSDSSObjects">SDSS redshifts</label>
+        <input type="checkbox" name="plotSpecObjects" value=1 $CHECKED_SDSS>
+        <label for="plotSpecObjects">Spec redshifts</label>
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>
@@ -2919,10 +2917,10 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_NED", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_NED", "")
-        if plotSDSSObjects == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_SDSS", " checked")
+        if plotSpecObjects == "true":
+            plotFormCode=plotFormCode.replace("$CHECKED_SPEC", " checked")
         else:
-            plotFormCode=plotFormCode.replace("$CHECKED_SDSS", "")
+            plotFormCode=plotFormCode.replace("$CHECKED_SPEC", "")
         if plotSourcePos == "true":
             plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", " checked")
         else:
@@ -3111,15 +3109,15 @@ class SourceBrowser(object):
         html=html.replace("$NED_MATCHES_TABLE", nedTable)
         
         # SDSS matches table
-        if 'addSDSSRedshifts' in self.configDict.keys() and self.configDict['addSDSSRedshifts'] == True:
-            SDSSRedshifts=catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'], obj['decDeg'], 
-                                                          redshiftsTable = self.SDSSRedshiftsTab)
-            sdssTable="""<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=80% align=center>
+        if 'addSpecRedshifts' in self.configDict.keys() and self.configDict['addSpecRedshifts'] == True:
+            specRedshifts=catalogTools.fetchSpecRedshifts(obj['name'], obj['RADeg'], obj['decDeg'], 
+                                                          redshiftsTable = self.specRedshiftsTab)
+            specTable="""<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=80% align=center>
             <tbody>
             <tr>
                 <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=5>
-                    <b>SDSS Redshifts</b>
+                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
+                    <b>Spectroscopic Redshifts</b>
                 </th>
             </tr>
             <tr>
@@ -3127,30 +3125,33 @@ class SourceBrowser(object):
                 <td><b>RA</b></td>
                 <td><b>Dec.</b></td>
                 <td><b>z</b></td>
-                <td><b>zWarning</b></td>                    
+                <td><b>zWarning</b></td>
+                <td><b>catalog</b></td> 
             </tr>
             """              
-            sdssCount=0
-            for sdssObj in SDSSRedshifts:
-                sdssCount=sdssCount+1
+            specCount=0
+            for specObj in specRedshifts:
+                specCount=specCount+1
                 rowString="""<tr>
                     <td align=center width=10%>$ID</td>
                     <td align=center width=10%>$RA</td>
                     <td align=center width=10%>$DEC</td>
                     <td align=center width=10%>$REDSHIFT</td>
                     <td align=center width=10%>$Z_WARNING</td>
+                    <td align=center width=10%>$Z_CATALOG</td>
                 </tr>
                 """
-                rowString=rowString.replace("$ID", "%d" % (sdssCount))
-                rowString=rowString.replace("$RA", "%.5f" % (sdssObj['RADeg']))
-                rowString=rowString.replace("$DEC", "%.5f" % (sdssObj['decDeg']))
-                rowString=rowString.replace("$REDSHIFT", "%.3f" % (sdssObj['z']))
-                rowString=rowString.replace("$Z_WARNING", "%s" % (sdssObj['zWarning']))
-                sdssTable=sdssTable+rowString
-            sdssTable=sdssTable+"</tbody></table>"
+                rowString=rowString.replace("$ID", "%d" % (specCount))
+                rowString=rowString.replace("$RA", "%.5f" % (specObj['RADeg']))
+                rowString=rowString.replace("$DEC", "%.5f" % (specObj['decDeg']))
+                rowString=rowString.replace("$REDSHIFT", "%.3f" % (specObj['z']))
+                rowString=rowString.replace("$Z_WARNING", "%s" % (specObj['zWarning']))
+                rowString=rowString.replace("$Z_CATALOG", "%s" % (specObj['catalog']))
+                specTable=specTable+rowString
+            specTable=specTable+"</tbody></table>"
         else:
-            sdssTable=""
-        html=html.replace("$SDSS_MATCHES_TABLE", sdssTable)
+            specTable=""
+        html=html.replace("$SPEC_MATCHES_TABLE", specTable)
 
         # Source properties table
         propTable="""<br><table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
@@ -3318,9 +3319,9 @@ class SourceBrowser(object):
         print(">>> Fetching data to cache for object %s" % (name))
         self.fetchNEDInfo(name, RADeg, decDeg)
         # Web services
-        if self.configDict['addSDSSRedshifts'] == True:
+        if self.configDict['addSpecRedshifts'] == True:
             catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg,
-                                            redshiftsTable = self.SDSSRedshiftsTab)
+                                            redshiftsTable = self.specRedshiftsTab)
         if self.configDict['addSDSSImage'] == True:
             self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addDECaLSImage'] == True:
