@@ -2429,17 +2429,16 @@ class SourceBrowser(object):
                 
     
     @cherrypy.expose
-    def updateMongoDB(self, name, returnURL, **kwargs):
+    def updateMongoDB(self, sourceryID, returnURL, **kwargs):
         """Update info on source in MongoDB.
         
         """
         
         if not cherrypy.session.loaded: cherrypy.session.load()
         
-        # To start with, match ONLY on object name... this assumes that objects with the same name will have sufficiently
-        # similar coordinates (we handle updating for objects in multiple source lists below)
-        obj=self.sourceCollection.find_one({'name': name})
-        
+        obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
+        name=obj['name']
+
         # Bizarrely, legacy coordinates are given as degrees (lon, lat) but max distance has to be in radians...
         # Also, need lon between -180, +180
         if obj['RADeg'] > 180:
@@ -2462,7 +2461,7 @@ class SourceBrowser(object):
         post['lastUpdated']=datetime.date.today().isoformat()
         post['user']=cherrypy.session['_sourcery_username']
         self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
-        
+                
         # Update source collection too - here we will do this for all sources that share the same name (we can have multiple source lists)
         # This could be done using cross matching based on coords instead, but this could cause confusion in the case of multiple sources
         # that are not the same object, located at separations < MongoDBCrossMatchRadiusArcmin
@@ -2782,7 +2781,7 @@ class SourceBrowser(object):
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         <input type="checkbox" name="plotSpecObjects" value=1 $CHECKED_SDSS>
-        <label for="plotSpecObjects">Spec redshifts</label>
+        <label for="plotSpecObjects">Spec-zs</label>
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>
@@ -2956,7 +2955,7 @@ class SourceBrowser(object):
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
         tagFormCode="""
         <form method="post" action="updateMongoDB">    
-        <input name="name" value="$OBJECT_NAME" type="hidden">
+        <input name="sourceryID" value="$SOURCERY_ID" type="hidden">
         <input name="returnURL" value=$RETURN_URL" type="hidden">
         <fieldset style="height: 100%;">
         <legend><b>Editing Controls</b></legend>
@@ -2976,7 +2975,7 @@ class SourceBrowser(object):
                 readOnlyStr=""
                 tagFormCode=tagFormCode.replace("$DISABLED_STR", "")
             tagFormCode=tagFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
-            tagFormCode=tagFormCode.replace("$OBJECT_NAME", name)
+            tagFormCode=tagFormCode.replace("$SOURCERY_ID", sourceryID)
             tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
             if 'fields' in self.configDict.keys():
                 #fieldsCode="<p><b>Fields:</b>"
@@ -3319,9 +3318,9 @@ class SourceBrowser(object):
         print(">>> Fetching data to cache for object %s" % (name))
         self.fetchNEDInfo(name, RADeg, decDeg)
         # Web services
-        if self.configDict['addSpecRedshifts'] == True:
-            catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg,
-                                            redshiftsTable = self.specRedshiftsTab)
+        #if self.configDict['addSpecRedshifts'] == True:
+            #catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg,
+                                            #redshiftsTable = self.specRedshiftsTab)
         if self.configDict['addSDSSImage'] == True:
             self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addDECaLSImage'] == True:
