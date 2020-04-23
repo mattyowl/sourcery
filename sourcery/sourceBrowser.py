@@ -1808,9 +1808,11 @@ class SourceBrowser(object):
                 for o in operators:
                     colName=c.split(o)[0].lstrip().rstrip()
                     if numPosts > 0 and colName in viewPosts[0].keys() and colName not in columnsShownList:# and colName not in columnsHiddenList:
-                        fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
+                        fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})                            
                         dispDict={'name': colName, 'label': colName}
-                        if fieldTypeDict['type'] == 'number':
+                        if fieldTypeDict is None:
+                            dispDict['fmt']='%s'
+                        elif fieldTypeDict['type'] == 'number':
                             dispDict['fmt']='%.3f'
                         elif fieldTypeDict['type'] == 'text':
                             dispDict['fmt']='%s'
