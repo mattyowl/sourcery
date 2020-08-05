@@ -233,7 +233,7 @@ class SourceBrowser(object):
             self.tableDisplayColumns.append(dispDict)
                                        
         # Full list of image directories - for adding image_ tags in buildCacheForObject
-        # NOTE: handling of surveys (e.g., SDSS) is clunky and getting unwieldy...
+        # NOTE: handling of surveys (e.g., SDSS) is clunfky and getting unwieldy...
         # NOTE: made clunkier to allow different size images (imageDirs only for now)
         self.imDirLabelsList=[]
         self.imDirMaxSizeArcminList=[]
@@ -850,7 +850,11 @@ class SourceBrowser(object):
         decalsCacheDir=self.cacheDir+os.path.sep+"DECaLS"
                           
         outFileName=decalsCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        decalsWidth=512 # Max set by DECaLS server
+        # Old
+        #decalsWidth=512 # Max set by DECaLS server
+        #decalsPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(decalsWidth)
+        # Test
+        decalsWidth=1024
         decalsPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(decalsWidth)
         if os.path.exists(outFileName) == False or refetch == True:
             urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=decals-dr7&pixscale=%.4f&bands=grz" % (RADeg, decDeg, decalsWidth, decalsPixScale)
@@ -1039,6 +1043,7 @@ class SourceBrowser(object):
                     #f.write(resp.data)
                 im=Image.open(io.BytesIO(resp.data))
                 data=np.array(im)
+                data=np.flipud(data)
                 data=np.power(data, 1.0/float(gamma))
                 if data.shape != (fetchWidth, fetchWidth, 3):
                     layer=None  # We get (256, 256) if not in footprint (I think)
