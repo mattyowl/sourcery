@@ -997,7 +997,7 @@ class SourceBrowser(object):
                 
     @cherrypy.expose
     def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSpecObjects = "false", 
-                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", clipSizeArcmin = None, gamma = 1.0):
+                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", clipSizeArcmin = None, gamma = 1.0, redshift = "none", plotRedshift = "false"):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -1024,7 +1024,7 @@ class SourceBrowser(object):
         inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         if os.path.exists(inJPGPath) == False:
             # Testing fall back option of live fetch from legacysurvey.org
-            fetchWidth=512 # Max set by DECaLS server
+            fetchWidth=1024
             fetchPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(fetchWidth)
             if surveyLabel == 'SDSS':
                 layer='sdss'
@@ -1135,7 +1135,7 @@ class SourceBrowser(object):
         
         if showAxes != "true":
             scaleBarSizeArcmin=1.0
-            p.addScaleBar('NW', scaleBarSizeArcmin*60.0, color='yellow', fontSize=16, width=2.0, label = "1'")
+            p.addScaleBar('NW', scaleBarSizeArcmin*60.0, color='yellow', fontSize=20, width=2.0, label = "1'")
             plt.figtext(0.025, 0.95, name.replace("_", " "), ha = 'left', size = 24, color = 'yellow')
             #if plotTitle != None:
             #plt.figtext(0.965, 0.88, plotTitle, ha = 'right', size = 24)
@@ -1150,6 +1150,9 @@ class SourceBrowser(object):
             if len(nedObjs['RAs']) > 0:
                 p.addPlotObjects(nedObjs['RAs'], nedObjs['decs'], 'nedObjects', objLabels = nedObjs['labels'],
                                     size = sizeDeg/40.0*3600.0, color = "#7cfc00")
+        
+        if plotRedshift == "true" and redshift != "none":
+            plt.figtext(0.025, 0.03, "z = %.2f" % (float(redshift)), ha = 'left', size = 24, color = 'white')
     
         if plotSpecObjects == "true":
             specRedshifts=catalogTools.fetchSpecRedshifts(name, RADeg, decDeg, 
@@ -2528,7 +2531,9 @@ class SourceBrowser(object):
     
     @cherrypy.expose
     @sourceryAuth.require()
-    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSpecObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", gamma = 1.0):
+    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", 
+                          plotSpecObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", 
+                          showAxes = "false", gamma = 1.0, plotRedshift = "false", redshift = "none"):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2697,7 +2702,9 @@ class SourceBrowser(object):
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
                             clipSizeArcmin: $DEFAULT_CLIP_SIZE_ARCMIN,
-                            gamma: $("#gamma").val()}, 
+                            gamma: $("#gamma").val(),
+                            plotRedshift: $('input:checkbox[name=plotRedshift]').prop('checked'),
+                            redshift: $OBJECT_REDSHIFT}, 
                             function(data) {
                                 // directly insert the image
                                 $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
@@ -2738,7 +2745,9 @@ class SourceBrowser(object):
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
                             clipSizeArcmin: $("#sizeSliderValue").val(),
-                            gamma: $("#gammaSliderValue").val()}, 
+                            gamma: $("#gammaSliderValue").val(),
+                            plotRedshift: $('input:checkbox[name=plotRedshift]').prop('checked'),
+                            redshift: $OBJECT_REDSHIFT}, 
                             function(data) {
                                 // directly insert the image
                                 $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
@@ -2777,6 +2786,10 @@ class SourceBrowser(object):
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         $CONTOUR_CODE
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotRedshift" value=1 $CHECKED_REDSHIFT>
+        <label for="plotRedshift">Display redshift</label>
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>
@@ -2900,6 +2913,10 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$OBJECT_NAME", obj['name'])
         plotFormCode=plotFormCode.replace("$OBJECT_RADEG", str(obj['RADeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
+        if 'redshift' in obj.keys():
+            plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", str(obj['redshift']))
+        else:
+            plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", 'none')
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
         if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
             contourCode='<input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>\n'
@@ -2943,6 +2960,10 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", "")
+        if plotRedshift == "true":
+            plotFormCode=plotFormCode.replace("$CHECKED_REDSHIFT", " checked")
+        else:
+            plotFormCode=plotFormCode.replace("$CHECKED_REDSHIFT", "")
         
         # This block here probably is hardly useful
         imageMaxSizeArcmin=30.
