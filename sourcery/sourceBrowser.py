@@ -1009,7 +1009,7 @@ class SourceBrowser(object):
         http://localhost:8080/sourcery/makePlotFromJPEG?name=XMMXCS%20J001737.5-005234.2&RADeg=4.406325&decDeg=-0.876192&surveyLabel=SDSS&clipSizeArcmin=3.0
         
         """
-               
+        
         # Just in case they are passed as strings (e.g., if direct from the url)
         RADeg=float(RADeg)
         decDeg=float(decDeg)
@@ -2916,7 +2916,7 @@ class SourceBrowser(object):
         if 'redshift' in obj.keys():
             plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", str(obj['redshift']))
         else:
-            plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", 'none')
+            plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", '-99')
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
         if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
             contourCode='<input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>\n'
