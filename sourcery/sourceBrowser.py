@@ -504,8 +504,10 @@ class SourceBrowser(object):
         
         # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
         # Otherwise, for large catalogs, we're hitting memory issues
-        #cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
-        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.csv" % (self.configDict['catalogDownloadFileName'])
+        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        #cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.csv" % (self.configDict['catalogDownloadFileName'])
+        if len(tab.columns) > 999:
+            raise Exception("FITS format is limited to a maximum 1000 columns - so prune your cross-match tables.")
         tab.write(cachedTabFileName, overwrite = True)
         print("... written %s ..." % (cachedTabFileName))
         
@@ -2026,7 +2028,7 @@ class SourceBrowser(object):
         """
                 
         # Fetch the cached table and update that with any changed classifications info
-        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.csv" % (self.configDict['catalogDownloadFileName'])
+        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
         xTab=atpy.Table().read(cachedTabFileName)
                 
         posts=list(self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints))
