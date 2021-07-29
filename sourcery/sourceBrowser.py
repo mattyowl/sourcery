@@ -447,7 +447,10 @@ class SourceBrowser(object):
                     xTab.remove_columns(excludeKeys)
                     tab=atpy.join(tab, xTab, keys = ['sourceryID'], join_type = 'left')
                     for key in xTab.keys():
-                        tab[key][tab[key].mask]=-99
+                        try:
+                            tab[key][tab[key].mask]=-99
+                        except:
+                            continue
                     tab=atpy.Table(tab, masked = False)
                     tab.sort(["RADeg", "decDeg"]) # For some reason join jumbles row order
                     if len(tab) != origLen:
@@ -501,7 +504,8 @@ class SourceBrowser(object):
         
         # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
         # Otherwise, for large catalogs, we're hitting memory issues
-        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        #cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.csv" % (self.configDict['catalogDownloadFileName'])
         tab.write(cachedTabFileName, overwrite = True)
         print("... written %s ..." % (cachedTabFileName))
         
@@ -2022,7 +2026,7 @@ class SourceBrowser(object):
         """
                 
         # Fetch the cached table and update that with any changed classifications info
-        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.csv" % (self.configDict['catalogDownloadFileName'])
         xTab=atpy.Table().read(cachedTabFileName)
                 
         posts=list(self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints))
