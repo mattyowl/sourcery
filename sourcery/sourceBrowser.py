@@ -1111,7 +1111,8 @@ class SourceBrowser(object):
         newHead['CUNIT2']='DEG'
         wcs=astWCS.WCS(newHead, mode='pyfits')
 
-        cutLevels=[[R.min(), R.max()], [G.min(), G.max()], [B.min(), B.max()]]
+        #cutLevels=[[R.min(), R.max()], [G.min(), G.max()], [B.min(), B.max()]]
+        cutLevels=[[0, 255], [0, 255], [0, 255]]
         
         # Optional zoom
         if clipSizeArcmin != None:
