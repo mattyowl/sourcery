@@ -144,7 +144,7 @@ class SourceBrowser(object):
         # More storage dirs... (we can't make these on-the-fly when running threaded)
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
         os.makedirs(sdssCacheDir, exist_ok = True)
-        decalsCacheDir=self.cacheDir+os.path.sep+"legacy_ls-dr9"
+        decalsCacheDir=self.cacheDir+os.path.sep+"DECaLS"
         os.makedirs(decalsCacheDir, exist_ok = True)
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1"
         if os.path.exists(ps1CacheDir) == False:
@@ -152,7 +152,7 @@ class SourceBrowser(object):
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1IR"
         if os.path.exists(ps1CacheDir) == False:
             os.makedirs(ps1CacheDir)
-        wiseCacheDir=self.cacheDir+os.path.sep+"legacy_unwise-neo6"
+        wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
         os.makedirs(wiseCacheDir, exist_ok = True)
 
         # tileDirs set-up - KiDS, IAC-S82 etc..
@@ -874,6 +874,8 @@ class SourceBrowser(object):
                 urlString=urlString+"&bands=%s" % (bands)
             print(urlString)
             resp=self.http.request('GET', urlString)
+            if resp.data.find(b'Server Error') != -1:
+                return None
             with open(outFileName, 'wb') as f:
                 f.write(resp.data)
                 f.close()
