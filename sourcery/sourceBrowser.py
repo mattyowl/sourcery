@@ -101,7 +101,7 @@ class SourceBrowser(object):
         if 'defaultImageType' not in self.configDict.keys():
             self.configDict['defaultImageType']='best'
         if 'imagePrefs' not in self.configDict.keys():
-            self.configDict['imagePrefs']=['DES', 'SDSS', 'unWISE']
+            self.configDict['imagePrefs']=['DECaLS', 'DES', 'SDSS', 'unWISE']
         
         # Add news into self.configDict, if there is any...
         if 'newsFileName' in self.configDict.keys():
@@ -143,21 +143,18 @@ class SourceBrowser(object):
         
         # More storage dirs... (we can't make these on-the-fly when running threaded)
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
-        if os.path.exists(sdssCacheDir) == False:
-            os.makedirs(sdssCacheDir)
-        decalsCacheDir=self.cacheDir+os.path.sep+"DECaLS"
-        if os.path.exists(decalsCacheDir) == False:
-            os.makedirs(decalsCacheDir)
+        os.makedirs(sdssCacheDir, exist_ok = True)
+        decalsCacheDir=self.cacheDir+os.path.sep+"legacy_ls-dr9"
+        os.makedirs(decalsCacheDir, exist_ok = True)
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1"
         if os.path.exists(ps1CacheDir) == False:
             os.makedirs(ps1CacheDir)
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1IR"
         if os.path.exists(ps1CacheDir) == False:
             os.makedirs(ps1CacheDir)
-        wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
-        if os.path.exists(wiseCacheDir) == False:
-            os.makedirs(wiseCacheDir)
-            
+        wiseCacheDir=self.cacheDir+os.path.sep+"legacy_unwise-neo6"
+        os.makedirs(wiseCacheDir, exist_ok = True)
+
         # tileDirs set-up - KiDS, IAC-S82 etc..
         self.tileDirs={}
         if 'tileDirs' in self.configDict.keys():
@@ -251,6 +248,9 @@ class SourceBrowser(object):
             self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addUnWISEImage'] == True:
             self.imDirLabelsList.append("unWISE")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
+        if self.configDict['addHSCImage'] == True:
+            self.imDirLabelsList.append("HSC")
             self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if 'tileDirs' in self.configDict.keys():
             for tileDirDict in self.configDict['tileDirs']:
@@ -847,159 +847,50 @@ class SourceBrowser(object):
                 #outFileName=None
 
 
-    def fetchDECaLSImage(self, name, RADeg, decDeg, refetch = False):
-        """Fetches DECaLS .jpg cut-out. Unfortunatly at the moment, these are limited to 512 pixels
-        maximum at the moment (DR7).
-        
+    def fetchLegacySurveyImage(self, name, RADeg, decDeg, sizePix = 800,
+                               refetch = False, layer = 'ls-dr9',
+                               bands = None, cacheSubDir = None):
+        """Fetches .jpg cut-out from legacysurvey.org sky viewer. Based on the code in sourcery.
+
+        Valid layers include e.g. decals-dr7, des-dr1 etc..
+
         """
-    
-        decalsCacheDir=self.cacheDir+os.path.sep+"DECaLS"
-                          
+
+        if cacheSubDir is None:
+            decalsCacheDir=self.cacheDir+os.path.sep+"legacy_%s" % (layer)
+        else:
+            decalsCacheDir=self.cacheDir+os.path.sep+cacheSubDir
+
+        os.makedirs(decalsCacheDir, exist_ok = True)
+
         outFileName=decalsCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        # Old
-        #decalsWidth=512 # Max set by DECaLS server
-        #decalsPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(decalsWidth)
-        # Test
-        decalsWidth=1024
+
+        decalsWidth=sizePix
         decalsPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(decalsWidth)
         if os.path.exists(outFileName) == False or refetch == True:
-            urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=decals-dr7&pixscale=%.4f&bands=grz" % (RADeg, decDeg, decalsWidth, decalsPixScale)
+            #http://legacysurvey.org/viewer/jpeg-cutout?ra=52.102810&dec=-21.670020&size=2048&layer=des-dr1&pixscale=0.3809&bands=grz
+            urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=%s&pixscale=%.4f" % (RADeg, decDeg, decalsWidth, layer, decalsPixScale)
+            if bands is not None:
+                urlString=urlString+"&bands=%s" % (bands)
+            print(urlString)
             resp=self.http.request('GET', urlString)
             with open(outFileName, 'wb') as f:
                 f.write(resp.data)
                 f.close()
-                
+
+    def fetchDECaLSImage(self, name, RADeg, decDeg, refetch = False):
+        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'ls-dr9',
+                                    cacheSubDir = "DECaLS")
+
 
     def fetchUnWISEImage(self, name, RADeg, decDeg, refetch = False):
-        """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
-        
-        """
-        
-        wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
-                
-        # 2.75" pixels in the unWISE images (max for query is 250 pixels though)
-        sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))  
-        if sizePix > 250:
-            raise Exception("WISE web service does not work for images > 250 WISE pixels - use tileDir set-up instead or use smaller plotSizeArcmin")
-        
-        outFileName=wiseCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        if os.path.exists(outFileName) == False or refetch == True:
-            with TemporaryDirectory() as tmpDirPath:
-                targzPath=tmpDirPath+os.path.sep+"wise.tar.gz"            
-                print("... fetching unWISE data for %s ..." % (name))
-                resp=self.http.request('GET', "http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix))
-                with open(targzPath, 'wb') as f:
-                    f.write(resp.data)
-                    f.close()
-                with tarfile.open(targzPath) as t:
-                    t.extractall(path = os.path.split(targzPath)[0])
-                    t.close()
-                wiseFiles=glob.glob(tmpDirPath+os.path.sep+"unwise-*-img-m.fits")
-                w1FileName=None
-                w2FileName=None
-                for w in wiseFiles:
-                    # Weirdly, the archives sometimes have multiple images, some of odd dimensions
-                    if w.find("-img-m.fits") != -1:
-                        img=pyfits.open(w)
-                        if img[0].data.shape == (sizePix, sizePix):
-                            if w.find("-w1-img") != -1:
-                                w1FileName=w
-                            if w.find("-w2-img") != -1:
-                                w2FileName=w
-                if w1FileName == None or w2FileName == None:
-                    # In this case, we have to stitch all the images together
-                    # Takes ~1.6 sec per image
-                    for band in ['w1', 'w2']:
-                        # Make a WCS
-                        CRVAL1, CRVAL2=RADeg, decDeg
-                        sizeArcmin=self.configDict['plotSizeArcmin']
-                        xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
-                        xSizePix=sizePix
-                        ySizePix=sizePix
-                        xRefPix=xSizePix/2.0
-                        yRefPix=ySizePix/2.0
-                        xOutPixScale=xSizeDeg/xSizePix
-                        yOutPixScale=ySizeDeg/ySizePix
-                        newHead=pyfits.Header()
-                        newHead['NAXIS']=2
-                        newHead['NAXIS1']=xSizePix
-                        newHead['NAXIS2']=ySizePix
-                        newHead['CTYPE1']='RA---TAN'
-                        newHead['CTYPE2']='DEC--TAN'
-                        newHead['CRVAL1']=CRVAL1
-                        newHead['CRVAL2']=CRVAL2
-                        newHead['CRPIX1']=xRefPix+1
-                        newHead['CRPIX2']=yRefPix+1
-                        newHead['CDELT1']=xOutPixScale
-                        newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
-                        newHead['CUNIT1']='DEG'
-                        newHead['CUNIT2']='DEG'
-                        wcs=astWCS.WCS(newHead, mode='pyfits')
-                        outData=np.zeros([sizePix, sizePix])
-                        imgFileNames=glob.glob(("*-%s-img-m.fits" % (band)))
-                        for fileName in imgFileNames:
-                            img=pyfits.open(fileName)
-                            imgWCS=astWCS.WCS(img[0].header, mode = 'pyfits')
-                            for y in range(sizePix):
-                                for x in range(sizePix):
-                                    outRADeg, outDecDeg=wcs.pix2wcs(x, y)
-                                    inX, inY=imgWCS.wcs2pix(outRADeg, outDecDeg)
-                                    # Once, this returned infinity...
-                                    try:
-                                        inX=int(round(inX))
-                                        inY=int(round(inY))
-                                    except:
-                                        continue
-                                    if inX >= 0 and inX < img[0].data.shape[1]-1 and inY >= 0 and inY < img[0].data.shape[0]-1:
-                                        outData[y, x]=img[0].data[inY, inX]
-                        if band == 'w1':
-                            bClip={'wcs': wcs, 'data': outData}
-                        elif band == 'w2':
-                            rClip={'wcs': wcs, 'data': outData}
-                else:
-                    wcs=astWCS.WCS(w1FileName)
-                    with pyfits.open(w1FileName) as bImg:
-                        bClip={'wcs': wcs, 'data': bImg[0].data}
-                    with pyfits.open(w2FileName) as rImg:
-                        rClip={'wcs': wcs, 'data': rImg[0].data}
-            
-                try:
-                    gClip={'wcs': rClip['wcs'], 'data': (rClip['data']+bClip['data'])/2.0}
-                except:
-                    raise Exception("W1, W2 images not same dimensions")
+        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'unwise-neo6',
+                                    cacheSubDir = "unWISE")
 
-            ## Clean up
-            #fileList=os.listdir(tmpDirPath)
-            #for f in fileList:
-                #os.remove(tmpDirPath+os.path.sep+f)
-            #os.removedirs(tmpDirPath)
-            
-            # Make colour .jpg
-            # Nicer log scaling - twiddle with the min, max levels here and cuts below as you like
-            dpi=96.0
-            bData=bClip['data']
-            gData=gClip['data']
-            rData=rClip['data']
-            rData[np.less(rData, 1e-5)]=1e-5
-            rData[np.greater(rData, 1000)]=1000.0
-            rData=np.log10(rData)
-            gData[np.less(gData, 1e-5)]=1e-5
-            gData[np.greater(gData, 1000)]=1000.0
-            gData=np.log10(gData)
-            bData[np.less(bData, 1e-5)]=1e-5
-            bData[np.greater(bData, 1000)]=1000.0
-            bData=np.log10(bData)
 
-            cuts=[0, 3]
-
-            sizePix=1024
-            f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
-            axes=[0., 0., 1.0, 1.0]
-            plot=astPlots.ImagePlot([rData, gData, bData], bClip['wcs'], axes = axes, 
-                                cutLevels = [cuts, cuts, cuts], axesFontSize = 18.0)
-            plt.savefig(outFileName, dpi = dpi)
-            plt.close()
-
+    def fetchHSCImage(self, name, RADeg, decDeg, refetch = False):
+        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'hsc2',
+                                    cacheSubDir = "HSC")
                 
     @cherrypy.expose
     def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSpecObjects = "false", 
@@ -3360,6 +3251,8 @@ class SourceBrowser(object):
             self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addDECaLSImage'] == True:
             self.fetchDECaLSImage(name, RADeg, decDeg, refetch = refetch)
+        if self.configDict['addHSCImage'] == True:
+            self.fetchHSCImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addPS1Image'] == True:
             self.fetchPS1Image(name, RADeg, decDeg, refetch = refetch, bands = 'gri')
         if self.configDict['addPS1IRImage'] == True:
