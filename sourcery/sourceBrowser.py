@@ -176,12 +176,17 @@ class SourceBrowser(object):
         
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
+        if 'TagsDBName' not in self.configDict.keys():
+            self.tabsDBName=self.dbName
+        else:
+            self.tagsDBName=self.configDict['TagsDBName']
         self.client=pymongo.MongoClient('localhost', 27017)
         self.db=self.client[self.dbName]
         self.sourceCollection=self.db['sourceCollection']
         self.sourceCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
         self.fieldTypesCollection=self.db['fieldTypes']
-        self.tagsCollection=self.db['tagsCollection']
+        self.tagsDB=self.client[self.tagsDBName]
+        self.tagsCollection=self.tagsDB['tagsCollection']
         self.tagsCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
         if buildDatabase == True:
             self.buildDatabase()
