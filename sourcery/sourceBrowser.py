@@ -3355,7 +3355,11 @@ class SourceBrowser(object):
                 origLength=len(headerDict.keys())
                 for imgFileName in imgList:
                     if imgFileName not in headerDict.keys():
-                        wcs=astWCS.WCS(imgFileName)
+                        with pyfits.open(imgFileName) as img:
+                            for ext in img:
+                                if ext.data is not None:
+                                    break
+                            wcs=astWCS.WCS(ext.header, mode = 'pyfits')
                         headerDict[imgFileName]=wcs.header.copy()
                 t1=time.time()
                 # Write pickled headerDict, in case it was updated
@@ -3402,7 +3406,10 @@ class SourceBrowser(object):
 
                         # Clip image
                         with pyfits.open(imgFileName) as img:
-                            data=img[0].data                     
+                            for ext in img:
+                                if ext.data is not None:
+                                    break
+                            data=ext.data
                         clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
                                                            maxSizeArcmin/60.0)
                         
