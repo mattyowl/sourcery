@@ -3413,12 +3413,13 @@ class SourceBrowser(object):
                         clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
                                                            maxSizeArcmin/60.0)
                         
-                        # Sanity check - did we pick an image where object is in zeroed border?
+                        # Optional check - did we pick an image where object is in zeroed border?
                         pixCoords=clip['wcs'].wcs2pix(obj['RADeg'], obj['decDeg'])
-                        if clip['data'][int(pixCoords[1]), int(pixCoords[0])] == 0:
-                            continue
-                        if clip['data'].sum() == 0:
-                            continue
+                        if 'checkAllZeros' in imDirDict.keys() and imDirDict['checkAllZeros'] == True:
+                            if clip['data'][int(pixCoords[1]), int(pixCoords[0])] == 0:
+                                continue
+                            if clip['data'].sum() == 0:
+                                continue
                         
                         # Save .fits if needed
                         if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
