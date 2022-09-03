@@ -852,8 +852,7 @@ class SourceBrowser(object):
                 #outFileName=None
 
 
-    def fetchLegacySurveyImage(self, name, RADeg, decDeg, sizePix = 800,
-                               refetch = False, layer = 'ls-dr9',
+    def fetchLegacySurveyImage(self, name, RADeg, decDeg, sizePix = 800, refetch = False, layer = 'ls-dr9',\
                                bands = None, cacheSubDir = None):
         """Fetches .jpg cut-out from legacysurvey.org sky viewer. Based on the code in sourcery.
 
@@ -885,6 +884,7 @@ class SourceBrowser(object):
                 f.write(resp.data)
                 f.close()
 
+
     def fetchDECaLSImage(self, name, RADeg, decDeg, refetch = False):
         self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'ls-dr9',
                                     cacheSubDir = "DECaLS")
@@ -900,8 +900,9 @@ class SourceBrowser(object):
                                     cacheSubDir = "HSC")
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSpecObjects = "false", 
-                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", clipSizeArcmin = None, gamma = 1.0, redshift = "none", plotRedshift = "false"):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSpecObjects = "false",\
+                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false",\
+                         clipSizeArcmin = None, gamma = 1.0, redshift = "none", plotRedshift = "false"):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -927,34 +928,21 @@ class SourceBrowser(object):
         # Load data
         inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         if os.path.exists(inJPGPath) == False:
-            # Testing fall back option of live fetch from legacysurvey.org
-            fetchWidth=1024
-            fetchPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(fetchWidth)
-            if surveyLabel == 'SDSS':
-                layer='sdss'
+            # Live fetching of not yet cached images from web services, where we can
+            if surveyLabel == 'unWISE':
+                self.fetchUnWISEImage(name, RADeg, decDeg, refetch = False)
             elif surveyLabel == 'DECaLS':
-                layer='decals-dr7'
-            elif surveyLabel == 'unWISE':
-                layer='unwise-w1w2'
-            elif surveyLabel == 'DES':
-                layer='des-dr1'
-            else:
-                layer=None 
-            if layer is not None:
-                urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=%s&pixscale=%.4f&bands=grz" % (RADeg, decDeg, fetchWidth, layer, fetchPixScale)
-                resp=self.http.request('GET', urlString)
-                #with open('test.jpg', 'wb') as f:
-                    #f.write(resp.data)
-                im=Image.open(io.BytesIO(resp.data))
-                data=np.array(im)
-                data=np.flipud(data)
-                data=np.power(data, 1.0/float(gamma))
-                if data.shape != (fetchWidth, fetchWidth, 3):
-                    layer=None  # We get (256, 256) if not in footprint (I think)
-            if layer is None:
+                self.fetchDECaLSImage(name, RADeg, decDeg, refetch = False)
+            elif surveyLabel == 'HSC':
+                self.fetchHSCImage(name, RADeg, decDeg, refetch = False)
+            elif surveyLabel == 'SDSS':
+                self.fetchSDSSImage(name, RADeg, decDeg, refetch = False)
+            elif surveyLabel == 'PS1':
+                self.fetchPS1Image(name, RADeg, decDeg, bands = "gri", refetch = False)
+            elif surveyLabel == 'PS1IR':
+                self.fetchPS1Image(name, RADeg, decDeg, bands = "izy", refetch = False)
+            if os.path.exists(inJPGPath) == False:
                 inJPGPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
-            else:
-                inJPGPath=None # success in this case
         
         # Gets set to None if we got it from legacysurvey.org and we didn't write to disk
         if inJPGPath is not None:
@@ -2436,8 +2424,8 @@ class SourceBrowser(object):
     
     @cherrypy.expose
     @sourceryAuth.require()
-    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", 
-                          plotSpecObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", 
+    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false",\
+                          plotSpecObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false",\
                           showAxes = "false", gamma = 1.0, plotRedshift = "false", redshift = "none"):
         """Retrieve data on a source and display source page, showing given image plot.
         
