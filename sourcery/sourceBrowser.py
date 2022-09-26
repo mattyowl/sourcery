@@ -852,11 +852,11 @@ class SourceBrowser(object):
                 #outFileName=None
 
 
-    def fetchLegacySurveyImage(self, name, RADeg, decDeg, sizePix = 800, refetch = False, layer = 'ls-dr9',\
+    def fetchLegacySurveyImage(self, name, RADeg, decDeg, sizePix = 800, refetch = False, layer = 'ls-dr10-early-grz',\
                                bands = None, cacheSubDir = None):
         """Fetches .jpg cut-out from legacysurvey.org sky viewer. Based on the code in sourcery.
 
-        Valid layers include e.g. decals-dr7, des-dr1 etc..
+        Valid layers include ls-dr9, ls-dr10-early-grz etc.
 
         """
 
