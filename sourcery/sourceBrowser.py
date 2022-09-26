@@ -530,7 +530,7 @@ class SourceBrowser(object):
             newPost['RADeg']=row['RADeg']
             newPost['decDeg']=row['decDeg']
             
-            #print "... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab))
+            print("... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab)))
             
             # MongoDB coords for spherical geometry
             if row['RADeg'] > 180:
@@ -582,11 +582,12 @@ class SourceBrowser(object):
             tagsDict=self.matchTags(newPost)
             for key in tagsDict:
                 newPost[key]=tagsDict[key]
-                
-            postsList.append(newPost)
+            self.sourceCollection.insert_one(newPost) 
+            #postsList.append(newPost)
         
         # Insert all posts at once
-        self.sourceCollection.insert_many(postsList)
+        #print("... inserting all posts ...")
+        #self.sourceCollection.insert_many(postsList)
 
         # Add descriptions of field (displayed on help page only)
         descriptionsDict=self.parseColumnDescriptionsFile()
