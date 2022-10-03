@@ -887,7 +887,7 @@ class SourceBrowser(object):
 
 
     def fetchDECaLSImage(self, name, RADeg, decDeg, refetch = False):
-        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'ls-dr9',
+        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'ls-dr10-early-grz',
                                     cacheSubDir = "DECaLS")
 
 
