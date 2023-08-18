@@ -239,11 +239,11 @@ class SourceBrowser(object):
         # NOTE: made clunkier to allow different size images (imageDirs only for now)
         self.imDirLabelsList=[]
         self.imDirMaxSizeArcminList=[]
-        if self.configDict['addSDSSImage'] == True:
-            self.imDirLabelsList.append("SDSS")
-            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addDECaLSImage'] == True:
             self.imDirLabelsList.append("DECaLS")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
+        if self.configDict['addSDSSImage'] == True:
+            self.imDirLabelsList.append("SDSS")
             self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addPS1Image'] == True:
             self.imDirLabelsList.append("PS1")
@@ -2559,7 +2559,7 @@ class SourceBrowser(object):
                     break
             # Fall back option
             if imageType == 'best':
-                imageType='SDSS'
+                imageType='DECaLS'
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
         plotFormCode="""
