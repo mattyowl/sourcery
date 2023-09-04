@@ -8,7 +8,7 @@ from Cython.Distutils import build_ext
 import numpy
 
 setup(name='sourcery',
-      version="git",
+      version="0.1",
       url=None,
       author='Matt Hilton',
       author_email='matt.hilton@mykolab.com',
