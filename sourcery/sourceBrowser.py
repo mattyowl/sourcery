@@ -70,6 +70,10 @@ import IPython
 from sourcery import sourceryAuth
 from sourcery import tileDir
 from passlib.hash import pbkdf2_sha256
+import logging
+
+# Logging
+logger=logging.getLogger('sourcery')
 
 #-------------------------------------------------------------------------------------------------------------
 class SourceBrowser(object):
@@ -367,6 +371,7 @@ class SourceBrowser(object):
                     if x >= 0 and x < mask.shape[1] and y >= 0 and y < mask.shape[0]:
                         if mask[y, x] > 0:
                             tab[colLabel][i]=1
+            del mask, wcs
         
         return tab
         
@@ -504,6 +509,7 @@ class SourceBrowser(object):
                     tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
                     tab['%s_match' % (label)][mask]=1
                     tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]*60.0
+                del xTab
             tab.remove_column("matchIndices")
         assert(len(tab) == origLen)
         
@@ -887,7 +893,7 @@ class SourceBrowser(object):
 
 
     def fetchDECaLSImage(self, name, RADeg, decDeg, refetch = False):
-        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'ls-dr10-early-grz',
+        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'ls-dr10-grz',
                                     cacheSubDir = "DECaLS")
 
 
@@ -928,6 +934,7 @@ class SourceBrowser(object):
         
         # Load data
         inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        logger.info("Image path: %s" % (inJPGPath))
         if os.path.exists(inJPGPath) == False:
             # Live fetching of not yet cached images from web services, where we can
             if surveyLabel == 'unWISE':
