@@ -183,11 +183,11 @@ class SourceBrowser(object):
         self.client=pymongo.MongoClient('localhost', 27017)
         self.db=self.client[self.dbName]
         self.sourceCollection=self.db['sourceCollection']
-        self.sourceCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
+        self.sourceCollection.create_index([('loc', pymongo.GEOSPHERE)])
         self.fieldTypesCollection=self.db['fieldTypes']
         self.tagsDB=self.client[self.tagsDBName]
         self.tagsCollection=self.tagsDB['tagsCollection']
-        self.tagsCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
+        self.tagsCollection.create_index([('loc', pymongo.GEOSPHERE)])
         if buildDatabase == True:
             self.buildDatabase()
 
@@ -291,12 +291,14 @@ class SourceBrowser(object):
         else:
             lon=obj['RADeg']
         matches=self.tagsCollection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
-        if matches.count() == 0:
+        matches=list(matches)
+
+        if matches == []:
             newPost={'loc': {'type': 'Point', 'coordinates': [lon, obj['decDeg']]}}
             self.tagsCollection.insert(newPost)
             mongoDict={}
         else:
-            mongoDict=matches.next()
+            mongoDict=matches[0]
         
         # Check we don't have a blank entry in terms of fields we expect
         if 'classifications' in self.configDict.keys() and 'classification' not in mongoDict.keys():
@@ -529,9 +531,6 @@ class SourceBrowser(object):
             newPost['name']=row['name']
             newPost['RADeg']=row['RADeg']
             newPost['decDeg']=row['decDeg']
-            
-            print("... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab)))
-            
             # MongoDB coords for spherical geometry
             if row['RADeg'] > 180:
                 lon=360.0-row['RADeg']
@@ -582,12 +581,16 @@ class SourceBrowser(object):
             tagsDict=self.matchTags(newPost)
             for key in tagsDict:
                 newPost[key]=tagsDict[key]
-            self.sourceCollection.insert_one(newPost) 
-            #postsList.append(newPost)
+            if self.configDict['insertMode'] == 'single':
+                print("... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab)))
+                self.sourceCollection.insert_one(newPost)
+            else:
+                postsList.append(newPost)
         
         # Insert all posts at once
-        #print("... inserting all posts ...")
-        #self.sourceCollection.insert_many(postsList)
+        if self.configDict['insertMode'] == 'many':
+            print("... inserting all posts into database ...")
+            self.sourceCollection.insert_many(postsList)
 
         # Add descriptions of field (displayed on help page only)
         descriptionsDict=self.parseColumnDescriptionsFile()
@@ -603,7 +606,7 @@ class SourceBrowser(object):
                 fieldDict['description']=descriptionsDict[key]
             else:
                 fieldDict['description']="-"
-            self.fieldTypesCollection.insert(fieldDict)
+            self.fieldTypesCollection.insert_one(fieldDict)
             index=index+1
 
         t1=time.time()
@@ -665,6 +668,9 @@ class SourceBrowser(object):
             
         if "NEDObjTypes" not in self.configDict.keys():
             self.configDict['NEDObjTypes']=['GClstr']
+
+        if 'insertMode' not in self.configDict.keys():
+            self.configDict['insertMode']='single'
         
         # We now support keeping a huge .fits table of spec-zs
         # We start with SDSS but this could (should?) be made generic
@@ -1632,8 +1638,7 @@ class SourceBrowser(object):
             html=html.replace("$TITLE", "Sourcery Database")
                 
         # First need to apply query parameters here
-        queryPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
-        numPosts=queryPosts.count()
+        queryPosts, numPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
         if 'numPosts' not in cherrypy.session:
             cherrypy.session['numPosts']=numPosts
         
@@ -1762,7 +1767,7 @@ class SourceBrowser(object):
         Total number of %s: %d (original source list: %d%s) %s %s
         <p>%s</p>
         $NEWS
-        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), hiddenConstraintsMessage, latestNewsStr,
+        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.estimated_document_count(), hiddenConstraintsMessage, latestNewsStr,
                           cacheRebuildStr, commentsString)
         if 'newsItems' in self.configDict.keys():
             newsStr="<p>News:<ul>\n"
@@ -1919,9 +1924,9 @@ class SourceBrowser(object):
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
         xTab=atpy.Table().read(cachedTabFileName)
                 
-        posts=list(self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints))
-        tabLength=len(posts)#posts.count()
-        
+        posts, tabLength=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
+        posts=list(posts)
+
         # Trim xTab to match posts based on sourceryID
         keepIndices=[]
         for p in posts:
@@ -1978,6 +1983,14 @@ class SourceBrowser(object):
                         if key.find(prefix) != -1 and key[:len(prefix)] == prefix:
                             colsToDelete.append(key)
                     tab.remove_columns(colsToDelete)
+
+        # Zap any columns that contain only sentinels
+        for key in tab.keys():
+            try:
+                if np.all(tab[key]) == -99:
+                    tab.remove_column(key)
+            except:
+                pass
         
         tmpFile, tmpFileName=tempfile.mkstemp()
         if fileFormat == 'cat':
@@ -2076,20 +2089,22 @@ class SourceBrowser(object):
         # Execute query
         # NOTE: converting to list here is very slow
         if collection == 'source':
-            self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
-            #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+            self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])
+            #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))
+            numPosts=self.sourceCollection.count_documents(queryDict)
             queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')  
         elif collection == 'tags':
-            self.tagsCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+            self.tagsCollection.create_index([("RADeg", pymongo.ASCENDING)])
             #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')) 
-            queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')
+            numPosts=self.tagsCollection.count_documents(queryDict)
+            queryPosts=self.tagsCollection.find(queryDict).sort('decDeg').sort('RADeg')
         else:
             raise Exception("collection should be 'source' or 'tags' only")
                         
         # If we wanted to store all this in its own collection
         #self.makeSessionCollection(queryPosts)
                 
-        return queryPosts
+        return queryPosts, numPosts
         
 
     def makeSessionCollection(self, queryPosts):
@@ -3128,7 +3143,7 @@ class SourceBrowser(object):
                 self.fieldTypesCollection.insert(fieldDict)
         t0=time.time()
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
-        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+        self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])
         posts=self.sourceCollection.find({}).sort('decDeg').sort('RADeg')
         for obj in posts:
             name=obj['name']
@@ -3185,7 +3200,7 @@ class SourceBrowser(object):
                 self.tileDirs[tileDirDict['label']].setUpWCSDict()
                                               
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
-        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+        self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])
         
         # Threaded
         # NOTE: Threads have occassionally given weird issues (e.g., mismatched WISE images)
@@ -3373,7 +3388,7 @@ class SourceBrowser(object):
             else:
                 self.mapPageEnabled=False
             
-            self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])  # Avoid 32 Mb limit
+            self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])  # Avoid 32 Mb limit
             objList=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
 
             for obj in objList:
