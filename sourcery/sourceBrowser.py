@@ -2386,7 +2386,7 @@ class SourceBrowser(object):
                 post[key]=kwargs[key]
         post['lastUpdated']=datetime.date.today().isoformat()
         post['user']=cherrypy.session['_sourcery_username']
-        self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
+        self.tagsCollection.update_one({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
                 
         # Update source collection too - here we will do this for all sources that share the same name (we can have multiple source lists)
         # This could be done using cross matching based on coords instead, but this could cause confusion in the case of multiple sources
@@ -2394,7 +2394,7 @@ class SourceBrowser(object):
         # Example of this: erroneously deblended objects in the XCS list, where you only want to flag some objects as junk, and others not
         objs=self.sourceCollection.find({'name': name})
         for obj in objs:
-            self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+            self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
         # Would reset zoom level if changed
         if 'defaultImageType' in self.configDict.keys():
@@ -2439,10 +2439,10 @@ class SourceBrowser(object):
         #IPython.embed()
         #sys.exit()
         
-        self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
+        self.tagsCollection.update_one({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
         # Update source collection too
-        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+        self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
     
     @cherrypy.expose
@@ -3170,7 +3170,7 @@ class SourceBrowser(object):
                         skipImage=True
                     if skipImage == False:
                         post={'image_%s' % (label): 1}
-                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)      
+                        self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': post}, upsert = False)
         t1=time.time()
         print("... took %.3f sec ..." % (t1-t0))
         
@@ -3297,10 +3297,10 @@ class SourceBrowser(object):
                     skipImage=True
                 if skipImage == False:
                     post={'image_%s' % (label): 1}
-                    self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+                    self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
         # Flag this as done
-        self.sourceCollection.update({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
+        self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
         
         # If using for spot fixes in web interface, need to refresh page when done
         if from_page != None:
