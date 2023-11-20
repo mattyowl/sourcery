@@ -299,7 +299,7 @@ class SourceBrowser(object):
 
         if matches == []:
             newPost={'loc': {'type': 'Point', 'coordinates': [lon, obj['decDeg']]}}
-            self.tagsCollection.insert(newPost)
+            self.tagsCollection.insert_one(newPost)
             mongoDict={}
         else:
             mongoDict=matches[0]
@@ -2129,7 +2129,7 @@ class SourceBrowser(object):
         # Add a date so we can expire the data after a couple of hours
         for q in queryPosts:
             q['lastModifiedDate']=datetime.datetime.utcnow()
-            self.db.collection[cherrypy.session.id].insert(q)
+            self.db.collection[cherrypy.session.id].insert_one(q)
 
         # This makes the session data self destruct after some time
         self.db.collection[cherrypy.session.id].create_index([('lastModifiedDate', 1)], expireAfterSeconds = 7200)
@@ -3147,7 +3147,7 @@ class SourceBrowser(object):
                 fieldDict['type']='number'
                 fieldDict['description']='1 if object has image in the database; 0 otherwise'
                 fieldDict['index']=len(keysList)+1
-                self.fieldTypesCollection.insert(fieldDict)
+                self.fieldTypesCollection.insert_one(fieldDict)
         t0=time.time()
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
         self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])
