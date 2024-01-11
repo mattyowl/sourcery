@@ -1,6 +1,6 @@
 """
 
-    Copyright 2014-2018 Matt Hilton (matt.hilton@mykolab.com)
+    Copyright 2014-2024 Matt Hilton (matt.hilton@mykolab.com)
     
     This file is part of Sourcery.
 
@@ -962,7 +962,7 @@ class SourceBrowser(object):
         if inJPGPath is not None:
             im=Image.open(inJPGPath)
             data=np.array(im)
-            data=np.power(data, 1.0/float(gamma))
+            data=np.power(data, float(gamma))
             try:
                 data=np.flipud(data)
                 #data=np.fliplr(data)
