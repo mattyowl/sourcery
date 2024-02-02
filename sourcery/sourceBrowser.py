@@ -962,7 +962,7 @@ class SourceBrowser(object):
         if inJPGPath is not None:
             im=Image.open(inJPGPath)
             data=np.array(im)
-            data=np.power(data, float(gamma))
+            data=np.power(data, 1.0/float(gamma))
             try:
                 data=np.flipud(data)
                 #data=np.fliplr(data)
