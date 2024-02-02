@@ -195,6 +195,9 @@ class SourceBrowser(object):
         if buildDatabase == True:
             self.buildDatabase()
 
+        # Add descriptions of field (displayed on help page only)
+        self.descriptionsDict=self.parseColumnDescriptionsFile()
+
         # Column to display info
         # Table pages
         self.tableDisplayColumns=[{'name': "name",
@@ -598,9 +601,6 @@ class SourceBrowser(object):
             print("... inserting all posts into database ...")
             self.sourceCollection.insert_many(postsList)
 
-        # Add descriptions of field (displayed on help page only)
-        descriptionsDict=self.parseColumnDescriptionsFile()
-        
         # Make collection of field types
         index=0
         for key in fieldTypesList:
@@ -644,6 +644,7 @@ class SourceBrowser(object):
                     key=line[:splitIndex]
                     desc=line[splitIndex+1:].lstrip().rstrip()
                     descriptionsDict[key]=desc
+
         return descriptionsDict
     
                             
@@ -2350,7 +2351,13 @@ class SourceBrowser(object):
                 keysList.append(fieldDict['name'])
                 typeNamesList.append(fieldDict['type'])
                 descList.append(fieldDict['description'])
-        
+
+        # Override descriptions from the ones in the file
+        for k in self.descriptionsDict.keys():
+            if k in keysList:
+                index=keysList.index(k)
+                descList[index]=self.descriptionsDict[k]
+
         return keysList, typeNamesList, descList
                 
     
