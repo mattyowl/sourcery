@@ -177,7 +177,10 @@ class SourceBrowser(object):
         # So we can display a status message on the index page in other processes if the database or cache is being rebuilt
         self.dbLockFileName=self.cacheDir+os.path.sep+"db.lock"
         self.cacheLockFileName=self.cacheDir+os.path.sep+"cache.lock"
-        
+
+        # Add descriptions of field (displayed on help page only)
+        self.descriptionsDict=self.parseColumnDescriptionsFile()
+
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
         if 'TagsDBName' not in self.configDict.keys():
@@ -194,9 +197,6 @@ class SourceBrowser(object):
         self.tagsCollection.create_index([('loc', pymongo.GEOSPHERE)])
         if buildDatabase == True:
             self.buildDatabase()
-
-        # Add descriptions of field (displayed on help page only)
-        self.descriptionsDict=self.parseColumnDescriptionsFile()
 
         # Column to display info
         # Table pages
@@ -608,8 +608,8 @@ class SourceBrowser(object):
             fieldDict['name']=key
             fieldDict['type']=fieldTypesDict[key]
             fieldDict['index']=index
-            if key in descriptionsDict.keys():
-                fieldDict['description']=descriptionsDict[key]
+            if key in self.descriptionsDict.keys():
+                fieldDict['description']=self.descriptionsDict[key]
             else:
                 fieldDict['description']="-"
             self.fieldTypesCollection.insert_one(fieldDict)
