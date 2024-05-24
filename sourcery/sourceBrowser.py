@@ -2287,7 +2287,7 @@ class SourceBrowser(object):
         <p>will return all objects where the string 'high-z' appears in the notes field somewhere. <b>Note that wildcard text searches are case insensitive</b>.
         </p>
         <br>
-        <table frame=border cellspacing=0 cols=3 rules=all border=2 width=80% align=center>
+        <table frame=border cellspacing=0 cols=3 rules=all border=2 width=85% align=center>
         <tbody>
             <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
                     text-align: center; vertical-align: middle; font-size: 110%;">
@@ -2509,20 +2509,18 @@ class SourceBrowser(object):
         <br>
 
         <div style="display: table; width: 85%; margin:0 auto;">
-            <div style="display: table-row; height: auto; margin:0 auto;">
-                <div style="display: table-cell;">
-                    <div style="display: block;">
-                        $PLOT_CONTROLS
-                    </div>
-                    <div style="display: block;">
-                        $TAG_CONTROLS
-                    </div>
-                </div>
-                <div style="display: table-cell;">
-                    <fieldset style="height: 100%;">
+            <div style="display: table-row; height: auto; margin:0 auto; height: $PLOT_DISPLAY_HEIGHT_PIX;">
+                <div style="display: table-cell; vertical-align: top;">
+                    <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
                     <legend><b>Source Image</b></legend>
                     <div id="imagePlot"></div>
                     </fieldset>
+                </div>
+                <div style="display: table-cell; vertical-align: top;">
+                    $PLOT_CONTROLS
+                </div>
+                <div style="display: table-cell; vertical-align: top;">
+                    $TAG_CONTROLS
                 </div>
             </div>
         </div>
@@ -2682,7 +2680,7 @@ class SourceBrowser(object):
 
         </script>
 
-        <fieldset style="height: 100%;">
+        <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
         <legend><b>Image Controls</b></legend>
         
         <form id="buildCache" method="get" action="buildCacheForObject"></form>   
@@ -2908,7 +2906,7 @@ class SourceBrowser(object):
         <form method="post" action="updateMongoDB">    
         <input name="sourceryID" value="$SOURCERY_ID" type="hidden">
         <input name="returnURL" value=$RETURN_URL" type="hidden">
-        <fieldset style="height: 100%;">
+        <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
         <legend><b>Editing Controls</b></legend>
         $CLASSIFICATION_CONTROLS
         $FIELD_CONTROLS
@@ -2975,7 +2973,7 @@ class SourceBrowser(object):
         
         # Optional spectrum plot
         if 'displaySpectra' in self.configDict.keys() and self.configDict['displaySpectra'] == True:
-            spectrumCode="""<br><table frame=border cellspacing=0 cols=1 rules=all border=2 width=80% align=center>
+            spectrumCode="""<br><table frame=border cellspacing=0 cols=1 rules=all border=2 width=85% align=center>
             <tbody>
             <tr>
                 <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
@@ -3004,9 +3002,12 @@ class SourceBrowser(object):
             html=html.replace("$TAG_CONTROLS", tagFormCode)
         else:
             html=html.replace("$TAG_CONTROLS", "")
+        html=html.replace("$PLOT_DISPLAY_HEIGHT_PIX", str(self.configDict['plotDisplayWidthPix']*1.02))
         html=html.replace("$SOURCE_NAME", name)
         html=html.replace("$SIZE_ARC_MIN", "%.1f" % (self.configDict['plotSizeArcmin']))
         html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
+
+
 
         #for label, caption in zip(self.imDirLabelsList, self.imageCaptions):
             #if label == imageType:
@@ -3018,7 +3019,7 @@ class SourceBrowser(object):
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
         nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjTypes'])
         if len(nedObjs['RAs']) > 0:
-            nedTable="""<br><table frame=border cellspacing=0 cols=6 rules=all border=2 width=80% align=center>
+            nedTable="""<br><table frame=border cellspacing=0 cols=6 rules=all border=2 width=85% align=center>
             <tbody>
             <tr>
                 <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
@@ -3062,7 +3063,7 @@ class SourceBrowser(object):
         if 'addSpecRedshifts' in self.configDict.keys() and self.configDict['addSpecRedshifts'] == True:
             specRedshifts=catalogTools.fetchSpecRedshifts(obj['name'], obj['RADeg'], obj['decDeg'], 
                                                           redshiftsTable = self.specRedshiftsTab)
-            specTable="""<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=80% align=center>
+            specTable="""<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=85% align=center>
             <tbody>
             <tr>
                 <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
@@ -3104,7 +3105,7 @@ class SourceBrowser(object):
         html=html.replace("$SPEC_MATCHES_TABLE", specTable)
 
         # Source properties table
-        propTable="""<br><table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
+        propTable="""<br><table frame=border cellspacing=0 cols=2 rules=all border=2 width=85% align=center>
         <tbody>
         <tr>
             <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
