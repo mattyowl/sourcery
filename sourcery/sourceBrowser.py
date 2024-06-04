@@ -359,7 +359,7 @@ class SourceBrowser(object):
         for footprintDict in self.configDict['footprints']:
             colLabel='footprint_%s' % (footprintDict['label'])
             print("... adding %s ..." % (colLabel))
-            tab.add_column(atpy.Column(np.zeros(len(tab)), colLabel))
+            tab.add_column(atpy.Column(np.zeros(len(tab), dtype = bool), colLabel))
             for maskPath in footprintDict['maskList']:
                 with pyfits.open(maskPath) as img:
                     for extName in range(0, 2):
@@ -431,7 +431,7 @@ class SourceBrowser(object):
         # fetched or not, for a given object. We set this to 0 each time we rebuild the database, and set to 1 each
         # in preprocess after we process each object. This allows the cache building process to re-start from where
         # it left off without checking every single object again
-        tab.add_column(atpy.Column(np.zeros(len(tab)), "cacheBuilt"))
+        tab.add_column(atpy.Column(np.zeros(len(tab), dtype = bool), "cacheBuilt"))
         
         # Cross matching based on sourceryID
         # We do this first before position matching, because the join operation jumbles row order
@@ -1792,20 +1792,30 @@ class SourceBrowser(object):
         #http://localhost:8080/downloadCatalog?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints=softCts+%3E+300
         shortCatalogName=self.configDict['catalogDownloadFileName']+".cat"
         shortFITSName=shortCatalogName.replace(".cat", ".fits")
+        minimalFITSName=shortCatalogName.replace(".cat", "-minimal.fits")
         shortRegName=shortCatalogName.replace(".cat", ".reg")
         downloadLinkStr="downloadCatalog?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=%s&" % (queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
+        minimalDownloadLinkStr=downloadLinkStr+"minimalColumnSet=true&"
         downloadLinkStr=quote_plus(downloadLinkStr, safe='&?=')
+        minimalDownloadLinkStr=quote_plus(minimalDownloadLinkStr, safe='&?=')
         downloadLinks="""<fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Download Catalog</b></legend>
         <ul>
         <li><a href=%sfileFormat=cat>%s</a>   (plain text)</li>
-        <li><a href=%sfileFormat=fits>%s</a>   (FITS table format)</li>
+        <li><a href=%sfileFormat=fits>%s</a>   (FITS table format; all columns)</li>
+        $MINIMAL_STR
         <li><a href=%sfileFormat=reg>%s</a>   (DS9 region file)</li></ul>
         <p>Note that current constraints are applied to downloaded catalogs.</p>
         </fieldset><br>
         """ % (downloadLinkStr, shortCatalogName, downloadLinkStr, shortFITSName, downloadLinkStr, shortRegName)
         html=html.replace("$DOWNLOAD_LINKS", downloadLinks)
         
+        if 'catalogDownloadMinimalColumns' in self.configDict.keys():
+            minimalStr="<li><a href=%sfileFormat=fits>%s</a>   (FITS table format; minimal column set)</li>" % (minimalDownloadLinkStr, minimalFITSName)
+            html=html.replace("$MINIMAL_STR", minimalStr)
+        else:
+            html=html.replace("$MINIMAL_STR", "")
+
         tableData=""
         usedBckColors=[]
         usedBckKeys=[]
@@ -1923,24 +1933,14 @@ class SourceBrowser(object):
     @cherrypy.expose
     @sourceryAuth.require()
     def downloadCatalog(self, queryRADeg = "0:360", queryDecDeg = "-90:90", querySearchBoxArcmin = "",
-                        queryOtherConstraints = "", fileFormat = "cat"):
+                        queryOtherConstraints = "", fileFormat = "cat", minimalColumnSet = "false"):
         """Provide user with the current table view as a downloadable catalog.
         
         """
-                
+
         # Fetch the cached table and update that with any changed classifications info
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
         xTab=atpy.Table().read(cachedTabFileName)
-                
-        posts, tabLength=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
-        posts=list(posts)
-
-        # Trim xTab to match posts based on sourceryID
-        keepIndices=[]
-        for p in posts:
-            if p['sourceryID'] in xTab['sourceryID']:
-                keepIndices.append(np.where(xTab['sourceryID'] == p['sourceryID'])[0][0])
-        xTab=xTab[keepIndices]
 
         # Need this and change below for overloading with e.g. editable BCG coords
         editableFieldsList=[]
@@ -1950,36 +1950,62 @@ class SourceBrowser(object):
             if key in editableFieldsList:
                 xTab.remove_column(key)
         
+        # If minimal set of columns requested, delete all that aren't included
+        minimalCols=xTab.keys()
+        if minimalColumnSet == 'true':
+            if 'catalogDownloadMinimalColumns' in self.configDict.keys():
+                minimalCols=['sourceryID']
+                for keyStr in self.configDict['catalogDownloadMinimalColumns']:
+                    if keyStr[-1] != '_':
+                        minimalCols.append(keyStr)
+                    else:
+                        for col in xTab.keys():
+                            if col[:len(keyStr)] == keyStr:
+                                minimalCols.append(col)
+                for col in xTab.keys():
+                    if col not in minimalCols:
+                        xTab.remove_column(col)
+
         # NOTE: there may be fun unicode-related stuff here: e.g., u'BCG_RADeg' versus 'BCG_RADeg'
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
         keysToAdd=['sourceryID', 'RADeg', 'decDeg']
         typeNamesToAdd=['text', 'number', 'number']
         for k, t in zip(keysList, typeNamesList):
             if k not in xTab.keys() or k in editableFieldsList:
-                if k not in keysToAdd:
+                if k not in keysToAdd and k in minimalCols:
                     keysToAdd.append(k)
                     typeNamesToAdd.append(t)
-                
+
+        # This part takes ~1 min for a catalog with 43k sources on laptop so is the only bit that needs speeding up
+        # The query part is 0.05 sec - it's the big for loop that is slow [i.e., converting from posts -> astropy table]
+        count=0
+        keepIndices=[]
+        posts, tabLength=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
         tab=atpy.Table()
         tab.table_name=self.configDict['catalogDownloadFileName']
         for key, typeName in zip(keysToAdd, typeNamesToAdd):
             if typeName == 'number':
-                tab.add_column(atpy.Column(np.zeros(tabLength, dtype = float), str(key)))
+                tab.add_column(atpy.Column(np.zeros(tabLength, dtype = np.float64), str(key)))
             else:
                 tab.add_column(atpy.Column(np.zeros(tabLength, dtype = 'S1000'), str(key)))
-        
-        count=0
         for post in posts:
+            # Trim xTab to match posts based on sourceryID
+            if post['sourceryID'] in xTab['sourceryID']:
+                keepIndices.append(np.where(xTab['sourceryID'] == post['sourceryID'])[0][0])
             for key in keysToAdd:
                 if key in post.keys():           # NOTE: this handles image_ tags, which are 1 if present, and absent otherwise
                     tab[key][count]=post[key]
             count=count+1
+        xTab=xTab[keepIndices]
         tab.rename_column('RADeg', 'tag_RADeg')
         tab.rename_column('decDeg', 'tag_decDeg')
-        
+
         tab=atpy.join(xTab, tab, keys = ['sourceryID'])
-        tab.remove_columns(['tag_RADeg', 'tag_decDeg', 'sourceryID', 'cacheBuilt'])
-        
+        zapCols=['tag_RADeg', 'tag_decDeg', 'sourceryID', 'cacheBuilt']
+        for z in zapCols:
+            if z in tab.keys():
+                tab.remove_column(z)
+
         # Zap any columns that this user shouldn't see
         user=cherrypy.session['_sourcery_username']
         for userNameKey in self.usersDict.keys():
@@ -1999,11 +2025,13 @@ class SourceBrowser(object):
                     tab.remove_column(key)
             except:
                 pass
-        
+
         tmpFile, tmpFileName=tempfile.mkstemp()
         if fileFormat == 'cat':
             tab.write(tmpFileName+".cat", format = 'ascii')
         elif fileFormat == 'fits':
+            if len(tab.keys()) > 999:
+                raise Exception("FITS table format does not support 1000+ columns")
             tab.write(tmpFileName+".fits", format = 'fits')
         elif fileFormat == 'reg':
             catalogTools.tab2DS9(tab, tmpFileName+".reg")
