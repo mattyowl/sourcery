@@ -2177,6 +2177,9 @@ class SourceBrowser(object):
                    '>=': '$gte',
                    '!=': '$ne',
                    '=': ''}
+
+        # Newlines cause problems
+        constraints=constraints.replace("\n", " ")
         
         # 'and' has precedence - which in practice means split on 'or' first, and then or all those together
         # Still need to handle () though, which means some recursion?
