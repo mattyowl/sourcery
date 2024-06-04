@@ -20,6 +20,7 @@ def error_page(status, message, traceback, version):
     cherrypy.session['queryDecDeg']="-90:90"
     cherrypy.session['querySearchBoxArcmin']=""
     cherrypy.session['queryOtherConstraints']=""
+    cherrypy.session.save()
     with open(templatesDir+os.path.sep+"error.html", "r") as inFile:
         lines=inFile.readlines()
         html=""
