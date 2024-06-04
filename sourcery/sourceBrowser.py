@@ -1842,7 +1842,7 @@ class SourceBrowser(object):
                 else:
                     useDiv=False
                     if colDict['fmt'] == '%s':
-                        if colDict['name'] in obj.keys():
+                        if colDict['name'] in obj.keys() and type(obj[colDict['name']]) == str:
                             widthStr='width: %dem;' % (len(obj[colDict['name']]))
                         else:
                             widthStr=""
