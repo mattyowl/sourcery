@@ -33,6 +33,8 @@ import pylab
 import cherrypy
 from sourcery.sourceBrowser import SourceBrowser
 from sourcery.sourceryAuth import check_auth
+from sourcery import errorpages
+from pkg_resources import resource_filename
 import atexit
 import base64
 import re
@@ -47,6 +49,19 @@ cherrypy.config.update({'environment': 'embedded', 'request.show_tracebacks': Tr
                         'log.error_file': 'error.log'
                        })
 
+conf = {
+        '/': {
+            'tools.sessions.on': True,
+            'tools.staticdir.root': resource_filename('sourcery','static'),
+             # 'error_page.500': resource_filename('sourcery','templates')+os.path.sep+"error.html"
+             'error_page.500': errorpages.error_page
+        },
+        '/static': {
+            'tools.staticdir.on': True,
+            'tools.staticdir.dir': './'
+        }
+    }
+
 if cherrypy.__version__.startswith('3.0') and cherrypy.engine.state == 0:
     cherrypy.engine.start(blocking=False)
     atexit.register(cherrypy.engine.stop)
@@ -56,5 +71,5 @@ if len(sys.argv) < 2:
 else:
     configFileName=sys.argv[1].replace("\n", "")
     print("Point your browser at http://localhost:8080/sourcery")
-    cherrypy.quickstart(SourceBrowser(configFileName, preprocess = False), script_name = '/sourcery')
+    cherrypy.quickstart(SourceBrowser(configFileName, preprocess = False), script_name = '/sourcery', config = conf)
     

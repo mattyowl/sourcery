@@ -1465,7 +1465,7 @@ class SourceBrowser(object):
             self.onLogout(username)
         raise cherrypy.HTTPRedirect(from_page or cherrypy.request.script_name)
     
-    
+
     @cherrypy.expose
     @sourceryAuth.require()
     def index(self):
@@ -3345,7 +3345,7 @@ class SourceBrowser(object):
         if from_page != None:
             raise cherrypy.HTTPRedirect(cherrypy.request.script_name+"/"+from_page)
     
-    
+
     def makeImageDirJPEGs(self):
         """Actually makes .jpg images from .fits images in given directories. We figure out which image to use
         from spinning through the headers. 
