@@ -570,7 +570,7 @@ class SourceBrowser(object):
                     if key not in fieldTypesList:
                         fieldTypesList.append(key)
                         fieldTypesDict[key]="number"
-                    newPost[key]=bool(row[key])
+                    newPost[key]=int(row[key]) # Was bool, but that causes some issues with queries that we'd need to fix properly
                 else:
                     raise Exception("Unknown data type in column '%s'" % (key))
                         
@@ -2121,7 +2121,7 @@ class SourceBrowser(object):
         constraintsDict=self.extractConstraintsDict(queryOtherConstraints)
         for key in constraintsDict:
             queryDict[key]=constraintsDict[key]
-        
+
         # Execute query
         # NOTE: converting to list here is very slow
         if collection == 'source':
