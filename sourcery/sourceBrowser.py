@@ -1971,10 +1971,12 @@ class SourceBrowser(object):
         keysToAdd=['sourceryID', 'RADeg', 'decDeg']
         typeNamesToAdd=['text', 'number', 'number']
         for k, t in zip(keysList, typeNamesList):
-            if k not in xTab.keys() or k in editableFieldsList:
-                if k not in keysToAdd and k in minimalCols:
-                    keysToAdd.append(k)
-                    typeNamesToAdd.append(t)
+            if k not in xTab.keys() and k not in keysToAdd and k in minimalCols:
+                keysToAdd.append(k)
+                typeNamesToAdd.append(t)
+            if k not in keysToAdd and k in editableFieldsList:
+                keysToAdd.append(k)
+                typeNamesToAdd.append(t)
 
         # This part takes ~1 min for a catalog with 43k sources on laptop so is the only bit that needs speeding up
         # The query part is 0.05 sec - it's the big for loop that is slow [i.e., converting from posts -> astropy table]
