@@ -1968,8 +1968,8 @@ class SourceBrowser(object):
 
         # NOTE: there may be fun unicode-related stuff here: e.g., u'BCG_RADeg' versus 'BCG_RADeg'
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
-        keysToAdd=['sourceryID', 'RADeg', 'decDeg']
-        typeNamesToAdd=['text', 'number', 'number']
+        keysToAdd=['sourceryID', 'RADeg', 'decDeg', 'classification']
+        typeNamesToAdd=['text', 'number', 'number', 'text']
         for k, t in zip(keysList, typeNamesList):
             if k not in xTab.keys() and k not in keysToAdd and k in minimalCols:
                 keysToAdd.append(k)
