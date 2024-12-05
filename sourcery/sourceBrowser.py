@@ -342,7 +342,8 @@ class SourceBrowser(object):
         if 'sourceList' in tab.keys():
             # Takes < 1 sec for 36,000 sources
             for row in tab:
-                sourceryIDs.append(row['sourceList']+"_"+row['name'].replace(" ", "_"))           
+                # sourceryIDs.append(row['sourceList']+"_"+row['name'].replace(" ", "_"))
+                sourceryIDs.append(row['sourceList']+"_%.6f_%.6f" % (row['RADeg'], row['decDeg']))
         else:
             for row in tab:
                 sourceryIDs.append(row['name'].replace(" ", "_"))
