@@ -248,6 +248,7 @@ class SourceBrowser(object):
         else:
             self.tagsDBName=self.configDict['TagsDBName']
         self.client=pymongo.MongoClient('localhost', 27017)
+        self.mongoSess=self.client.start_session()
         self.db=self.client[self.dbName]
         self.sourceCollection=self.db['sourceCollection']
         self.sourceCollection.create_index([('loc', pymongo.GEOSPHERE)])
@@ -863,7 +864,9 @@ class SourceBrowser(object):
             print("... outside PS1 area - skipping ...")
             return None
         
-        outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        subDir=str(RADeg).split(".")[0]
+        os.makedirs(ps1CacheDir+os.path.sep+subDir, exist_ok = True)
+        outFileName=ps1CacheDir+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         tmpFile, tmpFileName=tempfile.mkstemp()
         
         if os.path.exists(outFileName) == False or refetch == True:
@@ -909,8 +912,11 @@ class SourceBrowser(object):
         """
     
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
-                          
-        outFileName=sdssCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+
+        subDir=str(RADeg).split(".")[0]
+        os.makedirs(sdssCacheDir+os.path.sep+subDir, exist_ok = True)
+
+        outFileName=sdssCacheDir+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         SDSSWidth=int(round((1200.0/8.0)*self.configDict['plotSizeArcmin']))
         SDSSScale=(self.configDict['plotSizeArcmin']*60.0)/SDSSWidth # 0.396127
         if os.path.exists(outFileName) == False or refetch == True:
@@ -945,7 +951,10 @@ class SourceBrowser(object):
 
         os.makedirs(decalsCacheDir, exist_ok = True)
 
-        outFileName=decalsCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        subDir=str(RADeg).split(".")[0]
+        os.makedirs(decalsCacheDir+os.path.sep+subDir, exist_ok = True)
+
+        outFileName=decalsCacheDir+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
 
         decalsWidth=sizePix
         decalsPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(decalsWidth)
@@ -1004,7 +1013,9 @@ class SourceBrowser(object):
             sizeDeg=float(clipSizeArcmin)/60.
         
         # Load data
-        inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        # inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        subDir=str(RADeg).split(".")[0]
+        inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         logger.info("Image path: %s" % (inJPGPath))
         if os.path.exists(inJPGPath) == False:
             # Live fetching of not yet cached images from web services, where we can
@@ -3318,7 +3329,7 @@ class SourceBrowser(object):
         # NOTE: Threads have occassionally given weird issues (e.g., mismatched WISE images)
         # Check that when thread write to disk they don't clash with each other
         if 'threadedCacheBuild' in self.configDict.keys() and self.configDict['threadedCacheBuild'] == True:
-            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True, session = self.mongoSess).sort('decDeg').sort('RADeg')
             sourceryIDs=[]
             for obj in cursor:
                 sourceryIDs.append(obj['sourceryID'])
@@ -3329,8 +3340,13 @@ class SourceBrowser(object):
                 executor.map(self.buildCacheForObject, sourceryIDs)
         else:
             # Serial - still useful if debugging
-            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True, session = self.mongoSess).sort('decDeg').sort('RADeg')
+            lastRefreshTime=time.time()
             for obj in cursor:
+                # Keeping the session alive - refresh every 10 min or so
+                if time.time()-lastRefreshTime > 600:
+                    self.db.command({"refreshSessions" : [self.mongoSess.session_id]})
+                    lastRefreshTime=time.time()
                 self.buildCacheForObject(obj['sourceryID'], refetch = False)
             cursor.close()
                 
@@ -3501,10 +3517,18 @@ class SourceBrowser(object):
                 self.mapPageEnabled=False
             
             self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])  # Avoid 32 Mb limit
-            objList=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+            objList=self.sourceCollection.find(no_cursor_timeout = True, session = self.mongoSess).sort('decDeg').sort('RADeg')
+            lastRefreshTime=time.time()
 
             for obj in objList:
-                outFileName=outDir+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".jpg"
+                # Keeping the session alive - refresh every 10 min or so
+                if time.time()-lastRefreshTime > 600:
+                    self.db.command({"refreshSessions" : [self.mongoSess.session_id]})
+                    lastRefreshTime=time.time()
+
+                subDir=str(obj['RADeg']).split(".")[0]
+                os.makedirs(outDir+os.path.sep+subDir, exist_ok = True)
+                outFileName=outDir+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".jpg"
                 if os.path.exists(outFileName) == False:
                     print("... making image for %s ..." % (obj['name']))
                     for imgFileName in imgList:
@@ -3547,11 +3571,8 @@ class SourceBrowser(object):
                         # Min-Max scaling
                         # Should probably stick with this, but also add log option for optical
                         if scaling == 'auto' and minMaxRadiusArcmin is not None:
-                            clip['data']=catalogTools.byteSwapArr(clip['data'])
-                            # Avoid cython type troubles
-                            if clip['data'].dtype != np.float32:
-                                clip['data']=np.array(clip['data'], dtype = np.float32)
-                            rMap, blah1, blah2=makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
+                            rMap=np.zeros(clip['data'].shape, dtype = float)
+                            rMap, blah1, blah2=makeDegreesDistanceMap(rMap, clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
                             minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
                             cuts=[clip['data'].min(), clip['data'].max()]
                         elif scaling == 'log':
