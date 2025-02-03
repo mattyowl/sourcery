@@ -62,7 +62,7 @@ import tempfile
 import pymongo
 from bson.son import SON
 import pyximport; pyximport.install()
-import sourceryCython
+#import sourceryCython
 import cherrypy
 import pickle
 #import pyvips
@@ -74,6 +74,66 @@ import logging
 
 # Logging
 logger=logging.getLogger('sourcery')
+
+#-------------------------------------------------------------------------------------------------------------
+def makeDegreesDistanceMap(degreesMap, wcs, RADeg, decDeg, maxDistDegrees):
+    """Fills (in place) the 2d array degreesMap with distance in degrees from the given position,
+    out to some user-specified maximum distance.
+
+    Args:
+        degreesMap (:obj:`np.ndarray`): Map (2d array) that will be filled with angular distance
+            from the given coordinates. Probably you should feed in an array set to some extreme
+            initial value (e.g., 1e6 everywhere) to make it easy to filter for pixels near the
+            object coords afterwards.
+        wcs (:obj:`astWCS.WCS`): WCS corresponding to degreesMap.
+        RADeg (float): RA in decimal degrees of position of interest (e.g., object location).
+        decDeg (float): Declination in decimal degrees of position of interest (e.g., object
+            location).
+        maxDistDegrees: The maximum radius out to which distance will be calculated.
+
+    Returns:
+        A map (2d array) of distance in degrees from the given position,
+        (min x, max x) pixel coords corresponding to maxDistDegrees box,
+        (min y, max y) pixel coords corresponding to maxDistDegrees box
+
+    Note:
+        This routine measures the pixel scale local to the given position, then assumes that it
+        does not change. So, this routine may only be accurate close to the given position,
+        depending upon the WCS projection used.
+
+    """
+
+    x0, y0=wcs.wcs2pix(RADeg, decDeg)
+    ra0, dec0=RADeg, decDeg
+    ra1, dec1=wcs.pix2wcs(x0+1, y0+1)
+    xPixScale=astCoords.calcAngSepDeg(ra0, dec0, ra1, dec0)
+    yPixScale=astCoords.calcAngSepDeg(ra0, dec0, ra0, dec1)
+
+    xDistPix=int(round((maxDistDegrees)/xPixScale))
+    yDistPix=int(round((maxDistDegrees)/yPixScale))
+
+    Y=degreesMap.shape[0]
+    X=degreesMap.shape[1]
+
+    minX=int(round(x0))-xDistPix
+    maxX=int(round(x0))+xDistPix
+    minY=int(round(y0))-yDistPix
+    maxY=int(round(y0))+yDistPix
+    if minX < 0:
+        minX=0
+    if maxX > X:
+        maxX=X
+    if minY < 0:
+        minY=0
+    if maxY > Y:
+        maxY=Y
+
+    xDeg=(np.arange(degreesMap.shape[1])-x0)*xPixScale
+    yDeg=(np.arange(degreesMap.shape[0])-y0)*yPixScale
+    for i in range(minY, maxY):
+        degreesMap[i][minX:maxX]=np.sqrt(yDeg[i]**2+xDeg[minX:maxX]**2)
+
+    return degreesMap, [minX, maxX], [minY, maxY]
 
 #-------------------------------------------------------------------------------------------------------------
 class SourceBrowser(object):
@@ -509,7 +569,10 @@ class SourceBrowser(object):
                             if xTab[key].dtype.kind == 'S':
                                 tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
                             else:
-                                tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
+                                dtype=xTab[key].dtype
+                                if dtype == np.uint8:
+                                    dtype=int
+                                tab.add_column(atpy.Column(np.ones(len(tab), dtype = dtype)*-99, key))
                             tab[key][mask]=xTab[key][xIndices[mask]]
                     tab.add_column(atpy.Column(np.zeros(len(tab), dtype = int), '%s_match' % (label)))
                     tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
@@ -3488,7 +3551,7 @@ class SourceBrowser(object):
                             # Avoid cython type troubles
                             if clip['data'].dtype != np.float32:
                                 clip['data']=np.array(clip['data'], dtype = np.float32)
-                            rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
+                            rMap, blah1, blah2=makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
                             minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
                             cuts=[clip['data'].min(), clip['data'].max()]
                         elif scaling == 'log':
