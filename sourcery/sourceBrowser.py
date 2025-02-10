@@ -1,6 +1,6 @@
 """
 
-    Copyright 2014-2018 Matt Hilton (matt.hilton@mykolab.com)
+    Copyright 2014-2024 Matt Hilton (matt.hilton@mykolab.com)
     
     This file is part of Sourcery.
 
@@ -62,7 +62,7 @@ import tempfile
 import pymongo
 from bson.son import SON
 import pyximport; pyximport.install()
-import sourceryCython
+#import sourceryCython
 import cherrypy
 import pickle
 #import pyvips
@@ -70,6 +70,70 @@ import IPython
 from sourcery import sourceryAuth
 from sourcery import tileDir
 from passlib.hash import pbkdf2_sha256
+import logging
+
+# Logging
+logger=logging.getLogger('sourcery')
+
+#-------------------------------------------------------------------------------------------------------------
+def makeDegreesDistanceMap(degreesMap, wcs, RADeg, decDeg, maxDistDegrees):
+    """Fills (in place) the 2d array degreesMap with distance in degrees from the given position,
+    out to some user-specified maximum distance.
+
+    Args:
+        degreesMap (:obj:`np.ndarray`): Map (2d array) that will be filled with angular distance
+            from the given coordinates. Probably you should feed in an array set to some extreme
+            initial value (e.g., 1e6 everywhere) to make it easy to filter for pixels near the
+            object coords afterwards.
+        wcs (:obj:`astWCS.WCS`): WCS corresponding to degreesMap.
+        RADeg (float): RA in decimal degrees of position of interest (e.g., object location).
+        decDeg (float): Declination in decimal degrees of position of interest (e.g., object
+            location).
+        maxDistDegrees: The maximum radius out to which distance will be calculated.
+
+    Returns:
+        A map (2d array) of distance in degrees from the given position,
+        (min x, max x) pixel coords corresponding to maxDistDegrees box,
+        (min y, max y) pixel coords corresponding to maxDistDegrees box
+
+    Note:
+        This routine measures the pixel scale local to the given position, then assumes that it
+        does not change. So, this routine may only be accurate close to the given position,
+        depending upon the WCS projection used.
+
+    """
+
+    x0, y0=wcs.wcs2pix(RADeg, decDeg)
+    ra0, dec0=RADeg, decDeg
+    ra1, dec1=wcs.pix2wcs(x0+1, y0+1)
+    xPixScale=astCoords.calcAngSepDeg(ra0, dec0, ra1, dec0)
+    yPixScale=astCoords.calcAngSepDeg(ra0, dec0, ra0, dec1)
+
+    xDistPix=int(round((maxDistDegrees)/xPixScale))
+    yDistPix=int(round((maxDistDegrees)/yPixScale))
+
+    Y=degreesMap.shape[0]
+    X=degreesMap.shape[1]
+
+    minX=int(round(x0))-xDistPix
+    maxX=int(round(x0))+xDistPix
+    minY=int(round(y0))-yDistPix
+    maxY=int(round(y0))+yDistPix
+    if minX < 0:
+        minX=0
+    if maxX > X:
+        maxX=X
+    if minY < 0:
+        minY=0
+    if maxY > Y:
+        maxY=Y
+
+    xDeg=(np.arange(degreesMap.shape[1])-x0)*xPixScale
+    yDeg=(np.arange(degreesMap.shape[0])-y0)*yPixScale
+    for i in range(minY, maxY):
+        degreesMap[i][minX:maxX]=np.sqrt(yDeg[i]**2+xDeg[minX:maxX]**2)
+
+    return degreesMap, [minX, maxX], [minY, maxY]
 
 #-------------------------------------------------------------------------------------------------------------
 class SourceBrowser(object):
@@ -101,7 +165,7 @@ class SourceBrowser(object):
         if 'defaultImageType' not in self.configDict.keys():
             self.configDict['defaultImageType']='best'
         if 'imagePrefs' not in self.configDict.keys():
-            self.configDict['imagePrefs']=['DES', 'SDSS', 'unWISE']
+            self.configDict['imagePrefs']=['DECaLS', 'DES', 'SDSS', 'unWISE']
         
         # Add news into self.configDict, if there is any...
         if 'newsFileName' in self.configDict.keys():
@@ -143,11 +207,9 @@ class SourceBrowser(object):
         
         # More storage dirs... (we can't make these on-the-fly when running threaded)
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
-        if os.path.exists(sdssCacheDir) == False:
-            os.makedirs(sdssCacheDir)
+        os.makedirs(sdssCacheDir, exist_ok = True)
         decalsCacheDir=self.cacheDir+os.path.sep+"DECaLS"
-        if os.path.exists(decalsCacheDir) == False:
-            os.makedirs(decalsCacheDir)
+        os.makedirs(decalsCacheDir, exist_ok = True)
         ps1CacheDir=self.cacheDir+os.path.sep+"PS1"
         if os.path.exists(ps1CacheDir) == False:
             os.makedirs(ps1CacheDir)
@@ -155,30 +217,45 @@ class SourceBrowser(object):
         if os.path.exists(ps1CacheDir) == False:
             os.makedirs(ps1CacheDir)
         wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
-        if os.path.exists(wiseCacheDir) == False:
-            os.makedirs(wiseCacheDir)
-            
+        os.makedirs(wiseCacheDir, exist_ok = True)
+
         # tileDirs set-up - KiDS, IAC-S82 etc..
         self.tileDirs={}
         if 'tileDirs' in self.configDict.keys():
             for tileDirDict in self.configDict['tileDirs']:
                 if tileDirDict['label'] not in self.tileDirs.keys():
                     self.tileDirs[tileDirDict['label']]=tileDir.TileDir(tileDirDict['label'], tileDirDict['path'], 
-                                                                        self.cacheDir, sizePix = tileDirDict['sizePix'])
+                                                                        self.cacheDir, sizePix = tileDirDict['sizePix'])            
+        
+        # Big redshifts table - let's try and keep it in memory (may be a challenge on the webserver)
+        # Really we should just put into a database table...
+        if self.configDict['specRedshiftsTable'] is not None:
+            self.specRedshiftsTab=atpy.Table().read(self.configDict['specRedshiftsTable'])  
+        else:
+            self.specRedshiftsTab=None
         
         # So we can display a status message on the index page in other processes if the database or cache is being rebuilt
         self.dbLockFileName=self.cacheDir+os.path.sep+"db.lock"
         self.cacheLockFileName=self.cacheDir+os.path.sep+"cache.lock"
-        
+
+        # Add descriptions of field (displayed on help page only)
+        self.descriptionsDict=self.parseColumnDescriptionsFile()
+
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
+        if 'TagsDBName' not in self.configDict.keys():
+            self.tabsDBName=self.dbName
+        else:
+            self.tagsDBName=self.configDict['TagsDBName']
         self.client=pymongo.MongoClient('localhost', 27017)
+        self.mongoSess=self.client.start_session()
         self.db=self.client[self.dbName]
         self.sourceCollection=self.db['sourceCollection']
-        self.sourceCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
+        self.sourceCollection.create_index([('loc', pymongo.GEOSPHERE)])
         self.fieldTypesCollection=self.db['fieldTypes']
-        self.tagsCollection=self.db['tagsCollection']
-        self.tagsCollection.ensure_index([('loc', pymongo.GEOSPHERE)])
+        self.tagsDB=self.client[self.tagsDBName]
+        self.tagsCollection=self.tagsDB['tagsCollection']
+        self.tagsCollection.create_index([('loc', pymongo.GEOSPHERE)])
         if buildDatabase == True:
             self.buildDatabase()
 
@@ -226,15 +303,15 @@ class SourceBrowser(object):
             self.tableDisplayColumns.append(dispDict)
                                        
         # Full list of image directories - for adding image_ tags in buildCacheForObject
-        # NOTE: handling of surveys (e.g., SDSS) is clunky and getting unwieldy...
+        # NOTE: handling of surveys (e.g., SDSS) is clunfky and getting unwieldy...
         # NOTE: made clunkier to allow different size images (imageDirs only for now)
         self.imDirLabelsList=[]
         self.imDirMaxSizeArcminList=[]
-        if self.configDict['addSDSSImage'] == True:
-            self.imDirLabelsList.append("SDSS")
-            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addDECaLSImage'] == True:
             self.imDirLabelsList.append("DECaLS")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
+        if self.configDict['addSDSSImage'] == True:
+            self.imDirLabelsList.append("SDSS")
             self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addPS1Image'] == True:
             self.imDirLabelsList.append("PS1")
@@ -244,6 +321,9 @@ class SourceBrowser(object):
             self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if self.configDict['addUnWISEImage'] == True:
             self.imDirLabelsList.append("unWISE")
+            self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
+        if self.configDict['addHSCImage'] == True:
+            self.imDirLabelsList.append("HSC")
             self.imDirMaxSizeArcminList.append(self.configDict['plotSizeArcmin'])
         if 'tileDirs' in self.configDict.keys():
             for tileDirDict in self.configDict['tileDirs']:
@@ -279,12 +359,14 @@ class SourceBrowser(object):
         else:
             lon=obj['RADeg']
         matches=self.tagsCollection.find({'loc': SON({'$nearSphere': [lon, obj['decDeg']], '$maxDistance': np.radians(self.configDict['MongoDBCrossMatchRadiusArcmin']/60.0)})}).limit(1)
-        if matches.count() == 0:
+        matches=list(matches)
+
+        if matches == []:
             newPost={'loc': {'type': 'Point', 'coordinates': [lon, obj['decDeg']]}}
-            self.tagsCollection.insert(newPost)
+            self.tagsCollection.insert_one(newPost)
             mongoDict={}
         else:
-            mongoDict=matches.next()
+            mongoDict=matches[0]
         
         # Check we don't have a blank entry in terms of fields we expect
         if 'classifications' in self.configDict.keys() and 'classification' not in mongoDict.keys():
@@ -321,7 +403,8 @@ class SourceBrowser(object):
         if 'sourceList' in tab.keys():
             # Takes < 1 sec for 36,000 sources
             for row in tab:
-                sourceryIDs.append(row['sourceList']+"_"+row['name'].replace(" ", "_"))           
+                # sourceryIDs.append(row['sourceList']+"_"+row['name'].replace(" ", "_"))
+                sourceryIDs.append(row['sourceList']+"_%.6f_%.6f" % (row['RADeg'], row['decDeg']))
         else:
             for row in tab:
                 sourceryIDs.append(row['name'].replace(" ", "_"))
@@ -338,7 +421,7 @@ class SourceBrowser(object):
         for footprintDict in self.configDict['footprints']:
             colLabel='footprint_%s' % (footprintDict['label'])
             print("... adding %s ..." % (colLabel))
-            tab.add_column(atpy.Column(np.zeros(len(tab)), colLabel))
+            tab.add_column(atpy.Column(np.zeros(len(tab), dtype = bool), colLabel))
             for maskPath in footprintDict['maskList']:
                 with pyfits.open(maskPath) as img:
                     for extName in range(0, 2):
@@ -355,6 +438,7 @@ class SourceBrowser(object):
                     if x >= 0 and x < mask.shape[1] and y >= 0 and y < mask.shape[0]:
                         if mask[y, x] > 0:
                             tab[colLabel][i]=1
+            del mask, wcs
         
         return tab
         
@@ -409,7 +493,7 @@ class SourceBrowser(object):
         # fetched or not, for a given object. We set this to 0 each time we rebuild the database, and set to 1 each
         # in preprocess after we process each object. This allows the cache building process to re-start from where
         # it left off without checking every single object again
-        tab.add_column(atpy.Column(np.zeros(len(tab)), "cacheBuilt"))
+        tab.add_column(atpy.Column(np.zeros(len(tab), dtype = bool), "cacheBuilt"))
         
         # Cross matching based on sourceryID
         # We do this first before position matching, because the join operation jumbles row order
@@ -440,7 +524,10 @@ class SourceBrowser(object):
                     xTab.remove_columns(excludeKeys)
                     tab=atpy.join(tab, xTab, keys = ['sourceryID'], join_type = 'left')
                     for key in xTab.keys():
-                        tab[key][tab[key].mask]=-99
+                        try:
+                            tab[key][tab[key].mask]=-99
+                        except:
+                            continue
                     tab=atpy.Table(tab, masked = False)
                     tab.sort(["RADeg", "decDeg"]) # For some reason join jumbles row order
                     if len(tab) != origLen:
@@ -483,18 +570,25 @@ class SourceBrowser(object):
                             if xTab[key].dtype.kind == 'S':
                                 tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
                             else:
-                                tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
+                                dtype=xTab[key].dtype
+                                if dtype == np.uint8:
+                                    dtype=int
+                                tab.add_column(atpy.Column(np.ones(len(tab), dtype = dtype)*-99, key))
                             tab[key][mask]=xTab[key][xIndices[mask]]
                     tab.add_column(atpy.Column(np.zeros(len(tab), dtype = int), '%s_match' % (label)))
                     tab.add_column(atpy.Column(np.ones(len(tab), dtype = float)*-99, '%s_distArcmin' % (label)))
                     tab['%s_match' % (label)][mask]=1
                     tab['%s_distArcmin' % (label)][mask]=rDeg.value[mask]*60.0
+                del xTab
             tab.remove_column("matchIndices")
         assert(len(tab) == origLen)
         
         # Cache the result of the cross matches: we need this for speed later on when downloading catalogs
         # Otherwise, for large catalogs, we're hitting memory issues
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
+        #cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.csv" % (self.configDict['catalogDownloadFileName'])
+        if len(tab.columns) > 999:
+            raise Exception("FITS format is limited to a maximum 1000 columns - so prune your cross-match tables.")
         tab.write(cachedTabFileName, overwrite = True)
         print("... written %s ..." % (cachedTabFileName))
         
@@ -511,9 +605,6 @@ class SourceBrowser(object):
             newPost['name']=row['name']
             newPost['RADeg']=row['RADeg']
             newPost['decDeg']=row['decDeg']
-            
-            #print "... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab))
-            
             # MongoDB coords for spherical geometry
             if row['RADeg'] > 180:
                 lon=360.0-row['RADeg']
@@ -544,7 +635,7 @@ class SourceBrowser(object):
                     if key not in fieldTypesList:
                         fieldTypesList.append(key)
                         fieldTypesDict[key]="number"
-                    newPost[key]=bool(row[key])
+                    newPost[key]=int(row[key]) # Was bool, but that causes some issues with queries that we'd need to fix properly
                 else:
                     raise Exception("Unknown data type in column '%s'" % (key))
                         
@@ -564,15 +655,17 @@ class SourceBrowser(object):
             tagsDict=self.matchTags(newPost)
             for key in tagsDict:
                 newPost[key]=tagsDict[key]
-                
-            postsList.append(newPost)
+            if self.configDict['insertMode'] == 'single':
+                print("... adding %s to database (%d/%d) ..." % (row['name'], idCount, len(tab)))
+                self.sourceCollection.insert_one(newPost)
+            else:
+                postsList.append(newPost)
         
         # Insert all posts at once
-        self.sourceCollection.insert_many(postsList)
+        if self.configDict['insertMode'] == 'many':
+            print("... inserting all posts into database ...")
+            self.sourceCollection.insert_many(postsList)
 
-        # Add descriptions of field (displayed on help page only)
-        descriptionsDict=self.parseColumnDescriptionsFile()
-        
         # Make collection of field types
         index=0
         for key in fieldTypesList:
@@ -580,11 +673,11 @@ class SourceBrowser(object):
             fieldDict['name']=key
             fieldDict['type']=fieldTypesDict[key]
             fieldDict['index']=index
-            if key in descriptionsDict.keys():
-                fieldDict['description']=descriptionsDict[key]
+            if key in self.descriptionsDict.keys():
+                fieldDict['description']=self.descriptionsDict[key]
             else:
                 fieldDict['description']="-"
-            self.fieldTypesCollection.insert(fieldDict)
+            self.fieldTypesCollection.insert_one(fieldDict)
             index=index+1
 
         t1=time.time()
@@ -616,6 +709,7 @@ class SourceBrowser(object):
                     key=line[:splitIndex]
                     desc=line[splitIndex+1:].lstrip().rstrip()
                     descriptionsDict[key]=desc
+
         return descriptionsDict
     
                             
@@ -646,7 +740,19 @@ class SourceBrowser(object):
             
         if "NEDObjTypes" not in self.configDict.keys():
             self.configDict['NEDObjTypes']=['GClstr']
-     
+
+        if 'insertMode' not in self.configDict.keys():
+            self.configDict['insertMode']='single'
+        
+        # We now support keeping a huge .fits table of spec-zs
+        # We start with SDSS but this could (should?) be made generic
+        if 'specRedshiftsTable' not in self.configDict.keys():
+            self.configDict['specRedshiftsTable']=None
+        #else:
+        #    if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
+        #        rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
+        #        self.configDict['specRedshiftsTable']=rootDir+os.path.sep+self.configDict['specRedshiftsTable']
+
 
     def addNews(self):
         """Parse news file, if there is one, filling up self.configDict['newsItems'].
@@ -758,7 +864,9 @@ class SourceBrowser(object):
             print("... outside PS1 area - skipping ...")
             return None
         
-        outFileName=ps1CacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        subDir=str(RADeg).split(".")[0]
+        os.makedirs(ps1CacheDir+os.path.sep+subDir, exist_ok = True)
+        outFileName=ps1CacheDir+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         tmpFile, tmpFileName=tempfile.mkstemp()
         
         if os.path.exists(outFileName) == False or refetch == True:
@@ -804,8 +912,11 @@ class SourceBrowser(object):
         """
     
         sdssCacheDir=self.cacheDir+os.path.sep+"SDSS"
-                          
-        outFileName=sdssCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+
+        subDir=str(RADeg).split(".")[0]
+        os.makedirs(sdssCacheDir+os.path.sep+subDir, exist_ok = True)
+
+        outFileName=sdssCacheDir+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
         SDSSWidth=int(round((1200.0/8.0)*self.configDict['plotSizeArcmin']))
         SDSSScale=(self.configDict['plotSizeArcmin']*60.0)/SDSSWidth # 0.396127
         if os.path.exists(outFileName) == False or refetch == True:
@@ -825,159 +936,60 @@ class SourceBrowser(object):
                 #outFileName=None
 
 
-    def fetchDECaLSImage(self, name, RADeg, decDeg, refetch = False):
-        """Fetches DECaLS .jpg cut-out. Unfortunatly at the moment, these are limited to 512 pixels
-        maximum at the moment (DR7).
-        
+    def fetchLegacySurveyImage(self, name, RADeg, decDeg, sizePix = 800, refetch = False, layer = 'ls-dr10-early-grz',\
+                               bands = None, cacheSubDir = None):
+        """Fetches .jpg cut-out from legacysurvey.org sky viewer. Based on the code in sourcery.
+
+        Valid layers include ls-dr9, ls-dr10-early-grz etc.
+
         """
-    
-        decalsCacheDir=self.cacheDir+os.path.sep+"DECaLS"
-                          
-        outFileName=decalsCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        decalsWidth=512 # Max set by DECaLS server
+
+        if cacheSubDir is None:
+            decalsCacheDir=self.cacheDir+os.path.sep+"legacy_%s" % (layer)
+        else:
+            decalsCacheDir=self.cacheDir+os.path.sep+cacheSubDir
+
+        os.makedirs(decalsCacheDir, exist_ok = True)
+
+        subDir=str(RADeg).split(".")[0]
+        os.makedirs(decalsCacheDir+os.path.sep+subDir, exist_ok = True)
+
+        outFileName=decalsCacheDir+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+
+        decalsWidth=sizePix
         decalsPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(decalsWidth)
         if os.path.exists(outFileName) == False or refetch == True:
-            urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=decals-dr7&pixscale=%.4f&bands=grz" % (RADeg, decDeg, decalsWidth, decalsPixScale)
+            #http://legacysurvey.org/viewer/jpeg-cutout?ra=52.102810&dec=-21.670020&size=2048&layer=des-dr1&pixscale=0.3809&bands=grz
+            urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=%s&pixscale=%.4f" % (RADeg, decDeg, decalsWidth, layer, decalsPixScale)
+            if bands is not None:
+                urlString=urlString+"&bands=%s" % (bands)
+            print(urlString)
             resp=self.http.request('GET', urlString)
+            if resp.data.find(b'Server Error') != -1:
+                return None
             with open(outFileName, 'wb') as f:
                 f.write(resp.data)
                 f.close()
-                
+
+
+    def fetchDECaLSImage(self, name, RADeg, decDeg, refetch = False):
+        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'ls-dr10-grz',
+                                    cacheSubDir = "DECaLS")
+
 
     def fetchUnWISEImage(self, name, RADeg, decDeg, refetch = False):
-        """Retrieves unWISE W1, W2 .fits images and makes a colour .jpg.
-        
-        """
-        
-        wiseCacheDir=self.cacheDir+os.path.sep+"unWISE"
-                
-        # 2.75" pixels in the unWISE images (max for query is 250 pixels though)
-        sizePix=int(round(self.configDict['plotSizeArcmin']*60.0/2.75))  
-        if sizePix > 250:
-            raise Exception("WISE web service does not work for images > 250 WISE pixels - use tileDir set-up instead or use smaller plotSizeArcmin")
-        
-        outFileName=wiseCacheDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
-        if os.path.exists(outFileName) == False or refetch == True:
-            with TemporaryDirectory() as tmpDirPath:
-                targzPath=tmpDirPath+os.path.sep+"wise.tar.gz"            
-                print("... fetching unWISE data for %s ..." % (name))
-                resp=self.http.request('GET', "http://unwise.me/cutout_fits?version=neo1&ra=%.6f&dec=%.6f&size=%d&bands=12" % (RADeg, decDeg, sizePix))
-                with open(targzPath, 'wb') as f:
-                    f.write(resp.data)
-                    f.close()
-                with tarfile.open(targzPath) as t:
-                    t.extractall(path = os.path.split(targzPath)[0])
-                    t.close()
-                wiseFiles=glob.glob(tmpDirPath+os.path.sep+"unwise-*-img-m.fits")
-                w1FileName=None
-                w2FileName=None
-                for w in wiseFiles:
-                    # Weirdly, the archives sometimes have multiple images, some of odd dimensions
-                    if w.find("-img-m.fits") != -1:
-                        img=pyfits.open(w)
-                        if img[0].data.shape == (sizePix, sizePix):
-                            if w.find("-w1-img") != -1:
-                                w1FileName=w
-                            if w.find("-w2-img") != -1:
-                                w2FileName=w
-                if w1FileName == None or w2FileName == None:
-                    # In this case, we have to stitch all the images together
-                    # Takes ~1.6 sec per image
-                    for band in ['w1', 'w2']:
-                        # Make a WCS
-                        CRVAL1, CRVAL2=RADeg, decDeg
-                        sizeArcmin=self.configDict['plotSizeArcmin']
-                        xSizeDeg, ySizeDeg=sizeArcmin/60.0, sizeArcmin/60.0
-                        xSizePix=sizePix
-                        ySizePix=sizePix
-                        xRefPix=xSizePix/2.0
-                        yRefPix=ySizePix/2.0
-                        xOutPixScale=xSizeDeg/xSizePix
-                        yOutPixScale=ySizeDeg/ySizePix
-                        newHead=pyfits.Header()
-                        newHead['NAXIS']=2
-                        newHead['NAXIS1']=xSizePix
-                        newHead['NAXIS2']=ySizePix
-                        newHead['CTYPE1']='RA---TAN'
-                        newHead['CTYPE2']='DEC--TAN'
-                        newHead['CRVAL1']=CRVAL1
-                        newHead['CRVAL2']=CRVAL2
-                        newHead['CRPIX1']=xRefPix+1
-                        newHead['CRPIX2']=yRefPix+1
-                        newHead['CDELT1']=xOutPixScale
-                        newHead['CDELT2']=xOutPixScale    # Makes more sense to use same pix scale
-                        newHead['CUNIT1']='DEG'
-                        newHead['CUNIT2']='DEG'
-                        wcs=astWCS.WCS(newHead, mode='pyfits')
-                        outData=np.zeros([sizePix, sizePix])
-                        imgFileNames=glob.glob(("*-%s-img-m.fits" % (band)))
-                        for fileName in imgFileNames:
-                            img=pyfits.open(fileName)
-                            imgWCS=astWCS.WCS(img[0].header, mode = 'pyfits')
-                            for y in range(sizePix):
-                                for x in range(sizePix):
-                                    outRADeg, outDecDeg=wcs.pix2wcs(x, y)
-                                    inX, inY=imgWCS.wcs2pix(outRADeg, outDecDeg)
-                                    # Once, this returned infinity...
-                                    try:
-                                        inX=int(round(inX))
-                                        inY=int(round(inY))
-                                    except:
-                                        continue
-                                    if inX >= 0 and inX < img[0].data.shape[1]-1 and inY >= 0 and inY < img[0].data.shape[0]-1:
-                                        outData[y, x]=img[0].data[inY, inX]
-                        if band == 'w1':
-                            bClip={'wcs': wcs, 'data': outData}
-                        elif band == 'w2':
-                            rClip={'wcs': wcs, 'data': outData}
-                else:
-                    wcs=astWCS.WCS(w1FileName)
-                    with pyfits.open(w1FileName) as bImg:
-                        bClip={'wcs': wcs, 'data': bImg[0].data}
-                    with pyfits.open(w2FileName) as rImg:
-                        rClip={'wcs': wcs, 'data': rImg[0].data}
-            
-                try:
-                    gClip={'wcs': rClip['wcs'], 'data': (rClip['data']+bClip['data'])/2.0}
-                except:
-                    raise Exception("W1, W2 images not same dimensions")
+        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'unwise-neo6',
+                                    cacheSubDir = "unWISE")
 
-            ## Clean up
-            #fileList=os.listdir(tmpDirPath)
-            #for f in fileList:
-                #os.remove(tmpDirPath+os.path.sep+f)
-            #os.removedirs(tmpDirPath)
-            
-            # Make colour .jpg
-            # Nicer log scaling - twiddle with the min, max levels here and cuts below as you like
-            dpi=96.0
-            bData=bClip['data']
-            gData=gClip['data']
-            rData=rClip['data']
-            rData[np.less(rData, 1e-5)]=1e-5
-            rData[np.greater(rData, 1000)]=1000.0
-            rData=np.log10(rData)
-            gData[np.less(gData, 1e-5)]=1e-5
-            gData[np.greater(gData, 1000)]=1000.0
-            gData=np.log10(gData)
-            bData[np.less(bData, 1e-5)]=1e-5
-            bData[np.greater(bData, 1000)]=1000.0
-            bData=np.log10(bData)
 
-            cuts=[0, 3]
-
-            sizePix=1024
-            f=plt.figure(figsize=(sizePix/dpi, sizePix/dpi), dpi = dpi)
-            axes=[0., 0., 1.0, 1.0]
-            plot=astPlots.ImagePlot([rData, gData, bData], bClip['wcs'], axes = axes, 
-                                cutLevels = [cuts, cuts, cuts], axesFontSize = 18.0)
-            plt.savefig(outFileName, dpi = dpi)
-            plt.close()
-
+    def fetchHSCImage(self, name, RADeg, decDeg, refetch = False):
+        self.fetchLegacySurveyImage(name, RADeg, decDeg, refetch = refetch, layer = 'hsc2',
+                                    cacheSubDir = "HSC")
                 
     @cherrypy.expose
-    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSDSSObjects = "false", 
-                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", clipSizeArcmin = None, gamma = 1.0):
+    def makePlotFromJPEG(self, name, RADeg, decDeg, surveyLabel, plotNEDObjects = "false", plotSpecObjects = "false",\
+                         plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false",\
+                         clipSizeArcmin = None, gamma = 1.0, redshift = "none", plotRedshift = "false"):
         """Makes plot of .jpg image with coordinate axes and NED, SDSS objects overlaid.
         
         To test this:
@@ -989,7 +1001,7 @@ class SourceBrowser(object):
         http://localhost:8080/sourcery/makePlotFromJPEG?name=XMMXCS%20J001737.5-005234.2&RADeg=4.406325&decDeg=-0.876192&surveyLabel=SDSS&clipSizeArcmin=3.0
         
         """
-               
+        
         # Just in case they are passed as strings (e.g., if direct from the url)
         RADeg=float(RADeg)
         decDeg=float(decDeg)
@@ -1001,35 +1013,26 @@ class SourceBrowser(object):
             sizeDeg=float(clipSizeArcmin)/60.
         
         # Load data
-        inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        # inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        subDir=str(RADeg).split(".")[0]
+        inJPGPath=self.cacheDir+os.path.sep+surveyLabel+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".jpg"
+        logger.info("Image path: %s" % (inJPGPath))
         if os.path.exists(inJPGPath) == False:
-            # Testing fall back option of live fetch from legacysurvey.org
-            fetchWidth=512 # Max set by DECaLS server
-            fetchPixScale=(self.configDict['plotSizeArcmin']*60.0)/float(fetchWidth)
-            if surveyLabel == 'SDSS':
-                layer='sdss'
+            # Live fetching of not yet cached images from web services, where we can
+            if surveyLabel == 'unWISE':
+                self.fetchUnWISEImage(name, RADeg, decDeg, refetch = False)
             elif surveyLabel == 'DECaLS':
-                layer='decals-dr7'
-            elif surveyLabel == 'unWISE':
-                layer='unwise-w1w2'
-            elif surveyLabel == 'DES':
-                layer='des-dr1'
-            else:
-                layer=None 
-            if layer is not None:
-                urlString="http://legacysurvey.org/viewer/jpeg-cutout?ra=%.6f&dec=%.6f&size=%d&layer=%s&pixscale=%.4f&bands=grz" % (RADeg, decDeg, fetchWidth, layer, fetchPixScale)
-                resp=self.http.request('GET', urlString)
-                #with open('test.jpg', 'wb') as f:
-                    #f.write(resp.data)
-                im=Image.open(io.BytesIO(resp.data))
-                data=np.array(im)
-                data=np.power(data, 1.0/float(gamma))
-                if data.shape != (fetchWidth, fetchWidth, 3):
-                    layer=None  # We get (256, 256) if not in footprint (I think)
-            if layer is None:
+                self.fetchDECaLSImage(name, RADeg, decDeg, refetch = False)
+            elif surveyLabel == 'HSC':
+                self.fetchHSCImage(name, RADeg, decDeg, refetch = False)
+            elif surveyLabel == 'SDSS':
+                self.fetchSDSSImage(name, RADeg, decDeg, refetch = False)
+            elif surveyLabel == 'PS1':
+                self.fetchPS1Image(name, RADeg, decDeg, bands = "gri", refetch = False)
+            elif surveyLabel == 'PS1IR':
+                self.fetchPS1Image(name, RADeg, decDeg, bands = "izy", refetch = False)
+            if os.path.exists(inJPGPath) == False:
                 inJPGPath=sourcery.__path__[0]+os.path.sep+"data"+os.path.sep+"noData.jpg"
-            else:
-                inJPGPath=None # success in this case
         
         # Gets set to None if we got it from legacysurvey.org and we didn't write to disk
         if inJPGPath is not None:
@@ -1084,7 +1087,8 @@ class SourceBrowser(object):
         newHead['CUNIT2']='DEG'
         wcs=astWCS.WCS(newHead, mode='pyfits')
 
-        cutLevels=[[R.min(), R.max()], [G.min(), G.max()], [B.min(), B.max()]]
+        #cutLevels=[[R.min(), R.max()], [G.min(), G.max()], [B.min(), B.max()]]
+        cutLevels=[[0, 255], [0, 255], [0, 255]]
         
         # Optional zoom
         if clipSizeArcmin != None:
@@ -1114,7 +1118,7 @@ class SourceBrowser(object):
         
         if showAxes != "true":
             scaleBarSizeArcmin=1.0
-            p.addScaleBar('NW', scaleBarSizeArcmin*60.0, color='yellow', fontSize=16, width=2.0, label = "1'")
+            p.addScaleBar('NW', scaleBarSizeArcmin*60.0, color='yellow', fontSize=20, width=2.0, label = "1'")
             plt.figtext(0.025, 0.95, name.replace("_", " "), ha = 'left', size = 24, color = 'yellow')
             #if plotTitle != None:
             #plt.figtext(0.965, 0.88, plotTitle, ha = 'right', size = 24)
@@ -1129,21 +1133,25 @@ class SourceBrowser(object):
             if len(nedObjs['RAs']) > 0:
                 p.addPlotObjects(nedObjs['RAs'], nedObjs['decs'], 'nedObjects', objLabels = nedObjs['labels'],
                                     size = sizeDeg/40.0*3600.0, color = "#7cfc00")
+        
+        if plotRedshift == "true" and redshift != "none":
+            plt.figtext(0.025, 0.03, "z = %.2f" % (float(redshift)), ha = 'left', size = 24, color = 'white')
     
-        if plotSDSSObjects == "true":
-            SDSSRedshifts=catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg)
-            if SDSSRedshifts != None:
-                sdssRAs=[]
-                sdssDecs=[]
-                sdssLabels=[]
-                sdssCount=0
-                for sdssObj in SDSSRedshifts:
-                    sdssCount=sdssCount+1
-                    sdssRAs.append(sdssObj['RADeg'])
-                    sdssDecs.append(sdssObj['decDeg'])
-                    sdssLabels.append(str(sdssCount))
-                if len(sdssRAs) > 0:
-                    p.addPlotObjects(sdssRAs, sdssDecs, 'sdssObjects', objLabels = sdssLabels,
+        if plotSpecObjects == "true":
+            specRedshifts=catalogTools.fetchSpecRedshifts(name, RADeg, decDeg, 
+                                                          redshiftsTable = self.specRedshiftsTab)
+            if specRedshifts is not None:
+                specRAs=[]
+                specDecs=[]
+                specLabels=[]
+                specCount=0
+                for specObj in specRedshifts:
+                    specCount=specCount+1
+                    specRAs.append(specObj['RADeg'])
+                    specDecs.append(specObj['decDeg'])
+                    specLabels.append(str(specCount))
+                if len(specRAs) > 0:
+                    p.addPlotObjects(specRAs, specDecs, 'specObjects', objLabels = specLabels,
                                     size = sizeDeg/40.0*3600.0, symbol = 'box', color = "red")
                               
         if plotXMatch == "true":
@@ -1532,7 +1540,7 @@ class SourceBrowser(object):
             self.onLogout(username)
         raise cherrypy.HTTPRedirect(from_page or cherrypy.request.script_name)
     
-    
+
     @cherrypy.expose
     @sourceryAuth.require()
     def index(self):
@@ -1713,8 +1721,7 @@ class SourceBrowser(object):
             html=html.replace("$TITLE", "Sourcery Database")
                 
         # First need to apply query parameters here
-        queryPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)        
-        numPosts=queryPosts.count()
+        queryPosts, numPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
         if 'numPosts' not in cherrypy.session:
             cherrypy.session['numPosts']=numPosts
         
@@ -1726,7 +1733,7 @@ class SourceBrowser(object):
             quickLinkStr="<p><i>Quick links:</i> "
             for linkDict in self.configDict['quickLinks']:
                 url="updateQueryParams?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints="
-                url=url+linkDict['constraints']
+                url=url+linkDict['constraints'].replace("+", "%2B") # quick and dirty fix for + in query constraints text
                 url=url+"&queryApply=Apply"
                 quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (url, linkDict['label'])
                 quickLinkStr=quickLinkStr+" - "
@@ -1791,9 +1798,11 @@ class SourceBrowser(object):
                 for o in operators:
                     colName=c.split(o)[0].lstrip().rstrip()
                     if numPosts > 0 and colName in viewPosts[0].keys() and colName not in columnsShownList:# and colName not in columnsHiddenList:
-                        fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
+                        fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})                            
                         dispDict={'name': colName, 'label': colName}
-                        if fieldTypeDict['type'] == 'number':
+                        if fieldTypeDict is None:
+                            dispDict['fmt']='%s'
+                        elif fieldTypeDict['type'] == 'number':
                             dispDict['fmt']='%.3f'
                         elif fieldTypeDict['type'] == 'text':
                             dispDict['fmt']='%s'
@@ -1841,7 +1850,7 @@ class SourceBrowser(object):
         Total number of %s: %d (original source list: %d%s) %s %s
         <p>%s</p>
         $NEWS
-        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.count(), hiddenConstraintsMessage, latestNewsStr,
+        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.estimated_document_count(), hiddenConstraintsMessage, latestNewsStr,
                           cacheRebuildStr, commentsString)
         if 'newsItems' in self.configDict.keys():
             newsStr="<p>News:<ul>\n"
@@ -1858,20 +1867,30 @@ class SourceBrowser(object):
         #http://localhost:8080/downloadCatalog?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints=softCts+%3E+300
         shortCatalogName=self.configDict['catalogDownloadFileName']+".cat"
         shortFITSName=shortCatalogName.replace(".cat", ".fits")
+        minimalFITSName=shortCatalogName.replace(".cat", "-minimal.fits")
         shortRegName=shortCatalogName.replace(".cat", ".reg")
         downloadLinkStr="downloadCatalog?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=%s&" % (queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
+        minimalDownloadLinkStr=downloadLinkStr+"minimalColumnSet=true&"
         downloadLinkStr=quote_plus(downloadLinkStr, safe='&?=')
+        minimalDownloadLinkStr=quote_plus(minimalDownloadLinkStr, safe='&?=')
         downloadLinks="""<fieldset>
         <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Download Catalog</b></legend>
         <ul>
         <li><a href=%sfileFormat=cat>%s</a>   (plain text)</li>
-        <li><a href=%sfileFormat=fits>%s</a>   (FITS table format)</li>
+        <li><a href=%sfileFormat=fits>%s</a>   (FITS table format; all columns)</li>
+        $MINIMAL_STR
         <li><a href=%sfileFormat=reg>%s</a>   (DS9 region file)</li></ul>
         <p>Note that current constraints are applied to downloaded catalogs.</p>
         </fieldset><br>
         """ % (downloadLinkStr, shortCatalogName, downloadLinkStr, shortFITSName, downloadLinkStr, shortRegName)
         html=html.replace("$DOWNLOAD_LINKS", downloadLinks)
         
+        if 'catalogDownloadMinimalColumns' in self.configDict.keys():
+            minimalStr="<li><a href=%sfileFormat=fits>%s</a>   (FITS table format; minimal column set)</li>" % (minimalDownloadLinkStr, minimalFITSName)
+            html=html.replace("$MINIMAL_STR", minimalStr)
+        else:
+            html=html.replace("$MINIMAL_STR", "")
+
         tableData=""
         usedBckColors=[]
         usedBckKeys=[]
@@ -1898,7 +1917,7 @@ class SourceBrowser(object):
                 else:
                     useDiv=False
                     if colDict['fmt'] == '%s':
-                        if colDict['name'] in obj.keys():
+                        if colDict['name'] in obj.keys() and type(obj[colDict['name']]) == str:
                             widthStr='width: %dem;' % (len(obj[colDict['name']]))
                         else:
                             widthStr=""
@@ -1989,19 +2008,14 @@ class SourceBrowser(object):
     @cherrypy.expose
     @sourceryAuth.require()
     def downloadCatalog(self, queryRADeg = "0:360", queryDecDeg = "-90:90", querySearchBoxArcmin = "",
-                        queryOtherConstraints = "", fileFormat = "cat"):
+                        queryOtherConstraints = "", fileFormat = "cat", minimalColumnSet = "false"):
         """Provide user with the current table view as a downloadable catalog.
         
         """
-                
+
         # Fetch the cached table and update that with any changed classifications info
         cachedTabFileName=self.cacheDir+os.path.sep+"%s_xMatchedTable.fits" % (self.configDict['catalogDownloadFileName'])
         xTab=atpy.Table().read(cachedTabFileName)
-                
-        t0=time.time()
-        posts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)                
-        tabLength=posts.count()
-        t1=time.time()
 
         # Need this and change below for overloading with e.g. editable BCG coords
         editableFieldsList=[]
@@ -2011,59 +2025,64 @@ class SourceBrowser(object):
             if key in editableFieldsList:
                 xTab.remove_column(key)
         
+        # If minimal set of columns requested, delete all that aren't included
+        minimalCols=xTab.keys()
+        if minimalColumnSet == 'true':
+            if 'catalogDownloadMinimalColumns' in self.configDict.keys():
+                minimalCols=['sourceryID']
+                for keyStr in self.configDict['catalogDownloadMinimalColumns']:
+                    if keyStr[-1] != '_':
+                        minimalCols.append(keyStr)
+                    else:
+                        for col in xTab.keys():
+                            if col[:len(keyStr)] == keyStr:
+                                minimalCols.append(col)
+                for col in xTab.keys():
+                    if col not in minimalCols:
+                        xTab.remove_column(col)
+
         # NOTE: there may be fun unicode-related stuff here: e.g., u'BCG_RADeg' versus 'BCG_RADeg'
         keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = [])
-        keysToAdd=['RADeg', 'decDeg']
-        typeNamesToAdd=['number', 'number']
+        keysToAdd=['sourceryID', 'RADeg', 'decDeg', 'classification']
+        typeNamesToAdd=['text', 'number', 'number', 'text']
         for k, t in zip(keysList, typeNamesList):
-            if k not in xTab.keys() or k in editableFieldsList:
-                if k not in keysToAdd:
-                    keysToAdd.append(k)
-                    typeNamesToAdd.append(t)
-                
-        t2=time.time()
+            if k not in xTab.keys() and k not in keysToAdd and k in minimalCols:
+                keysToAdd.append(k)
+                typeNamesToAdd.append(t)
+            if k not in keysToAdd and k in editableFieldsList:
+                keysToAdd.append(k)
+                typeNamesToAdd.append(t)
+
+        # This part takes ~1 min for a catalog with 43k sources on laptop so is the only bit that needs speeding up
+        # The query part is 0.05 sec - it's the big for loop that is slow [i.e., converting from posts -> astropy table]
+        count=0
+        keepIndices=[]
+        posts, tabLength=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
         tab=atpy.Table()
         tab.table_name=self.configDict['catalogDownloadFileName']
         for key, typeName in zip(keysToAdd, typeNamesToAdd):
             if typeName == 'number':
-                tab.add_column(atpy.Column(np.zeros(tabLength, dtype = float), str(key)))
+                tab.add_column(atpy.Column(np.zeros(tabLength, dtype = np.float64), str(key)))
             else:
                 tab.add_column(atpy.Column(np.zeros(tabLength, dtype = 'S1000'), str(key)))
-        
-        count=0
         for post in posts:
+            # Trim xTab to match posts based on sourceryID
+            if post['sourceryID'] in xTab['sourceryID']:
+                keepIndices.append(np.where(xTab['sourceryID'] == post['sourceryID'])[0][0])
             for key in keysToAdd:
                 if key in post.keys():           # NOTE: this handles image_ tags, which are 1 if present, and absent otherwise
                     tab[key][count]=post[key]
             count=count+1
+        xTab=xTab[keepIndices]
         tab.rename_column('RADeg', 'tag_RADeg')
         tab.rename_column('decDeg', 'tag_decDeg')
-        t3=time.time()
-        
-        newOrder=xTab.keys()+tab.keys()
-        
-        tab.add_column(atpy.Column(np.arange(len(tab)), 'matchIndices'))
-        origLen=len(tab)
-        cat1=SkyCoord(ra = tab['tag_RADeg'], dec = tab['tag_decDeg'], unit = 'deg')
-        xMatchRadiusDeg=self.configDict['MongoDBCrossMatchRadiusArcmin']/60.
-        cat2=SkyCoord(ra = xTab['RADeg'].data, dec = xTab['decDeg'].data, unit = 'deg')
-        xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
-        mask=np.less(rDeg.value, xMatchRadiusDeg)
-        tab['matchIndices'][:]=-1
-        tab['matchIndices']=xIndices
-        # Could not get join to work
-        for key in xTab.keys():
-            if key not in tab.keys():
-                if xTab[key].dtype.kind == 'S':
-                    tab.add_column(atpy.Column(np.array([""]*len(tab), dtype = xTab[key].dtype), key))
-                else:
-                    tab.add_column(atpy.Column(np.ones(len(tab), dtype = xTab[key].dtype)*-99, key))
-                tab[key][mask]=xTab[key][xIndices[mask]]
-        t4=time.time()
-        tab=tab[newOrder]
-        tab.remove_columns(['tag_RADeg', 'tag_decDeg', 'sourceryID', 'cacheBuilt'])
-        t5=time.time()
-        
+
+        tab=atpy.join(xTab, tab, keys = ['sourceryID'])
+        zapCols=['tag_RADeg', 'tag_decDeg', 'sourceryID', 'cacheBuilt']
+        for z in zapCols:
+            if z in tab.keys():
+                tab.remove_column(z)
+
         # Zap any columns that this user shouldn't see
         user=cherrypy.session['_sourcery_username']
         for userNameKey in self.usersDict.keys():
@@ -2075,13 +2094,21 @@ class SourceBrowser(object):
                         if key.find(prefix) != -1 and key[:len(prefix)] == prefix:
                             colsToDelete.append(key)
                     tab.remove_columns(colsToDelete)
-        
-        print("time taken: %.3f, %.3f, %.3f, %.3f, %.3f" % (t1-t0, t2-t1, t3-t2, t4-t3, t5-t4))
+
+        # Zap any columns that contain only sentinels
+        for key in tab.keys():
+            try:
+                if np.all(tab[key]) == -99:
+                    tab.remove_column(key)
+            except:
+                pass
 
         tmpFile, tmpFileName=tempfile.mkstemp()
         if fileFormat == 'cat':
             tab.write(tmpFileName+".cat", format = 'ascii')
         elif fileFormat == 'fits':
+            if len(tab.keys()) > 999:
+                raise Exception("FITS table format does not support 1000+ columns")
             tab.write(tmpFileName+".fits", format = 'fits')
         elif fileFormat == 'reg':
             catalogTools.tab2DS9(tab, tmpFileName+".reg")
@@ -2171,24 +2198,26 @@ class SourceBrowser(object):
         constraintsDict=self.extractConstraintsDict(queryOtherConstraints)
         for key in constraintsDict:
             queryDict[key]=constraintsDict[key]
-        
+
         # Execute query
         # NOTE: converting to list here is very slow
         if collection == 'source':
-            self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
-            #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))        
+            self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])
+            #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg'))
+            numPosts=self.sourceCollection.count_documents(queryDict)
             queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')  
         elif collection == 'tags':
-            self.tagsCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+            self.tagsCollection.create_index([("RADeg", pymongo.ASCENDING)])
             #queryPosts=list(self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')) 
-            queryPosts=self.sourceCollection.find(queryDict).sort('decDeg').sort('RADeg')
+            numPosts=self.tagsCollection.count_documents(queryDict)
+            queryPosts=self.tagsCollection.find(queryDict).sort('decDeg').sort('RADeg')
         else:
             raise Exception("collection should be 'source' or 'tags' only")
                         
         # If we wanted to store all this in its own collection
         #self.makeSessionCollection(queryPosts)
                 
-        return queryPosts
+        return queryPosts, numPosts
         
 
     def makeSessionCollection(self, queryPosts):
@@ -2206,7 +2235,7 @@ class SourceBrowser(object):
         # Add a date so we can expire the data after a couple of hours
         for q in queryPosts:
             q['lastModifiedDate']=datetime.datetime.utcnow()
-            self.db.collection[cherrypy.session.id].insert(q)
+            self.db.collection[cherrypy.session.id].insert_one(q)
 
         # This makes the session data self destruct after some time
         self.db.collection[cherrypy.session.id].create_index([('lastModifiedDate', 1)], expireAfterSeconds = 7200)
@@ -2225,6 +2254,9 @@ class SourceBrowser(object):
                    '>=': '$gte',
                    '!=': '$ne',
                    '=': ''}
+
+        # Newlines cause problems
+        constraints=constraints.replace("\n", " ")
         
         # 'and' has precedence - which in practice means split on 'or' first, and then or all those together
         # Still need to handle () though, which means some recursion?
@@ -2363,7 +2395,7 @@ class SourceBrowser(object):
         <p>will return all objects where the string 'high-z' appears in the notes field somewhere. <b>Note that wildcard text searches are case insensitive</b>.
         </p>
         <br>
-        <table frame=border cellspacing=0 cols=3 rules=all border=2 width=80% align=center>
+        <table frame=border cellspacing=0 cols=3 rules=all border=2 width=85% align=center>
         <tbody>
             <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
                     text-align: center; vertical-align: middle; font-size: 110%;">
@@ -2427,22 +2459,27 @@ class SourceBrowser(object):
                 keysList.append(fieldDict['name'])
                 typeNamesList.append(fieldDict['type'])
                 descList.append(fieldDict['description'])
-        
+
+        # Override descriptions from the ones in the file
+        for k in self.descriptionsDict.keys():
+            if k in keysList:
+                index=keysList.index(k)
+                descList[index]=self.descriptionsDict[k]
+
         return keysList, typeNamesList, descList
                 
     
     @cherrypy.expose
-    def updateMongoDB(self, name, returnURL, **kwargs):
+    def updateMongoDB(self, sourceryID, returnURL, **kwargs):
         """Update info on source in MongoDB.
         
         """
         
         if not cherrypy.session.loaded: cherrypy.session.load()
         
-        # To start with, match ONLY on object name... this assumes that objects with the same name will have sufficiently
-        # similar coordinates (we handle updating for objects in multiple source lists below)
-        obj=self.sourceCollection.find_one({'name': name})
-        
+        obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
+        name=obj['name']
+
         # Bizarrely, legacy coordinates are given as degrees (lon, lat) but max distance has to be in radians...
         # Also, need lon between -180, +180
         if obj['RADeg'] > 180:
@@ -2464,15 +2501,15 @@ class SourceBrowser(object):
                 post[key]=kwargs[key]
         post['lastUpdated']=datetime.date.today().isoformat()
         post['user']=cherrypy.session['_sourcery_username']
-        self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
-        
+        self.tagsCollection.update_one({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
+                
         # Update source collection too - here we will do this for all sources that share the same name (we can have multiple source lists)
         # This could be done using cross matching based on coords instead, but this could cause confusion in the case of multiple sources
         # that are not the same object, located at separations < MongoDBCrossMatchRadiusArcmin
         # Example of this: erroneously deblended objects in the XCS list, where you only want to flag some objects as junk, and others not
         objs=self.sourceCollection.find({'name': name})
         for obj in objs:
-            self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+            self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
         # Would reset zoom level if changed
         if 'defaultImageType' in self.configDict.keys():
@@ -2517,15 +2554,17 @@ class SourceBrowser(object):
         #IPython.embed()
         #sys.exit()
         
-        self.tagsCollection.update({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
+        self.tagsCollection.update_one({'_id': mongoDict['_id']}, {'$set': post}, upsert = False)
         
         # Update source collection too
-        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+        self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
     
     @cherrypy.expose
     @sourceryAuth.require()
-    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false", plotSDSSObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false", showAxes = "false", gamma = 1.0):
+    def displaySourcePage(self, sourceryID, imageType = 'best', clipSizeArcmin = None, plotNEDObjects = "false",\
+                          plotSpecObjects = "false", plotSourcePos = "false", plotXMatch = "false", plotContours = "false",\
+                          showAxes = "false", gamma = 1.0, plotRedshift = "false", redshift = "none"):
         """Retrieve data on a source and display source page, showing given image plot.
         
         This should have form controls somewhere for editing the assigned redshift, redshift type, redshift 
@@ -2578,20 +2617,18 @@ class SourceBrowser(object):
         <br>
 
         <div style="display: table; width: 85%; margin:0 auto;">
-            <div style="display: table-row; height: auto; margin:0 auto;">
-                <div style="display: table-cell;">
-                    <div style="display: block;">
-                        $PLOT_CONTROLS
-                    </div>
-                    <div style="display: block;">
-                        $TAG_CONTROLS
-                    </div>
-                </div>
-                <div style="display: table-cell;">
-                    <fieldset style="height: 100%;">
+            <div style="display: table-row; height: auto; margin:0 auto; height: $PLOT_DISPLAY_HEIGHT_PIX;">
+                <div style="display: table-cell; vertical-align: top;">
+                    <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
                     <legend><b>Source Image</b></legend>
                     <div id="imagePlot"></div>
                     </fieldset>
+                </div>
+                <div style="display: table-cell; vertical-align: top;">
+                    $PLOT_CONTROLS
+                </div>
+                <div style="display: table-cell; vertical-align: top;">
+                    $TAG_CONTROLS
                 </div>
             </div>
         </div>
@@ -2606,7 +2643,7 @@ class SourceBrowser(object):
         </tr>
 
         <tr>
-            <td align=center>$SDSS_MATCHES_TABLE</td>
+            <td align=center>$SPEC_MATCHES_TABLE</td>
         </tr>
         
         <tr>
@@ -2657,7 +2694,7 @@ class SourceBrowser(object):
                     break
             # Fall back option
             if imageType == 'best':
-                imageType='SDSS'
+                imageType='DECaLS'
         
         # Controls for image zoom, plotting NED, SDSS, etc.       
         plotFormCode="""
@@ -2688,13 +2725,15 @@ class SourceBrowser(object):
                             decDeg: $OBJECT_DECDEG,
                             surveyLabel: parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 0),
                             plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
-                            plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
+                            plotSpecObjects: $('input:checkbox[name=plotSpecObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
                             clipSizeArcmin: $DEFAULT_CLIP_SIZE_ARCMIN,
-                            gamma: $("#gamma").val()}, 
+                            gamma: $("#gamma").val(),
+                            plotRedshift: $('input:checkbox[name=plotRedshift]').prop('checked'),
+                            redshift: $OBJECT_REDSHIFT}, 
                             function(data) {
                                 // directly insert the image
                                 $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
@@ -2729,13 +2768,15 @@ class SourceBrowser(object):
                             decDeg: $OBJECT_DECDEG,
                             surveyLabel: parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 0),
                             plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
-                            plotSDSSObjects: $('input:checkbox[name=plotSDSSObjects]').prop('checked'),
+                            plotSpecObjects: $('input:checkbox[name=plotSpecObjects]').prop('checked'),
                             plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
                             plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
                             plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
                             showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
                             clipSizeArcmin: $("#sizeSliderValue").val(),
-                            gamma: $("#gammaSliderValue").val()}, 
+                            gamma: $("#gammaSliderValue").val(),
+                            plotRedshift: $('input:checkbox[name=plotRedshift]').prop('checked'),
+                            redshift: $OBJECT_REDSHIFT}, 
                             function(data) {
                                 // directly insert the image
                                 $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
@@ -2747,7 +2788,7 @@ class SourceBrowser(object):
 
         </script>
 
-        <fieldset style="height: 100%;">
+        <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
         <legend><b>Image Controls</b></legend>
         
         <form id="buildCache" method="get" action="buildCacheForObject"></form>   
@@ -2776,6 +2817,10 @@ class SourceBrowser(object):
         $CONTOUR_CODE
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
+        <input type="checkbox" name="plotRedshift" value=1 $CHECKED_REDSHIFT>
+        <label for="plotRedshift">Display redshift</label>
+        </span>
+        <span style="margin-left: 1.2em; display: inline-block">
         <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>
         <label for="plotSourcePos">Source position</label>
         </span>
@@ -2784,8 +2829,8 @@ class SourceBrowser(object):
         <label for="plotNEDObjects">NED objects</label>
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="plotSDSSObjects" value=1 $CHECKED_SDSS>
-        <label for="plotSDSSObjects">SDSS DR14 objects</label>
+        <input type="checkbox" name="plotSpecObjects" value=1 $CHECKED_SDSS>
+        <label for="plotSpecObjects">Spec-zs</label>
         </span>
         <span style="margin-left: 1.2em; display: inline-block">
         <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>
@@ -2897,6 +2942,10 @@ class SourceBrowser(object):
         plotFormCode=plotFormCode.replace("$OBJECT_NAME", obj['name'])
         plotFormCode=plotFormCode.replace("$OBJECT_RADEG", str(obj['RADeg']))
         plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
+        if 'redshift' in obj.keys():
+            plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", str(obj['redshift']))
+        else:
+            plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", '-99')
         plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
         if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
             contourCode='<input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>\n'
@@ -2920,10 +2969,10 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_NED", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_NED", "")
-        if plotSDSSObjects == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_SDSS", " checked")
+        if plotSpecObjects == "true":
+            plotFormCode=plotFormCode.replace("$CHECKED_SPEC", " checked")
         else:
-            plotFormCode=plotFormCode.replace("$CHECKED_SDSS", "")
+            plotFormCode=plotFormCode.replace("$CHECKED_SPEC", "")
         if plotSourcePos == "true":
             plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", " checked")
         else:
@@ -2940,6 +2989,10 @@ class SourceBrowser(object):
             plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", " checked")
         else:
             plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", "")
+        if plotRedshift == "true":
+            plotFormCode=plotFormCode.replace("$CHECKED_REDSHIFT", " checked")
+        else:
+            plotFormCode=plotFormCode.replace("$CHECKED_REDSHIFT", "")
         
         # This block here probably is hardly useful
         imageMaxSizeArcmin=30.
@@ -2959,9 +3012,9 @@ class SourceBrowser(object):
         # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
         tagFormCode="""
         <form method="post" action="updateMongoDB">    
-        <input name="name" value="$OBJECT_NAME" type="hidden">
+        <input name="sourceryID" value="$SOURCERY_ID" type="hidden">
         <input name="returnURL" value=$RETURN_URL" type="hidden">
-        <fieldset style="height: 100%;">
+        <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
         <legend><b>Editing Controls</b></legend>
         $CLASSIFICATION_CONTROLS
         $FIELD_CONTROLS
@@ -2979,7 +3032,7 @@ class SourceBrowser(object):
                 readOnlyStr=""
                 tagFormCode=tagFormCode.replace("$DISABLED_STR", "")
             tagFormCode=tagFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
-            tagFormCode=tagFormCode.replace("$OBJECT_NAME", name)
+            tagFormCode=tagFormCode.replace("$SOURCERY_ID", sourceryID)
             tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
             if 'fields' in self.configDict.keys():
                 #fieldsCode="<p><b>Fields:</b>"
@@ -3028,7 +3081,7 @@ class SourceBrowser(object):
         
         # Optional spectrum plot
         if 'displaySpectra' in self.configDict.keys() and self.configDict['displaySpectra'] == True:
-            spectrumCode="""<br><table frame=border cellspacing=0 cols=1 rules=all border=2 width=80% align=center>
+            spectrumCode="""<br><table frame=border cellspacing=0 cols=1 rules=all border=2 width=85% align=center>
             <tbody>
             <tr>
                 <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
@@ -3057,9 +3110,12 @@ class SourceBrowser(object):
             html=html.replace("$TAG_CONTROLS", tagFormCode)
         else:
             html=html.replace("$TAG_CONTROLS", "")
+        html=html.replace("$PLOT_DISPLAY_HEIGHT_PIX", str(self.configDict['plotDisplayWidthPix']*1.02))
         html=html.replace("$SOURCE_NAME", name)
         html=html.replace("$SIZE_ARC_MIN", "%.1f" % (self.configDict['plotSizeArcmin']))
         html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
+
+
 
         #for label, caption in zip(self.imDirLabelsList, self.imageCaptions):
             #if label == imageType:
@@ -3071,7 +3127,7 @@ class SourceBrowser(object):
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
         nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjTypes'])
         if len(nedObjs['RAs']) > 0:
-            nedTable="""<br><table frame=border cellspacing=0 cols=6 rules=all border=2 width=80% align=center>
+            nedTable="""<br><table frame=border cellspacing=0 cols=6 rules=all border=2 width=85% align=center>
             <tbody>
             <tr>
                 <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
@@ -3112,15 +3168,15 @@ class SourceBrowser(object):
         html=html.replace("$NED_MATCHES_TABLE", nedTable)
         
         # SDSS matches table
-        if 'addSDSSRedshifts' in self.configDict.keys() and self.configDict['addSDSSRedshifts'] == True:
-            SDSSRedshifts=catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, obj['name'], obj['RADeg'],
-                                                          obj['decDeg'])
-            sdssTable="""<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=80% align=center>
+        if 'addSpecRedshifts' in self.configDict.keys() and self.configDict['addSpecRedshifts'] == True:
+            specRedshifts=catalogTools.fetchSpecRedshifts(obj['name'], obj['RADeg'], obj['decDeg'], 
+                                                          redshiftsTable = self.specRedshiftsTab)
+            specTable="""<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=85% align=center>
             <tbody>
             <tr>
                 <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=5>
-                    <b>SDSS Redshifts</b>
+                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
+                    <b>Spectroscopic Redshifts</b>
                 </th>
             </tr>
             <tr>
@@ -3128,33 +3184,36 @@ class SourceBrowser(object):
                 <td><b>RA</b></td>
                 <td><b>Dec.</b></td>
                 <td><b>z</b></td>
-                <td><b>zWarning</b></td>                    
+                <td><b>zWarning</b></td>
+                <td><b>catalog</b></td> 
             </tr>
             """              
-            sdssCount=0
-            for sdssObj in SDSSRedshifts:
-                sdssCount=sdssCount+1
+            specCount=0
+            for specObj in specRedshifts:
+                specCount=specCount+1
                 rowString="""<tr>
                     <td align=center width=10%>$ID</td>
                     <td align=center width=10%>$RA</td>
                     <td align=center width=10%>$DEC</td>
                     <td align=center width=10%>$REDSHIFT</td>
                     <td align=center width=10%>$Z_WARNING</td>
+                    <td align=center width=10%>$Z_CATALOG</td>
                 </tr>
                 """
-                rowString=rowString.replace("$ID", "%d" % (sdssCount))
-                rowString=rowString.replace("$RA", "%.5f" % (sdssObj['RADeg']))
-                rowString=rowString.replace("$DEC", "%.5f" % (sdssObj['decDeg']))
-                rowString=rowString.replace("$REDSHIFT", "%.3f" % (sdssObj['z']))
-                rowString=rowString.replace("$Z_WARNING", "%s" % (sdssObj['zWarning']))
-                sdssTable=sdssTable+rowString
-            sdssTable=sdssTable+"</tbody></table>"
+                rowString=rowString.replace("$ID", "%d" % (specCount))
+                rowString=rowString.replace("$RA", "%.5f" % (specObj['RADeg']))
+                rowString=rowString.replace("$DEC", "%.5f" % (specObj['decDeg']))
+                rowString=rowString.replace("$REDSHIFT", "%.3f" % (specObj['z']))
+                rowString=rowString.replace("$Z_WARNING", "%s" % (specObj['zWarning']))
+                rowString=rowString.replace("$Z_CATALOG", "%s" % (specObj['catalog']))
+                specTable=specTable+rowString
+            specTable=specTable+"</tbody></table>"
         else:
-            sdssTable=""
-        html=html.replace("$SDSS_MATCHES_TABLE", sdssTable)
+            specTable=""
+        html=html.replace("$SPEC_MATCHES_TABLE", specTable)
 
         # Source properties table
-        propTable="""<br><table frame=border cellspacing=0 cols=2 rules=all border=2 width=80% align=center>
+        propTable="""<br><table frame=border cellspacing=0 cols=2 rules=all border=2 width=85% align=center>
         <tbody>
         <tr>
             <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
@@ -3204,10 +3263,10 @@ class SourceBrowser(object):
                 fieldDict['type']='number'
                 fieldDict['description']='1 if object has image in the database; 0 otherwise'
                 fieldDict['index']=len(keysList)+1
-                self.fieldTypesCollection.insert(fieldDict)
+                self.fieldTypesCollection.insert_one(fieldDict)
         t0=time.time()
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
-        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+        self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])
         posts=self.sourceCollection.find({}).sort('decDeg').sort('RADeg')
         for obj in posts:
             name=obj['name']
@@ -3227,7 +3286,7 @@ class SourceBrowser(object):
                         skipImage=True
                     if skipImage == False:
                         post={'image_%s' % (label): 1}
-                        self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)      
+                        self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': post}, upsert = False)
         t1=time.time()
         print("... took %.3f sec ..." % (t1-t0))
         
@@ -3264,13 +3323,13 @@ class SourceBrowser(object):
                 self.tileDirs[tileDirDict['label']].setUpWCSDict()
                                               
         # We need to do this to avoid hitting 32 Mb limit below when using large databases
-        self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])
+        self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])
         
         # Threaded
         # NOTE: Threads have occassionally given weird issues (e.g., mismatched WISE images)
         # Check that when thread write to disk they don't clash with each other
         if 'threadedCacheBuild' in self.configDict.keys() and self.configDict['threadedCacheBuild'] == True:
-            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True, session = self.mongoSess).sort('decDeg').sort('RADeg')
             sourceryIDs=[]
             for obj in cursor:
                 sourceryIDs.append(obj['sourceryID'])
@@ -3281,8 +3340,13 @@ class SourceBrowser(object):
                 executor.map(self.buildCacheForObject, sourceryIDs)
         else:
             # Serial - still useful if debugging
-            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+            cursor=self.sourceCollection.find({'cacheBuilt': 0}, no_cursor_timeout = True, session = self.mongoSess).sort('decDeg').sort('RADeg')
+            lastRefreshTime=time.time()
             for obj in cursor:
+                # Keeping the session alive - refresh every 10 min or so
+                if time.time()-lastRefreshTime > 600:
+                    self.db.command({"refreshSessions" : [self.mongoSess.session_id]})
+                    lastRefreshTime=time.time()
                 self.buildCacheForObject(obj['sourceryID'], refetch = False)
             cursor.close()
                 
@@ -3319,12 +3383,15 @@ class SourceBrowser(object):
         print(">>> Fetching data to cache for object %s" % (name))
         self.fetchNEDInfo(name, RADeg, decDeg)
         # Web services
-        if self.configDict['addSDSSRedshifts'] == True:
-            catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg)
+        #if self.configDict['addSpecRedshifts'] == True:
+            #catalogTools.fetchSDSSRedshifts(self.sdssRedshiftsDir, name, RADeg, decDeg,
+                                            #redshiftsTable = self.specRedshiftsTab)
         if self.configDict['addSDSSImage'] == True:
             self.fetchSDSSImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addDECaLSImage'] == True:
             self.fetchDECaLSImage(name, RADeg, decDeg, refetch = refetch)
+        if self.configDict['addHSCImage'] == True:
+            self.fetchHSCImage(name, RADeg, decDeg, refetch = refetch)
         if self.configDict['addPS1Image'] == True:
             self.fetchPS1Image(name, RADeg, decDeg, refetch = refetch, bands = 'gri')
         if self.configDict['addPS1IRImage'] == True:
@@ -3351,16 +3418,16 @@ class SourceBrowser(object):
                     skipImage=True
                 if skipImage == False:
                     post={'image_%s' % (label): 1}
-                    self.sourceCollection.update({'_id': obj['_id']}, {'$set': post}, upsert = False)
+                    self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': post}, upsert = False)
         
         # Flag this as done
-        self.sourceCollection.update({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
+        self.sourceCollection.update_one({'_id': obj['_id']}, {'$set': {'cacheBuilt': 1}}, upsert = False)
         
         # If using for spot fixes in web interface, need to refresh page when done
         if from_page != None:
             raise cherrypy.HTTPRedirect(cherrypy.request.script_name+"/"+from_page)
     
-    
+
     def makeImageDirJPEGs(self):
         """Actually makes .jpg images from .fits images in given directories. We figure out which image to use
         from spinning through the headers. 
@@ -3420,7 +3487,11 @@ class SourceBrowser(object):
                 origLength=len(headerDict.keys())
                 for imgFileName in imgList:
                     if imgFileName not in headerDict.keys():
-                        wcs=astWCS.WCS(imgFileName)
+                        with pyfits.open(imgFileName) as img:
+                            for ext in img:
+                                if ext.data is not None:
+                                    break
+                            wcs=astWCS.WCS(ext.header, mode = 'pyfits')
                         headerDict[imgFileName]=wcs.header.copy()
                 t1=time.time()
                 # Write pickled headerDict, in case it was updated
@@ -3445,11 +3516,19 @@ class SourceBrowser(object):
             else:
                 self.mapPageEnabled=False
             
-            self.sourceCollection.ensure_index([("RADeg", pymongo.ASCENDING)])  # Avoid 32 Mb limit
-            objList=self.sourceCollection.find(no_cursor_timeout = True).sort('decDeg').sort('RADeg')
+            self.sourceCollection.create_index([("RADeg", pymongo.ASCENDING)])  # Avoid 32 Mb limit
+            objList=self.sourceCollection.find(no_cursor_timeout = True, session = self.mongoSess).sort('decDeg').sort('RADeg')
+            lastRefreshTime=time.time()
 
             for obj in objList:
-                outFileName=outDir+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".jpg"
+                # Keeping the session alive - refresh every 10 min or so
+                if time.time()-lastRefreshTime > 600:
+                    self.db.command({"refreshSessions" : [self.mongoSess.session_id]})
+                    lastRefreshTime=time.time()
+
+                subDir=str(obj['RADeg']).split(".")[0]
+                os.makedirs(outDir+os.path.sep+subDir, exist_ok = True)
+                outFileName=outDir+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".jpg"
                 if os.path.exists(outFileName) == False:
                     print("... making image for %s ..." % (obj['name']))
                     for imgFileName in imgList:
@@ -3467,16 +3546,20 @@ class SourceBrowser(object):
 
                         # Clip image
                         with pyfits.open(imgFileName) as img:
-                            data=img[0].data                     
+                            for ext in img:
+                                if ext.data is not None:
+                                    break
+                            data=ext.data
                         clip=astImages.clipImageSectionWCS(data, wcs, obj['RADeg'], obj['decDeg'],
                                                            maxSizeArcmin/60.0)
                         
-                        # Sanity check - did we pick an image where object is in zeroed border?
+                        # Optional check - did we pick an image where object is in zeroed border?
                         pixCoords=clip['wcs'].wcs2pix(obj['RADeg'], obj['decDeg'])
-                        if clip['data'][int(pixCoords[1]), int(pixCoords[0])] == 0:
-                            continue
-                        if clip['data'].sum() == 0:
-                            continue
+                        if 'checkAllZeros' in imDirDict.keys() and imDirDict['checkAllZeros'] == True:
+                            if clip['data'][int(pixCoords[1]), int(pixCoords[0])] == 0:
+                                continue
+                            if clip['data'].sum() == 0:
+                                continue
                         
                         # Save .fits if needed
                         if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] == label:
@@ -3488,11 +3571,8 @@ class SourceBrowser(object):
                         # Min-Max scaling
                         # Should probably stick with this, but also add log option for optical
                         if scaling == 'auto' and minMaxRadiusArcmin is not None:
-                            clip['data']=catalogTools.byteSwapArr(clip['data'])
-                            # Avoid cython type troubles
-                            if clip['data'].dtype != np.float32:
-                                clip['data']=np.array(clip['data'], dtype = np.float32)
-                            rMap=sourceryCython.makeDegreesDistanceMap(clip['data'], clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
+                            rMap=np.zeros(clip['data'].shape, dtype = float)
+                            rMap, blah1, blah2=makeDegreesDistanceMap(rMap, clip['wcs'], obj['RADeg'], obj['decDeg'], 100.0)
                             minMaxData=clip['data'][np.less(rMap, minMaxRadiusArcmin/60.0)]
                             cuts=[clip['data'].min(), clip['data'].max()]
                         elif scaling == 'log':
