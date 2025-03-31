@@ -653,6 +653,11 @@ class SourceBrowser(object):
             
             # Match with tagsCollection
             tagsDict=self.matchTags(newPost)
+            # if row['name'] == 'ACT-CL J1015.7+1813':
+            #     print("zap")
+            #     import IPython
+            #     IPython.embed()
+            #     sys.exit()
             for key in tagsDict:
                 newPost[key]=tagsDict[key]
             if self.configDict['insertMode'] == 'single':
@@ -1191,7 +1196,7 @@ class SourceBrowser(object):
         
         if plotContours == "true":
             if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-                clipFileName=self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".fits"
+                clipFileName=self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".fits"
                 if os.path.exists(clipFileName):
                     contourImg=pyfits.open(clipFileName)
                     contourWCS=astWCS.WCS(contourImg[0].header, mode = 'pyfits')
@@ -2128,7 +2133,11 @@ class SourceBrowser(object):
         
         """
         obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
-        imgPath=self.cacheDir+os.path.sep+self.configDict['downloadableFITS']+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".fits"
+        RADeg=obj['RADeg']
+        decDeg=obj['decDeg']
+        subDir=str(RADeg).split(".")[0]
+        imgPath=self.cacheDir+os.path.sep+self.configDict['downloadableFITS']+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".fits"
+        #imgPath=self.cacheDir+os.path.sep+self.configDict['downloadableFITS']+os.path.sep+catalogTools.makeRADecString(obj['RADeg'], obj['decDeg'])+".fits"
         cherrypy.response.headers['Content-Disposition']='attachment; filename="%s.%s"' % (obj['name'].replace(" ", "_"), 'fits')
         f=open(imgPath, 'rb')
         
