@@ -3193,7 +3193,6 @@ class SourceBrowser(object):
                 <td><b>RA</b></td>
                 <td><b>Dec.</b></td>
                 <td><b>z</b></td>
-                <td><b>zWarning</b></td>
                 <td><b>catalog</b></td> 
             </tr>
             """              
@@ -3205,7 +3204,6 @@ class SourceBrowser(object):
                     <td align=center width=10%>$RA</td>
                     <td align=center width=10%>$DEC</td>
                     <td align=center width=10%>$REDSHIFT</td>
-                    <td align=center width=10%>$Z_WARNING</td>
                     <td align=center width=10%>$Z_CATALOG</td>
                 </tr>
                 """
@@ -3213,7 +3211,6 @@ class SourceBrowser(object):
                 rowString=rowString.replace("$RA", "%.5f" % (specObj['RADeg']))
                 rowString=rowString.replace("$DEC", "%.5f" % (specObj['decDeg']))
                 rowString=rowString.replace("$REDSHIFT", "%.3f" % (specObj['z']))
-                rowString=rowString.replace("$Z_WARNING", "%s" % (specObj['zWarning']))
                 rowString=rowString.replace("$Z_CATALOG", "%s" % (specObj['catalog']))
                 specTable=specTable+rowString
             specTable=specTable+"</tbody></table>"
