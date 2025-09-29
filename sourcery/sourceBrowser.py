@@ -2802,11 +2802,7 @@ class SourceBrowser(object):
         
         <form id="buildCache" method="get" action="buildCacheForObject"></form>   
         $THUMB_FORM_DECLARED
-        <div style="display: inline-block;">
-        <input form="buildCache" type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
-        <input form="buildCache" type="hidden" value="true" name="refetch"/>
-        <input form="buildCache" type="hidden" value="displaySourcePage?sourceryID=$SOURCERY_URL_ID" name="from_page"/>
-        <input form="buildCache" type="submit" style="display: inline-block;" value="Update Cache [NB: Slow]">
+        $BUILD_CACHE_FORM_DECLARED
         $THUMB_FORM_CONTROLS
         </div>
         
@@ -2884,7 +2880,16 @@ class SourceBrowser(object):
         else:
             plotFormCode=plotFormCode.replace("$THUMB_FORM_DECLARED", "")
             plotFormCode=plotFormCode.replace("$THUMB_FORM_CONTROLS", "")
-        
+
+        # Disabled this for now, but kept here in case we want as an option
+        plotFormCode=plotFormCode.replace("$BUILD_CACHE_FORM_DECLARED", "")
+        buildCacheForm="""<div style="display: inline-block;">
+        <input form="buildCache" type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
+        <input form="buildCache" type="hidden" value="true" name="refetch"/>
+        <input form="buildCache" type="hidden" value="displaySourcePage?sourceryID=$SOURCERY_URL_ID" name="from_page"/>
+        <input form="buildCache" type="submit" style="display: inline-block;" value="Update Cache [NB: Slow]">
+        """
+
         # Clickable coordinate script
         clickCoordScript="""$(document).ready(function() {
                 $("#imagePlot").on("click", function(event) {
