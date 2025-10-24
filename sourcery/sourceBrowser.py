@@ -22,6 +22,7 @@
 import os
 import matplotlib
 matplotlib.use('Agg')
+import astropy
 import astropy.table as atpy
 from astropy.coordinates import SkyCoord
 from astropy.coordinates import match_coordinates_sky
@@ -617,7 +618,12 @@ class SourceBrowser(object):
                 # Just to make sure MongoDB happy with data types
                 # e.g., redmapper .fits table doesn't play nicely by default
                 if tab.columns[key].dtype.name.find("int") != -1:
-                    newPost[key]=int(row[key])
+                    # Changed for numpy 2+
+                    val=row[key]
+                    if type(val) == np.ma.core.MaskedConstant:
+                        newPost[key]=-99
+                    else:
+                        newPost[key]=int(row[key])
                     if key not in fieldTypesList:
                         fieldTypesList.append(key)
                         fieldTypesDict[key]="number"
