@@ -8,7 +8,7 @@ from setuptools.extension import Extension
 #import numpy
 
 setup(name='sourcery',
-      version="0.1",
+      version="0.2",
       url=None,
       author='Matt Hilton',
       author_email='matt.hilton@mykolab.com',

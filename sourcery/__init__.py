@@ -24,4 +24,4 @@ from . import catalogTools
 from . import specFeatures
 from . import tileDir
 
-__version__ = "git"
+__version__ = "0.2"
