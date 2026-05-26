@@ -23,15 +23,17 @@
     <div class="source-panels">
 
         {# ── Image panel ───────────────────────────────────────────────── #}
-        <div class="source-panel">
+        <div class="source-panel source-panel--image">
             <fieldset>
                 <legend><b>Source Image</b></legend>
                 <div id="imagePlot" style="min-height:4rem;"></div>
             </fieldset>
         </div>
 
+        {# ── Controls column (Image Controls + Editing Controls stacked) ── #}
+        <div class="source-panel source-panel--controls">
+
         {# ── Image Controls ────────────────────────────────────────────── #}
-        <div class="source-panel">
         <fieldset>
         <legend><b>Image Controls</b></legend>
 
@@ -98,11 +100,9 @@
         </form>
 
         </fieldset>
-        </div>
 
         {# ── Editing Controls ──────────────────────────────────────────── #}
         {% if has_edit_controls %}
-        <div class="source-panel">
         <form method="post" action="updateMongoDB">
         <input name="sourceryID" value="{{ sourcery_id }}" type="hidden">
         <input name="returnURL" value="{{ return_url }}" type="hidden">
@@ -149,8 +149,9 @@
         </div>
         </fieldset>
         </form>
-        </div>
         {% endif %}
+
+        </div>{# end .source-panel--controls #}
 
     </div>{# end .source-panels #}
 

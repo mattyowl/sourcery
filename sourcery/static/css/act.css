@@ -312,16 +312,30 @@ label { font-size: .8rem; font-weight: 600; color: var(--muted); display: block;
     align-items: flex-start;
     margin-bottom: 1rem;
 }
-.source-panel { flex: 1; min-width: 0; }
-.source-panel fieldset {
+
+/* Image panel: shrinks to fit its content (the loaded image) */
+.source-panel--image { flex: 0 0 auto; }
+
+/* Controls column: fills remaining space, stacks panels vertically */
+.source-panel--controls {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
+}
+
+.source-panel--image fieldset,
+.source-panel--controls fieldset {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface);
     box-shadow: var(--shadow);
     padding: .75rem 1rem 1rem;
-    height: 100%;
 }
-.source-panel fieldset legend {
+
+.source-panel--image fieldset legend,
+.source-panel--controls fieldset legend {
     font-weight: 600;
     font-size: .85rem;
     padding: 0 .5rem;
