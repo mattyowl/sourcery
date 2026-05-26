@@ -1,60 +1,76 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-    <link rel="stylesheet" type="text/css" href="{{ script_name }}/static/css/act.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ script_name }}/static/css/act.css">
     <title>Constraints Help</title>
 </head>
-<body style="font-family: sans-serif; vertical align: top; justify: full;">
-<table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
-    <tbody>
+<body>
+
+<header class="site-header">
+    <div class="hdr-inner">
+        <div class="hdr-title">Constraints Help</div>
+    </div>
+</header>
+
+<div class="page-body" style="max-width:960px;">
+
+    <fieldset class="panel">
+        <legend><b>How to write constraints</b></legend>
+        <div class="panel-body" style="font-size:.875rem;line-height:1.7;">
+            <p>Constraints can be placed on any column listed below. Supported comparison operators:
+            <code>&lt;</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;=</code>
+            <code>=</code> <code>!=</code>.
+            Logical operators: <code>and</code>, <code>or</code>.</p>
+
+            <p>Separate each constraint with <code>and</code> or <code>or</code>, e.g.:</p>
+            <p><code>redshift &gt;= 0 and redshift &lt; 0.4</code></p>
+            <p><code>RM_match = 1 or PSZ2_match = 1</code></p>
+
+            <p><strong>Note:</strong> when querying for multiple values in the same column using
+            <code>=</code> or <code>!=</code>, <code>and</code> acts as a delimiter rather than
+            in a strictly logical sense. For example:</p>
+            <p><code>classification = 'cluster' and classification = 'not cluster'</code></p>
+            <p>returns rows where classification is either &lsquo;cluster&rsquo; or &lsquo;not cluster&rsquo; —
+            equivalent to using <code>or</code> here.</p>
+
+            <p>The wildcard <code>*</code> is supported in text searches, e.g.:</p>
+            <p><code>classification = '* cluster'</code></p>
+            <p>matches &lsquo;probable cluster&rsquo;, &lsquo;possible cluster&rsquo;, and
+            &lsquo;not cluster&rsquo; but not &lsquo;cluster&rsquo;.</p>
+            <p><code>notes = '*high-z*'</code></p>
+            <p>matches any row where &lsquo;high-z&rsquo; appears in the notes field.
+            <strong>Wildcard text searches are case-insensitive.</strong></p>
+        </div>
+    </fieldset>
+
+    <div class="data-table-wrap">
+    <table class="data-table" style="font-family:inherit;">
+        <thead>
+            <tr>
+                <th style="text-align:left;">Column</th>
+                <th style="text-align:left;">Type</th>
+                <th style="text-align:left;">Description</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for key, type_name, description in fields %}
         <tr>
-            <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-                text-align: center; vertical-align: middle; font-size: 125%;">
-                Constraints Help
-            </td>
+            <td><code>{{ key }}</code></td>
+            <td style="white-space:nowrap;">{{ type_name }}</td>
+            <td>{{ description }}</td>
         </tr>
-    </tbody>
-</table>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
 
-<br>
-<p>
-Constraints can be placed on the source list columns listed below. Comparison operators which are understood are &lt;, &gt;, &gt;=, &lt;=, =, !=. Logical operators which are understood are 'and', 'or'.</p>
-<p>Each constraint should be separated by 'and' or 'or', e.g.,</p>
-<p><tt>redshift >= 0 and redshift &lt; 0.4</tt></p>
-<p><tt>RM_match = 1 or PSZ2_match = 1</tt></p>
-<p><b>Note that when querying for multiple values in the same column using '=' or '!=', 'and' acts like a delimiter, rather than in a strictly logical sense</b>. For example, to fetch all objects with classification of 'cluster' and 'not cluster', one can write</p>
-<tt>classification = 'cluster' and classification = 'not cluster'</tt>
-<p>This will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
-or 'possible cluster'). This query is also equivalent to</p>
-<tt>classification = 'cluster' or classification = 'not cluster'</tt>
-<p>The wildcard '*' is supported in text searches, e.g.,</p>
-<tt>classification = '* cluster'</tt>
-<p>will return all objects flagged as 'probable cluster', 'possible cluster', or 'not cluster', but not objects with classification = 'cluster'.</p>
-<tt>notes = '*high-z*'</tt>
-<p>will return all objects where the string 'high-z' appears in the notes field somewhere. <b>Note that wildcard text searches are case insensitive</b>.
-</p>
-<br>
-<table frame=border cellspacing=0 cols=3 rules=all border=2 width=85% align=center>
-<tbody>
-    <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-            text-align: center; vertical-align: middle; font-size: 110%;">
-        <td><b>Column</b></td>
-        <td><b>Type</b></td>
-        <td><b>Description</b></td>
-    </tr>
-    {% for key, type_name, description in fields %}
-    <tr>
-        <td style="background-color: white;" align=left width=10%><b>{{ key }}</b></td>
-        <td style="background-color: white;" align=left width=10%>{{ type_name }}</td>
-        <td style="background-color: white;" align=left width=80%>{{ description }}</td>
-    </tr>
-    {% endfor %}
-</tbody>
-</table>
+</div>{# end .page-body #}
 
-<hr>
-<i>Sourcery</i> - {{ hosted_by }}
-<br>
-<br>
+<footer class="site-footer">
+    <i>Sourcery</i> &mdash; {{ hosted_by }}
+</footer>
+
 </body>
 </html>

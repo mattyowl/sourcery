@@ -1,272 +1,247 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-    <link rel="stylesheet" type="text/css" href="{{ script_name }}/static/css/act.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ script_name }}/static/css/act.css">
     <title>{{ source_name }}</title>
 </head>
-<body style="font-family: sans-serif; vertical align: top; justify: full;">
-<table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
-    <tbody>
-        <tr>
-            <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-                text-align: center; vertical-align: middle; font-size: 150%;">
-                <b>{{ source_name }}</b>
-            </td>
-        </tr>
-    </tbody>
-</table>
+<body>
+
+<header class="site-header">
+    <div class="hdr-inner">
+        <div class="hdr-title">{{ source_name }}</div>
+    </div>
+</header>
 
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
-<script>
-var sourceryConfig = {{ sourcery_config_json }};
-</script>
+<script>var sourceryConfig = {{ sourcery_config_json }};</script>
 <script src="{{ script_name }}/static/sourcery.js"></script>
 
-<br>
+<div class="page-body">
 
-<div style="display: table; width: 85%; margin:0 auto;">
-    <div style="display: table-row; height: auto; margin:0 auto; height: {{ plot_display_height_pix }};">
-        <div style="display: table-cell; vertical-align: top;">
-            <fieldset style="height: {{ plot_display_height_pix }};">
-            <legend><b>Source Image</b></legend>
-            <div id="imagePlot"></div>
+    <div class="source-panels">
+
+        {# ── Image panel ───────────────────────────────────────────────── #}
+        <div class="source-panel">
+            <fieldset>
+                <legend><b>Source Image</b></legend>
+                <div id="imagePlot" style="min-height:4rem;"></div>
             </fieldset>
         </div>
 
-        {# ── Image Controls ─────────────────────────────────────────── #}
-        <div style="display: table-cell; vertical-align: top;">
-        <fieldset style="height: {{ plot_display_height_pix }};">
+        {# ── Image Controls ────────────────────────────────────────────── #}
+        <div class="source-panel">
+        <fieldset>
         <legend><b>Image Controls</b></legend>
 
         <form id="buildCache" method="get" action="buildCacheForObject"></form>
         {% if has_download_fits %}
         <form id="downloadThumbnail" method="get" action="downloadThumbnailFITS">
-        <div style="display: inline-block;">
             <input form="downloadThumbnail" type="hidden" value="{{ sourcery_id }}" name="sourceryID"/>
-            <input form="downloadThumbnail" type="submit" style="display: inline-block;" value="Download {{ download_fits_label }} FITS">
-        </div>
+            <input form="downloadThumbnail" type="submit" class="dl-btn"
+                   value="Download {{ download_fits_label }} FITS">
         </form>
         {% endif %}
 
         <form action="#" id="imageForm" method="post">
         <input name="name" value="{{ object_name }}" type="hidden">
-        <p><b>Survey:</b></p>
-        <p>
-        {% for img in image_types %}
-        <span style="margin-left: 1.2em; display: inline-block">
-            <input type="radio" name="imageType" value="{{ img.label }};{{ '%.1f'|format(img.max_size_arcmin) }}"{% if img.selected %} checked{% endif %}>{{ img.label }}
-        </span>
-        {% endfor %}
-        </p>
-        <p><b>Plot:</b></p>
-        <p>
-        <span style="margin-left: 1.2em; display: inline-block">
-            <input type="checkbox" name="showAxes" value=1{% if checked_show_axes %} checked{% endif %}>
-            <label for="showAxes">Show coordinate axes</label>
-        </span>
-        {% if has_contours %}
-        <span style="margin-left: 1.2em; display: inline-block">
-            <input type="checkbox" name="plotContours" value=1{% if checked_contours %} checked{% endif %}>
-            <label for="plotContours">Contours ({{ contour_image }})</label>
-        </span>
-        {% endif %}
-        <span style="margin-left: 1.2em; display: inline-block">
-            <input type="checkbox" name="plotRedshift" value=1{% if checked_redshift %} checked{% endif %}>
-            <label for="plotRedshift">Display redshift</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-            <input type="checkbox" name="plotSourcePos" value=1{% if checked_source_pos %} checked{% endif %}>
-            <label for="plotSourcePos">Source position</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-            <input type="checkbox" name="plotNEDObjects" value=1{% if checked_ned %} checked{% endif %}>
-            <label for="plotNEDObjects">NED objects</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-            <input type="checkbox" name="plotSpecObjects" value=1{% if checked_spec %} checked{% endif %}>
-            <label for="plotSpecObjects">Spec-zs</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-            <input type="checkbox" name="plotXMatch" value=1{% if checked_xmatch %} checked{% endif %}>
-            <label for="plotXMatch">Cross match objects</label>
-        </span>
-        </p>
 
-        <p align="right">
-        <span style="margin-left: 1.2em; display: inline-block">
-            <label for="clipSizeArcmin">Image Size (arcmin)</label>
-            <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="{{ max_size_arcmin }}" step="0.5" value="{{ current_size_arcmin }}" onchange="printValue('sizeSlider','sizeSliderValue')">
-            <input id="sizeSliderValue" type="text" size="2"/>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-            <label for="gamma">Brightness (&gamma;)</label>
-            <input id="gammaSlider" name="gamma" type="range" min="0.2" max="3.0" step="0.2" value="{{ current_gamma }}" onchange="printValue('gammaSlider','gammaSliderValue')">
-            <input id="gammaSliderValue" type="text" size="2"/>
-        </span>
-        </p>
-        <p align="right">
-            <input type="submit" style="font-size: 1.05em;" value="Apply">
-        </p>
+        <p class="section-head">Survey</p>
+        <div class="survey-opts">
+        {% for img in image_types %}
+            <label>
+                <input type="radio" name="imageType"
+                       value="{{ img.label }};{{ '%.1f'|format(img.max_size_arcmin) }}"
+                       {% if img.selected %}checked{% endif %}>
+                {{ img.label }}
+            </label>
+        {% endfor %}
+        </div>
+
+        <p class="section-head">Plot options</p>
+        <div class="plot-opts">
+            <label><input type="checkbox" name="showAxes" value=1{% if checked_show_axes %} checked{% endif %}> Coordinate axes</label>
+            {% if has_contours %}
+            <label><input type="checkbox" name="plotContours" value=1{% if checked_contours %} checked{% endif %}> Contours ({{ contour_image }})</label>
+            {% endif %}
+            <label><input type="checkbox" name="plotRedshift" value=1{% if checked_redshift %} checked{% endif %}> Display redshift</label>
+            <label><input type="checkbox" name="plotSourcePos" value=1{% if checked_source_pos %} checked{% endif %}> Source position</label>
+            <label><input type="checkbox" name="plotNEDObjects" value=1{% if checked_ned %} checked{% endif %}> NED objects</label>
+            <label><input type="checkbox" name="plotSpecObjects" value=1{% if checked_spec %} checked{% endif %}> Spec-zs</label>
+            <label><input type="checkbox" name="plotXMatch" value=1{% if checked_xmatch %} checked{% endif %}> Cross-match objects</label>
+        </div>
+
+        <p class="section-head">Display</p>
+        <div class="slider-group">
+            <div class="slider-row">
+                <label for="sizeSlider">Image size (arcmin)</label>
+                <input id="sizeSlider" name="clipSizeArcmin" type="range"
+                       min="1.0" max="{{ max_size_arcmin }}" step="0.5"
+                       value="{{ current_size_arcmin }}"
+                       onchange="printValue('sizeSlider','sizeSliderValue')">
+                <input id="sizeSliderValue" type="text" size="3"/>
+            </div>
+            <div class="slider-row">
+                <label for="gammaSlider">Brightness (&gamma;)</label>
+                <input id="gammaSlider" name="gamma" type="range"
+                       min="0.2" max="3.0" step="0.2"
+                       value="{{ current_gamma }}"
+                       onchange="printValue('gammaSlider','gammaSliderValue')">
+                <input id="gammaSliderValue" type="text" size="3"/>
+            </div>
+        </div>
+
+        <div style="text-align:right;">
+            <input type="submit" class="btn-primary" value="Apply">
+        </div>
         </form>
 
         </fieldset>
         </div>
 
-        {# ── Editing Controls ───────────────────────────────────────── #}
+        {# ── Editing Controls ──────────────────────────────────────────── #}
         {% if has_edit_controls %}
-        <div style="display: table-cell; vertical-align: top;">
+        <div class="source-panel">
         <form method="post" action="updateMongoDB">
         <input name="sourceryID" value="{{ sourcery_id }}" type="hidden">
         <input name="returnURL" value="{{ return_url }}" type="hidden">
-        <fieldset style="height: {{ plot_display_height_pix }};">
+        <fieldset>
         <legend><b>Editing Controls</b></legend>
 
         {% if classifications %}
-        <p><b>Classification:</b></p>
-        <p>
+        <p class="section-head">Classification</p>
+        <div class="class-opts">
         {% for c in classifications %}
-        <span style="margin-left: 1.2em; display: inline-block;">
-            <input type="radio" {% if not c.first %}onChange="this.form.submit();" {% endif %}name="classification" value="{{ c.value }}"{% if c.checked %} checked{% endif %}{% if not edit_permission %} disabled{% endif %}>{{ c.value }}
-        </span>
+            <label>
+                <input type="radio"
+                       {% if not c.first %}onChange="this.form.submit();" {% endif %}
+                       name="classification"
+                       value="{{ c.value }}"
+                       {% if c.checked %}checked{% endif %}
+                       {% if not edit_permission %}disabled{% endif %}>
+                {{ c.value }}
+            </label>
         {% endfor %}
-        </p>
+        </div>
         {% endif %}
 
         {% if editable_fields %}
-        <p align="left">
+        <p class="section-head">Fields</p>
+        <div class="edit-field-row">
         {% for field in editable_fields %}
-        <span style="display: inline-block; margin-bottom: 6pt; margin-right: 8pt">
-            <label for="{{ field.name }}"><b>{{ field.name }}: </b></label>
-            <input type="text" value="{{ field.value }}" name="{{ field.name }}" size="{{ field.display_size }}"{% if not edit_permission %} readonly{% endif %}/>
-        </span>
+            <div class="edit-field">
+                <label>{{ field.name }}</label>
+                <input type="text" value="{{ field.value }}" name="{{ field.name }}"
+                       size="{{ field.display_size }}"{% if not edit_permission %} readonly{% endif %}/>
+            </div>
         {% endfor %}
-        </p>
-        <p>
-            <label for="lastUpdated"><b>Last Updated:</b></label>
-            <input type="text" value="{{ last_updated }}" name="lastUpdated" size=10 readonly/>
-            <label for="user"><b>By User:</b></label>
-            <input type="text" value="{{ editor_user }}" name="userName" size=10 readonly/>
-        </p>
+        </div>
+        <div class="edit-meta">
+            <strong>Updated:</strong> {{ last_updated }} &ensp;
+            <strong>By:</strong> {{ editor_user }}
+        </div>
         {% endif %}
 
-        <p align="right">
-            <input type="submit" class="f" style="font-size: 1.05em;" value="Update"{% if not edit_permission %} disabled{% endif %}>
-        </p>
+        <div style="text-align:right;">
+            <input type="submit" class="btn-primary" value="Update"
+                   {% if not edit_permission %}disabled{% endif %}>
+        </div>
         </fieldset>
         </form>
         </div>
         {% endif %}
 
-    </div>
-</div>
+    </div>{# end .source-panels #}
 
-<table frame=border cellspacing=0 cols=1 rules=None border=0 width=100%>
-<tbody>
+    {# ── Spectrum ──────────────────────────────────────────────────────── #}
+    {% if spectrum_url %}
+    <table class="section-table">
+        <thead><tr><th>Spectrum</th></tr></thead>
+        <tbody>
+        <tr><td><img src="{{ spectrum_url }}" border="0" width="{{ spec_display_width_pix }}"/></td></tr>
+        </tbody>
+    </table>
+    {% endif %}
 
-{# ── Optional spectrum plot ─────────────────────────────────────────────── #}
-{% if spectrum_url %}
-<br><table frame=border cellspacing=0 cols=1 rules=all border=2 width=85% align=center>
-<tbody>
-<tr>
-    <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-        text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
-        <b>Spectrum</b>
-    </th>
-</tr>
-<tr>
-    <td align=center><img src="{{ spectrum_url }}" align="middle" border=2 width="{{ spec_display_width_pix }}"/></td>
-</tr>
-</tbody>
-</table>
-{% endif %}
+    {# ── NED matches ───────────────────────────────────────────────────── #}
+    {% if ned_rows %}
+    <table class="section-table">
+        <thead>
+            <tr><th colspan="6">NED Matches</th></tr>
+            <tr>
+                <th class="col-hdr">ID</th>
+                <th class="col-hdr">Name</th>
+                <th class="col-hdr">RA</th>
+                <th class="col-hdr">Dec.</th>
+                <th class="col-hdr">Object Type</th>
+                <th class="col-hdr">Redshift</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in ned_rows %}
+        <tr>
+            <td>{{ row.label }}</td>
+            <td><a href="{{ row.ned_url }}">{{ row.name }}</a></td>
+            <td>{{ "%.5f"|format(row.RA) }}</td>
+            <td>{{ "%.5f"|format(row.dec) }}</td>
+            <td>{{ row.source_type }}</td>
+            <td>{{ row.redshift }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
 
-{# ── NED matches ────────────────────────────────────────────────────────── #}
-{% if ned_rows %}
-<tr><td align=center>
-<br><table frame=border cellspacing=0 cols=6 rules=all border=2 width=85% align=center>
-<tbody>
-<tr>
-    <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-        text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
-        <b>NED Matches</b>
-    </th>
-</tr>
-<tr>
-    <td><b>ID</b></td><td><b>Name</b></td><td><b>RA</b></td>
-    <td><b>Dec.</b></td><td><b>Object Type</b></td><td><b>Redshift</b></td>
-</tr>
-{% for row in ned_rows %}
-<tr>
-    <td align=center width=10%>{{ row.label }}</td>
-    <td align=center width=10%><a href="{{ row.ned_url }}">{{ row.name }}</a></td>
-    <td align=center width=10%>{{ "%.5f" | format(row.RA) }}</td>
-    <td align=center width=10%>{{ "%.5f" | format(row.dec) }}</td>
-    <td align=center width=10%>{{ row.source_type }}</td>
-    <td align=center width=10%>{{ row.redshift }}</td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
-</td></tr>
-{% endif %}
+    {# ── Spectroscopic redshifts ────────────────────────────────────────── #}
+    {% if spec_rows %}
+    <table class="section-table">
+        <thead>
+            <tr><th colspan="5">Spectroscopic Redshifts</th></tr>
+            <tr>
+                <th class="col-hdr">ID</th>
+                <th class="col-hdr">RA</th>
+                <th class="col-hdr">Dec.</th>
+                <th class="col-hdr">z</th>
+                <th class="col-hdr">Catalog</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in spec_rows %}
+        <tr>
+            <td>{{ row.id }}</td>
+            <td>{{ "%.5f"|format(row.RA) }}</td>
+            <td>{{ "%.5f"|format(row.dec) }}</td>
+            <td>{{ "%.3f"|format(row.redshift) }}</td>
+            <td>{{ row.catalog }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
 
-{# ── Spectroscopic redshifts ─────────────────────────────────────────────── #}
-{% if spec_rows %}
-<tr><td align=center>
-<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=85% align=center>
-<tbody>
-<tr>
-    <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-        text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
-        <b>Spectroscopic Redshifts</b>
-    </th>
-</tr>
-<tr>
-    <td><b>ID</b></td><td><b>RA</b></td><td><b>Dec.</b></td>
-    <td><b>z</b></td><td><b>catalog</b></td>
-</tr>
-{% for row in spec_rows %}
-<tr>
-    <td align=center width=10%>{{ row.id }}</td>
-    <td align=center width=10%>{{ "%.5f" | format(row.RA) }}</td>
-    <td align=center width=10%>{{ "%.5f" | format(row.dec) }}</td>
-    <td align=center width=10%>{{ "%.3f" | format(row.redshift) }}</td>
-    <td align=center width=10%>{{ row.catalog }}</td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
-</td></tr>
-{% endif %}
+    {# ── Source properties ─────────────────────────────────────────────── #}
+    {% if properties %}
+    <table class="section-table">
+        <thead>
+            <tr><th colspan="2">Source Properties</th></tr>
+        </thead>
+        <tbody>
+        {% for prop in properties %}
+        <tr>
+            <td class="td-label">{{ prop.label }}</td>
+            <td>{{ prop.value_html }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
 
-{# ── Source properties ───────────────────────────────────────────────────── #}
-{% if properties %}
-<tr><td align=center>
-<br><table frame=border cellspacing=0 cols=2 rules=all border=2 width=85% align=center>
-<tbody>
-<tr>
-    <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-        text-align: center; vertical-align: middle; font-size: 110%;" colspan=2>
-        <b>Source Properties</b>
-    </th>
-</tr>
-{% for prop in properties %}
-<tr>
-    <td align=left width=50%><b>{{ prop.label }}</b></td>
-    <td align=center width=50%>{{ prop.value_html }}</td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
-</td></tr>
-{% endif %}
+</div>{# end .page-body #}
 
-</tbody>
-</table>
-<br>
-<hr>
-<i>Sourcery</i> - {{ hosted_by }}
-<br>
-<br>
+<footer class="site-footer">
+    <i>Sourcery</i> &mdash; {{ hosted_by }}
+</footer>
+
 </body>
 </html>

@@ -1,138 +1,168 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-    <link rel="stylesheet" type="text/css" href="{{ script_name }}/static/css/act.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ script_name }}/static/css/act.css">
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
     <script src="{{ script_name }}/static/sourcery.js"></script>
     <title>{{ title }}</title>
 </head>
 
-<body style="font-family: sans-serif; vertical align: top; justify: full;" onload="hideShow()">
-<table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
-    <tbody>
-        <tr>
-            <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-                text-align: center; vertical-align: middle; font-size: 150%;">
-                <b>{{ title }}</b>
-            </td>
-            <div id='logout' style="text-align: right; vertical-align: middle; font-size: 100%;
-                position: absolute; right: 20px; top: 20px;">
-                <a href='{{ script_name }}/logout' color>logout</a>
+<body>
+
+<header class="site-header">
+    <div class="hdr-inner">
+        <div class="hdr-title">{{ title }}</div>
+        <nav class="hdr-nav">
+            <a href="{{ script_name }}/logout">logout</a>
+        </nav>
+    </div>
+</header>
+
+<div class="page-body">
+
+    {# ── Source list info ──────────────────────────────────────────────── #}
+    <fieldset class="panel">
+        <legend><span class="toggle">hide</span><b>Source List Information</b></legend>
+        <div class="panel-body info-bar">
+            Total {{ object_type_string }}: <strong>{{ num_posts }}</strong>
+            (original list: {{ total_sources }}{{ hidden_constraints_message }})
+            {{ latest_news_str }} {{ cache_rebuild_str }}
+            {% if catalog_comments %}<p style="margin-top:.5rem;">{{ catalog_comments }}</p>{% endif %}
+            {% if news_items %}
+            <p style="margin-top:.5rem;"><strong>News:</strong></p>
+            <ul>{% for item in news_items %}<li>{{ item }}</li>{% endfor %}</ul>
+            {% endif %}
+        </div>
+    </fieldset>
+
+    {# ── Color coding key ──────────────────────────────────────────────── #}
+    {% if color_coding_rows %}
+    <div class="color-legend">
+        <div class="color-legend__hdr">Color coding</div>
+        <div class="color-legend__row">
+        {% for color, label in color_coding_rows %}
+            <div class="color-legend__cell" style="background:{{ color }};">{{ label }}</div>
+        {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ── Constraints form ──────────────────────────────────────────────── #}
+    <form method="get" action="updateQueryParams">
+    <fieldset class="panel">
+        <legend><span class="toggle">hide</span><b>Constraints</b></legend>
+        <div class="panel-body">
+            {% if quick_links %}
+            <div class="quick-links">
+                <span class="ql-label">Quick links:</span>
+                {% for link in quick_links %}
+                <a href="{{ link.url }}">{{ link.label }}</a>
+                {% endfor %}
             </div>
-        </tr>
-    </tbody>
-</table>
+            {% endif %}
 
-<br><fieldset>
-<legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
-Total number of {{ object_type_string }}: {{ num_posts }} (original source list: {{ total_sources }}{{ hidden_constraints_message }}) {{ latest_news_str }} {{ cache_rebuild_str }}
-{% if catalog_comments %}<p>{{ catalog_comments }}</p>{% endif %}
-{% if news_items %}
-<p>News:<ul>
-{% for item in news_items %}<li>{{ item }}</li>
-{% endfor %}</ul></p>
-{% endif %}
-</fieldset>
+            <p style="font-size:.82rem;color:var(--muted);margin-bottom:.75rem;">
+                Enter coordinate ranges (e.g., <code>120:220</code>) or a search-box length.
+                Use negative RA to wrap around 0&deg; (e.g., <code>-60:60</code>).
+            </p>
 
-{% if color_coding_rows %}
-<table frame=border cellspacing=0 cols=2 rules=all border=2 width=60% align=center>
-<tbody>
-    <tr>
-        <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
-            text-align: center; vertical-align: middle; font-size: 110%;" colspan="{{ color_coding_rows|length }}">Color coding</td>
-    </tr>
-    <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif;
-            text-align: center; vertical-align: middle; font-size: 110%;">
-    {% for color, label in color_coding_rows %}
-        <td style="background-color: {{ color }};" width="{{ (100.0 / color_coding_rows|length)|int }}%">{{ label }}</td>
-    {% endfor %}
-    </tr>
-</tbody>
-</table><br><br>
-{% endif %}
+            <div class="coord-row">
+                <div class="field">
+                    <label for="queryRADeg">RA (degrees)</label>
+                    <input type="text" id="queryRADeg" name="queryRADeg" value="{{ query_radeg }}">
+                </div>
+                <div class="field">
+                    <label for="queryDecDeg">Dec. (degrees)</label>
+                    <input type="text" id="queryDecDeg" name="queryDecDeg" value="{{ query_decdeg }}">
+                </div>
+                <div class="field">
+                    <label for="querySearchBoxArcmin">Search-box length (arcmin)</label>
+                    <input type="text" id="querySearchBoxArcmin" name="querySearchBoxArcmin" value="{{ query_searchboxarcmin }}">
+                </div>
+            </div>
 
-<br>
-<form method="get" action="updateQueryParams">
-<fieldset>
-{% if quick_links %}
-<p><i>Quick links:</i>
-{% for link in quick_links %}<a href="{{ link.url }}">{{ link.label }}</a>{% if not loop.last %} - {% endif %}{% endfor %}
-</p>
-{% endif %}
-<legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Constraints</b></legend>
-<p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative RA values to wrap around 0 degrees (e.g., -60:60).</p>
-<p>
-<label for="queryRADeg">RA (degrees)</label>
-<input type="text" value="{{ query_radeg }}" name="queryRADeg"/>
-<label for="queryDecDeg">Dec. (degrees)</label>
-<input type="text" value="{{ query_decdeg }}" name="queryDecDeg"/>
-<label for="querySearchBoxArcmin">Search box length (arcmin)</label>
-<input type="text" value="{{ query_searchboxarcmin }}" name="querySearchBoxArcmin"/>
-</p>
-<p>
-<label for="queryOtherConstraints">Other constraints <a href="displayConstraintsHelp?" target=new>(help)</a></label>
-<textarea style="width:100%" name="queryOtherConstraints">{{ query_otherconstraints }}</textarea>
-<input type="submit" class="f" style="font-size: 1.05em;" name="queryApply" value="Apply">
-<input type="submit" class="f" style="font-size: 1.05em;" name="queryReset" value="Reset"><br>
-<div style="display: table-cell; vertical-align: middle;"><i><a href='{{ share_query_url }}'>Shareable link for this query</a></i></div>
-</p>
-</fieldset>
-</form>
+            <div style="margin-bottom:.6rem;">
+                <label for="queryOtherConstraints">
+                    Other constraints
+                    <a href="displayConstraintsHelp?" target="_blank"
+                       style="font-weight:normal;font-size:.78rem;">(help)</a>
+                </label>
+                <textarea id="queryOtherConstraints" name="queryOtherConstraints"
+                          style="width:100%;min-height:3rem;">{{ query_otherconstraints }}</textarea>
+            </div>
 
-<form method="post" action="changeTablePage" style="border">
-<div id="buttons">
-    <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
-    <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
-    <div style="clear:both"></div>
-</div>
+            <div class="form-actions">
+                <a href="{{ share_query_url }}" style="font-size:.8rem;">Shareable link for this query</a>
+                <div class="form-actions-right">
+                    <input type="submit" name="queryReset" value="Reset">
+                    <input type="submit" class="btn-primary" name="queryApply" value="Apply">
+                </div>
+            </div>
+        </div>
+    </fieldset>
+    </form>
 
-<table frame=border cellspacing=0 cols={{ display_columns|length }} rules=all border=2 width=100% align=center class=tablefont>
-<tbody>
-    <tr style="background-color: rgb(0, 0, 0); font-family: monospace; color: rgb(255, 255, 255);
-            text-align: center; vertical-align: middle; font-size: 125%;">
-    {% for col in display_columns %}
-        <td><b>{{ col.label }}</b></td>
-    {% endfor %}
-    </tr>
-    <font size="1">
-    {% for row in table_rows %}
-    <tr>
-    {% for cell in row %}
-        <td style="background-color: white; {{ cell.width_style }}" align="{{ cell.align }}">
-        {% if cell.use_div %}<div style="text-overflow: ellipsis; white-space: nowrap; overflow: hidden; {{ cell.width_style }}">{% endif %}
-        {{ cell.value_html }}
-        {% if cell.use_div %}</div>{% endif %}
-        </td>
-    {% endfor %}
-    </tr>
-    {% endfor %}
-    </font>
-</tbody>
-</table>
+    {# ── Source table ──────────────────────────────────────────────────── #}
+    <form method="post" action="changeTablePage">
+        <div class="pager">
+            <input type="submit" name="prevButton" value="&#8249; Prev">
+            <input type="submit" name="nextButton" value="Next &#8250;">
+        </div>
 
-<div id="buttons">
-    <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
-    <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
-    <div style="clear:both"></div>
-</div>
-</form>
+        <div class="data-table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                {% for col in display_columns %}
+                    <th>{{ col.label }}</th>
+                {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in table_rows %}
+            <tr>
+            {% for cell in row %}
+                <td style="{{ cell.width_style }}" align="{{ cell.align }}">
+                {% if cell.use_div %}<div style="text-overflow:ellipsis;white-space:nowrap;overflow:hidden;{{ cell.width_style }}">{% endif %}
+                {{ cell.value_html }}
+                {% if cell.use_div %}</div>{% endif %}
+                </td>
+            {% endfor %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
 
-<fieldset>
-<legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Download Catalog</b></legend>
-<ul>
-<li><a href="{{ download_link }}fileFormat=cat">{{ catalog_download_name }}.cat</a> (plain text)</li>
-<li><a href="{{ download_link }}fileFormat=fits">{{ catalog_download_name }}.fits</a> (FITS table format; all columns)</li>
-{% if minimal_download_link %}
-<li><a href="{{ minimal_download_link }}fileFormat=fits">{{ catalog_download_name }}-minimal.fits</a> (FITS table format; minimal column set)</li>
-{% endif %}
-<li><a href="{{ download_link }}fileFormat=reg">{{ catalog_download_name }}.reg</a> (DS9 region file)</li>
-</ul>
-<p>Note that current constraints are applied to downloaded catalogs.</p>
-</fieldset><br>
+        <div class="pager">
+            <input type="submit" name="prevButton" value="&#8249; Prev">
+            <input type="submit" name="nextButton" value="Next &#8250;">
+        </div>
+    </form>
 
-<hr>
-<a href="https://github.com/mattyowl/sourcery"><i>Sourcery</i></a> - {{ hosted_by }}
-<br>
-<br>
+    {# ── Download ──────────────────────────────────────────────────────── #}
+    <fieldset class="panel">
+        <legend><span class="toggle">hide</span><b>Download Catalog</b></legend>
+        <div class="panel-body">
+            <ul class="download-list">
+                <li><a href="{{ download_link }}fileFormat=cat">{{ catalog_download_name }}.cat</a></li>
+                <li><a href="{{ download_link }}fileFormat=fits">{{ catalog_download_name }}.fits</a></li>
+                {% if minimal_download_link %}
+                <li><a href="{{ minimal_download_link }}fileFormat=fits">{{ catalog_download_name }}-minimal.fits</a></li>
+                {% endif %}
+                <li><a href="{{ download_link }}fileFormat=reg">{{ catalog_download_name }}.reg</a></li>
+            </ul>
+            <p class="download-note">Current constraints are applied to downloaded catalogs.</p>
+        </div>
+    </fieldset>
+
+</div>{# end .page-body #}
+
+<footer class="site-footer">
+    <a href="https://github.com/mattyowl/sourcery"><i>Sourcery</i></a> &mdash; {{ hosted_by }}
+</footer>
+
 </body>
 </html>

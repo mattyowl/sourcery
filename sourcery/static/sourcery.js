@@ -5,28 +5,23 @@
 // ── Index page: collapsible fieldset legends ────────────────────────────────
 
 $(function () {
-    $("legend").css("cursor", "pointer").click(function () {
+    $("legend:has(span.toggle)").css("cursor", "pointer").click(function () {
         var legend = $(this);
-        var value = $(this).children("span").html();
+        var value = $(this).children("span.toggle").html();
         value = (value === "hide") ? "expand" : "hide";
-        $(this).siblings().slideToggle(0, function () {
-            legend.children("span").html(value);
+        $(this).siblings().slideToggle(150, function () {
+            legend.children("span.toggle").html(value);
         });
     });
 });
 
 $(document).ready(function () {
-    var legends = document.getElementsByTagName("legend");
-    for (var i = 0; i < legends.length; i++) {
-        var spans = legends[i].getElementsByTagName("span");
-        if (spans.length > 0) {
-            var value = spans[0].innerHTML;
-            if (value === "expand") {
-                spans[0].innerHTML = "hide";
-                legends[i].click();
-            }
+    $("legend span.toggle").each(function () {
+        if ($(this).html() === "expand") {
+            $(this).html("hide");
+            $(this).closest("legend").click();
         }
-    }
+    });
 });
 
 // ── Source page: image controls ─────────────────────────────────────────────
