@@ -1,0 +1,60 @@
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+    <link rel="stylesheet" type="text/css" href="{{ script_name }}/static/css/act.css">
+    <title>Constraints Help</title>
+</head>
+<body style="font-family: sans-serif; vertical align: top; justify: full;">
+<table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
+    <tbody>
+        <tr>
+            <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
+                text-align: center; vertical-align: middle; font-size: 125%;">
+                Constraints Help
+            </td>
+        </tr>
+    </tbody>
+</table>
+
+<br>
+<p>
+Constraints can be placed on the source list columns listed below. Comparison operators which are understood are &lt;, &gt;, &gt;=, &lt;=, =, !=. Logical operators which are understood are 'and', 'or'.</p>
+<p>Each constraint should be separated by 'and' or 'or', e.g.,</p>
+<p><tt>redshift >= 0 and redshift &lt; 0.4</tt></p>
+<p><tt>RM_match = 1 or PSZ2_match = 1</tt></p>
+<p><b>Note that when querying for multiple values in the same column using '=' or '!=', 'and' acts like a delimiter, rather than in a strictly logical sense</b>. For example, to fetch all objects with classification of 'cluster' and 'not cluster', one can write</p>
+<tt>classification = 'cluster' and classification = 'not cluster'</tt>
+<p>This will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
+or 'possible cluster'). This query is also equivalent to</p>
+<tt>classification = 'cluster' or classification = 'not cluster'</tt>
+<p>The wildcard '*' is supported in text searches, e.g.,</p>
+<tt>classification = '* cluster'</tt>
+<p>will return all objects flagged as 'probable cluster', 'possible cluster', or 'not cluster', but not objects with classification = 'cluster'.</p>
+<tt>notes = '*high-z*'</tt>
+<p>will return all objects where the string 'high-z' appears in the notes field somewhere. <b>Note that wildcard text searches are case insensitive</b>.
+</p>
+<br>
+<table frame=border cellspacing=0 cols=3 rules=all border=2 width=85% align=center>
+<tbody>
+    <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
+            text-align: center; vertical-align: middle; font-size: 110%;">
+        <td><b>Column</b></td>
+        <td><b>Type</b></td>
+        <td><b>Description</b></td>
+    </tr>
+    {% for key, type_name, description in fields %}
+    <tr>
+        <td style="background-color: white;" align=left width=10%><b>{{ key }}</b></td>
+        <td style="background-color: white;" align=left width=10%>{{ type_name }}</td>
+        <td style="background-color: white;" align=left width=80%>{{ description }}</td>
+    </tr>
+    {% endfor %}
+</tbody>
+</table>
+
+<hr>
+<i>Sourcery</i> - {{ hosted_by }}
+<br>
+<br>
+</body>
+</html>

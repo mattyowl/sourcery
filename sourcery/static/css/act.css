@@ -83,8 +83,6 @@
     background-color:black;
 }
 
-        <div style="display:flex;justify-content:center;align-items:center;">
-
 .slidercontainer {
     padding-top: 5px;
     padding-bottom: 5px;
@@ -194,4 +192,26 @@ table{
     font-family: Verdana, Arial, Helvetica, sans-serif;
     font-size: 90%;
     background-color: black;
+}
+
+/* Index page */
+.f {
+    float: right;
+}
+
+.tablefont, .tablefont TD, .tablefont TH {
+    font-family: monospace;
+}
+
+#logout a:link, #logout a:visited {
+    background-color: white;
+    color: black;
+    padding: 5px 5px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+}
+
+#logout a:hover, #logout a:active {
+    background-color: white;
 }

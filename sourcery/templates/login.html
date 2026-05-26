@@ -1,0 +1,36 @@
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+    <link rel="stylesheet" type="text/css" href="{{ script_name }}/static/css/act.css">
+    <title>{{ title }}</title>
+</head>
+<body style="font-family: sans-serif; vertical align: top; justify: full;">
+<table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
+    <tbody>
+        <tr>
+            <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
+                text-align: center; vertical-align: middle; font-size: 150%;">
+                <b>{{ title }}</b>
+            </td>
+        </tr>
+    </tbody>
+</table>
+<br>
+<fieldset>
+<legend><b>Enter Login Information</b></legend>
+<p>
+{% if login_message %}<p>{{ login_message }}</p>{% endif %}
+    <form method="post" action="{{ script_name }}/login">
+    <input type="hidden" name="from_page" value="{{ from_page }}" />
+    <label for="username"><b>Username:</b></label>
+    <input type="text" name="username" value="{{ username }}" /><br />
+    <br>
+    <label for="username"><b>Password:</b></label>
+    <input type="password" name="password" /><br />
+    <br>
+    <input type="submit" style="font-size: 1.05em;" value="Log in" />
+</p>
+<p>{{ msg }}</p>
+</fieldset>
+</body>
+</html>

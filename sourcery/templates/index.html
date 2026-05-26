@@ -1,0 +1,138 @@
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+    <link rel="stylesheet" type="text/css" href="{{ script_name }}/static/css/act.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+    <script src="{{ script_name }}/static/sourcery.js"></script>
+    <title>{{ title }}</title>
+</head>
+
+<body style="font-family: sans-serif; vertical align: top; justify: full;" onload="hideShow()">
+<table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
+    <tbody>
+        <tr>
+            <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
+                text-align: center; vertical-align: middle; font-size: 150%;">
+                <b>{{ title }}</b>
+            </td>
+            <div id='logout' style="text-align: right; vertical-align: middle; font-size: 100%;
+                position: absolute; right: 20px; top: 20px;">
+                <a href='{{ script_name }}/logout' color>logout</a>
+            </div>
+        </tr>
+    </tbody>
+</table>
+
+<br><fieldset>
+<legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
+Total number of {{ object_type_string }}: {{ num_posts }} (original source list: {{ total_sources }}{{ hidden_constraints_message }}) {{ latest_news_str }} {{ cache_rebuild_str }}
+{% if catalog_comments %}<p>{{ catalog_comments }}</p>{% endif %}
+{% if news_items %}
+<p>News:<ul>
+{% for item in news_items %}<li>{{ item }}</li>
+{% endfor %}</ul></p>
+{% endif %}
+</fieldset>
+
+{% if color_coding_rows %}
+<table frame=border cellspacing=0 cols=2 rules=all border=2 width=60% align=center>
+<tbody>
+    <tr>
+        <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255);
+            text-align: center; vertical-align: middle; font-size: 110%;" colspan="{{ color_coding_rows|length }}">Color coding</td>
+    </tr>
+    <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif;
+            text-align: center; vertical-align: middle; font-size: 110%;">
+    {% for color, label in color_coding_rows %}
+        <td style="background-color: {{ color }};" width="{{ (100.0 / color_coding_rows|length)|int }}%">{{ label }}</td>
+    {% endfor %}
+    </tr>
+</tbody>
+</table><br><br>
+{% endif %}
+
+<br>
+<form method="get" action="updateQueryParams">
+<fieldset>
+{% if quick_links %}
+<p><i>Quick links:</i>
+{% for link in quick_links %}<a href="{{ link.url }}">{{ link.label }}</a>{% if not loop.last %} - {% endif %}{% endfor %}
+</p>
+{% endif %}
+<legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Constraints</b></legend>
+<p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative RA values to wrap around 0 degrees (e.g., -60:60).</p>
+<p>
+<label for="queryRADeg">RA (degrees)</label>
+<input type="text" value="{{ query_radeg }}" name="queryRADeg"/>
+<label for="queryDecDeg">Dec. (degrees)</label>
+<input type="text" value="{{ query_decdeg }}" name="queryDecDeg"/>
+<label for="querySearchBoxArcmin">Search box length (arcmin)</label>
+<input type="text" value="{{ query_searchboxarcmin }}" name="querySearchBoxArcmin"/>
+</p>
+<p>
+<label for="queryOtherConstraints">Other constraints <a href="displayConstraintsHelp?" target=new>(help)</a></label>
+<textarea style="width:100%" name="queryOtherConstraints">{{ query_otherconstraints }}</textarea>
+<input type="submit" class="f" style="font-size: 1.05em;" name="queryApply" value="Apply">
+<input type="submit" class="f" style="font-size: 1.05em;" name="queryReset" value="Reset"><br>
+<div style="display: table-cell; vertical-align: middle;"><i><a href='{{ share_query_url }}'>Shareable link for this query</a></i></div>
+</p>
+</fieldset>
+</form>
+
+<form method="post" action="changeTablePage" style="border">
+<div id="buttons">
+    <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
+    <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
+    <div style="clear:both"></div>
+</div>
+
+<table frame=border cellspacing=0 cols={{ display_columns|length }} rules=all border=2 width=100% align=center class=tablefont>
+<tbody>
+    <tr style="background-color: rgb(0, 0, 0); font-family: monospace; color: rgb(255, 255, 255);
+            text-align: center; vertical-align: middle; font-size: 125%;">
+    {% for col in display_columns %}
+        <td><b>{{ col.label }}</b></td>
+    {% endfor %}
+    </tr>
+    <font size="1">
+    {% for row in table_rows %}
+    <tr>
+    {% for cell in row %}
+        <td style="background-color: white; {{ cell.width_style }}" align="{{ cell.align }}">
+        {% if cell.use_div %}<div style="text-overflow: ellipsis; white-space: nowrap; overflow: hidden; {{ cell.width_style }}">{% endif %}
+        {{ cell.value_html }}
+        {% if cell.use_div %}</div>{% endif %}
+        </td>
+    {% endfor %}
+    </tr>
+    {% endfor %}
+    </font>
+</tbody>
+</table>
+
+<div id="buttons">
+    <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
+    <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
+    <div style="clear:both"></div>
+</div>
+</form>
+
+<fieldset>
+<legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Download Catalog</b></legend>
+<ul>
+<li><a href="{{ download_link }}fileFormat=cat">{{ catalog_download_name }}.cat</a> (plain text)</li>
+<li><a href="{{ download_link }}fileFormat=fits">{{ catalog_download_name }}.fits</a> (FITS table format; all columns)</li>
+{% if minimal_download_link %}
+<li><a href="{{ minimal_download_link }}fileFormat=fits">{{ catalog_download_name }}-minimal.fits</a> (FITS table format; minimal column set)</li>
+{% endif %}
+<li><a href="{{ download_link }}fileFormat=reg">{{ catalog_download_name }}.reg</a> (DS9 region file)</li>
+</ul>
+<p>Note that current constraints are applied to downloaded catalogs.</p>
+</fieldset><br>
+
+<hr>
+<a href="https://github.com/mattyowl/sourcery"><i>Sourcery</i></a> - {{ hosted_by }}
+<br>
+<br>
+</body>
+</html>
