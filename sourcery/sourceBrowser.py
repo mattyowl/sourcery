@@ -260,7 +260,7 @@ class SourceBrowser(object):
         # MongoDB set up
         self.dbName=self.configDict['MongoDBName']
         if 'TagsDBName' not in self.configDict.keys():
-            self.tabsDBName=self.dbName
+            self.tagsDBName=self.dbName
         else:
             self.tagsDBName=self.configDict['TagsDBName']
         self.client=pymongo.MongoClient('localhost', 27017)

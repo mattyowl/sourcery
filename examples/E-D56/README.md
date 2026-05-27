@@ -66,8 +66,7 @@ including the images we specified, as in Fig. 2 below:
 
 ![alt text](figs/sourcepage.jpg "Fig. 2: A source information page for the E-D56 example.")
 
-Note that the images pulled from the SDSS DR13 webserver are pretty dark
-by default, and you will probably need to crank up the brightness using the 
+Note that you can adjust the brightness of the image by using the
 slider, as shown.
 
 When you are finished, you can terminate `sourcery_test` using `Ctrl-c`.
@@ -114,6 +113,8 @@ Now start Sourcery again using:
 % sourcery_test E-D56Clusters.yml 
 ```
 
+Alternatively, you may use the `E-D56Clusters_editable.yml` instead.
+
 You will find yourself confronted with a page that requests a login and 
 password. Try either of the above options, and navigate to a source 
 information page, and you will see a number of other controls have appeared,
@@ -133,13 +134,14 @@ the result into the `E-D56Users.txt` in the appropriate column.
 
 The `E-D56Clusters.yml` file contains an example of how to cross match against 
 external catalogs, stored as .fits tables. To enable this, un-comment the lines
-for the `crossMatchCatalogs` field. In this example, cross-matches are added
-for several other cluster catalogs. The columns in the cross-match catalogs
-are added to the MongoDB database as fields with `label_` prefixes. You must
-re-build the database to be able to access them:
+for the `crossMatchCatalogs` field (or use `E-D56Clusters_editable.yml`). 
+In this example, cross-matches are added for several other cluster catalogs.
+The columns in the cross-match catalogs are added to the MongoDB database as
+fields with `label_` prefixes. You must re-build the database to be able to
+access them:
 
 ```
-% sourcery_build_db E-D56Clusters.yml
+% sourcery_build_db E-D56Clusters_editable.yml
 ```
 
 This should take only a few seconds to run, as we have not changed any other
@@ -153,24 +155,25 @@ in `imageDirs` in the .yml file, Sourcery will search through all .fits images
 placed in each directory, and create thumbnail images centred at each object 
 position in the source catalog. In `E-D56Clusters.yml`, you can see how this
 is applied to the ACTPol E-D56 clusters catalog. To use this, un-comment the
-`imageDirs` and contour-related parameters in `E-D56Clusters.yml`, download 
+`imageDirs` and contour-related parameters in `E-D56Clusters.yml`
+(or use `E-D56Clusters_editable.yml`), download 
 the ACTPol signal-to-noise map, and place it in the `ACTMap` directory - i.e.,
 
 ```
-% wget INSERT LINK
+% wget "https://dl.dropbox.com/scl/fi/bk18g6xjm2avf0wyal2ui/stitched_Arnaud_M2e14_z0p4_SNMap.fits?rlkey=oaumuslqdcq5satqoyjdh3ex5&st=vtxwtb20&dl=0" -O stitched_Arnaud_M2e14_z0p4_SNMap.fits
 % mkdir ACTMap
-% cp Arnaud_M2e14_z0p4#PRIMARY_SNMap.fits ACTMap/
+% mv stitched_Arnaud_M2e14_z0p4_SNMap.fits ACTMap/
 ```
 
 Then rebuild the cache to extract the thumbnails:
 
 ```
-% sourcery_build_cache E-D56Clusters.yml
+% sourcery_build_cache E-D56Clusters_editable.yml
 ```
 
 If you now re-run `sourcery_test`, you will find that contour overlays are now
 enabled - in this case showing the ACT S/N in the matched filtered map, centred
-on the source (see Fig. 4).
+on the source - see Fig. 4 below:
 
 ![alt text](figs/contour.jpg "Fig. 4: Example source information page, with contouring turned on.")
 
@@ -179,7 +182,7 @@ on the source (see Fig. 4).
 
 Sourcery can also add public imaging from surveys that have been broken into 
 tiles, creating cut-outs for each source in a catalog by stitching the tiles
-together as needed. This is how DES DR1 imaging is handled in Sourcery, and it
+together as needed. This is how DES DR1 imaging was handled in Sourcery, and it
 can be enabled by uncommenting the `tileDirs` lines in the `E-D56Clusters.yml`
 file and then rebuilding the image cache. This will take a while, because the
 DES .tiff preview files are large.
@@ -191,7 +194,4 @@ corresponding WCS header keywords. We have used this method successfully for
 adding colour images from KiDS DR2 and S82 (using the IAC's reprocessed images
 for the latter).
 
-Here we may add links for some `tileDirs` for use with Sourcery later...
-
-* KiDS DR2 (11.0 Gb; downsampled in resolution by a factor of 2)
-* IAC-S82 (9.3 Gb)
+Note that in 2026, this option is probably not useful any more.
