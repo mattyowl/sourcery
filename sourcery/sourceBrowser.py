@@ -165,6 +165,17 @@ class SourceBrowser(object):
             self.contactInfo=self.configDict['contactInfo']
         else:
             self.contactInfo=""
+
+        # Logo image encoded as data URL for embedding in all page headers
+        self.logo_data_url = None
+        logo_path = self.configDict.get('logoFileName')
+        if logo_path and os.path.exists(logo_path):
+            ext = os.path.splitext(logo_path)[1].lower()
+            mime_map = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                        '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp'}
+            mime = mime_map.get(ext, 'image/png')
+            with open(logo_path, 'rb') as f:
+                self.logo_data_url = 'data:%s;base64,%s' % (mime, base64.b64encode(f.read()).decode('ascii'))
             
         # Image choices
         if 'defaultImageType' not in self.configDict.keys():
@@ -744,7 +755,7 @@ class SourceBrowser(object):
         # Add root path where necessary in place
         if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
             rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-            keysToFix=["userListFile", "cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogs", "tileDirs"]
+            keysToFix=["userListFile", "cacheDir", "skyviewCacheDir", "newsFileName", "logoFileName", "crossMatchCatalogs", "tileDirs"]
             for k in keysToFix:
                 if k in self.configDict.keys():
                     if type(self.configDict[k]) == list:
@@ -1493,6 +1504,7 @@ class SourceBrowser(object):
             msg=msg,
             username=username,
             login_message=self.configDict.get('loginMessage', ''),
+            logo_data_url=self.logo_data_url,
         )
     
     
@@ -1685,7 +1697,8 @@ class SourceBrowser(object):
             minimal_download_link=minimal_download_link,
             catalog_download_name=self.configDict['catalogDownloadFileName'],
             hosted_by=self.configDict.get('hostedBy', ''),
-        )    
+            logo_data_url=self.logo_data_url,
+        )
 
 
     @cherrypy.expose
@@ -2052,7 +2065,8 @@ class SourceBrowser(object):
             script_name=cherrypy.request.script_name,
             hosted_by=self.configDict.get('hostedBy', ''),
             fields=list(zip(keysList, typeNamesList, descriptionsList)),
-        )   
+            logo_data_url=self.logo_data_url,
+        )
 
 
     def getFieldNamesAndTypes(self, excludeKeys = []):
@@ -2407,6 +2421,7 @@ class SourceBrowser(object):
             ned_rows=ned_rows,
             spec_rows=spec_rows,
             properties=properties,
+            logo_data_url=self.logo_data_url,
         )
     
     

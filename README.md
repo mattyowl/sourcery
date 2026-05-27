@@ -17,24 +17,23 @@ To get an idea of how Sourcery works and see some screenshots, take a look at th
 
 ## Software needed
 
-Sourcery itself is written in Python (2.7.x - currently) and uses MongoDB (tested on 2.6.10) for data 
-storage. In addition, it requires the following Python modules to be installed (current versions used
-by the author are given in brackets, earlier and later versions may also work):
+Sourcery itself is written in Python (v3+) and uses MongoDB (v8+) for data 
+storage. In addition, it requires the following Python modules to be installed:
 
-* astLib (0.10.1)
-* astropy (2.0.4)
-* CherryPy (11.0.0)
-* Cython (0.23.4)
+* astLib
+* astropy
+* CherryPy
+* Cython 
 * IPython (5.5.0; used for debugging only)
-* matplotlib (2.1.0)
-* NumPy (1.14.1)
-* PIL (1.1.7; or Pillow 3.1.2)
-* pymongo (3.2)
-* requests (2.18.4)
-* SciPy (0.17.0)
-* pyvips (2.0.4)
-* PyYAML (3.12)
-* passlib (1.7.1)
+* matplotlib
+* NumPy 
+* Pillow 
+* pymongo
+* requests
+* SciPy
+* pyvips
+* PyYAML
+* passlib
 * concurrent.futures
 
 ## Installation

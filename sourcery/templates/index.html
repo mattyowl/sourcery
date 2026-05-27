@@ -13,7 +13,10 @@
 
 <header class="site-header">
     <div class="hdr-inner">
-        <div class="hdr-title">{{ title }}</div>
+        <div class="hdr-left">
+            {% if logo_data_url %}<img src="{{ logo_data_url }}" alt="Logo" class="hdr-logo">{% endif %}
+            <div class="hdr-title">{{ title }}</div>
+        </div>
         <nav class="hdr-nav">
             <a href="{{ script_name }}/logout">logout</a>
         </nav>
