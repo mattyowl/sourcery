@@ -14,6 +14,9 @@
 # Title shown on index (table) pages
 indexTitle: "ACTPol Galaxy Clusters in the E-D56 field"
 
+# Optional logo
+logoFileName: "ACTPolLogo.png"
+
 # Location of the cache dir - store all images, catalog matches etc.
 cacheDir: "sourceryCache"
 
@@ -117,9 +120,11 @@ plotDisplayWidthPix: 800
 figSize: [8.25, 7.5]
 
 # Images to fetch/make: using webservices
+# NOTE: addUnWISE works only for plotSizeArcmin < 11.4 arcmin (otherwise, use tileDir)
 addSDSSImage: True
 addDECaLSImage: True
 addUnWISEImage: True
+addHSCImage: True
 addPS1Image: True
 addPS1IRImage: True
 
