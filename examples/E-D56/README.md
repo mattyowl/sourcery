@@ -113,6 +113,8 @@ Now start Sourcery again using:
 % sourcery_test E-D56Clusters.yml 
 ```
 
+Alternatively, you may use the `E-D56Clusters_editable.yml` instead.
+
 You will find yourself confronted with a page that requests a login and 
 password. Try either of the above options, and navigate to a source 
 information page, and you will see a number of other controls have appeared,
