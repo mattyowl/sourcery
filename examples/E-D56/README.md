@@ -155,7 +155,8 @@ in `imageDirs` in the .yml file, Sourcery will search through all .fits images
 placed in each directory, and create thumbnail images centred at each object 
 position in the source catalog. In `E-D56Clusters.yml`, you can see how this
 is applied to the ACTPol E-D56 clusters catalog. To use this, un-comment the
-`imageDirs` and contour-related parameters in `E-D56Clusters.yml`, download 
+`imageDirs` and contour-related parameters in `E-D56Clusters.yml`
+(or use `E-D56Clusters_editable.yml`), download 
 the ACTPol signal-to-noise map, and place it in the `ACTMap` directory - i.e.,
 
 ```
@@ -167,7 +168,7 @@ the ACTPol signal-to-noise map, and place it in the `ACTMap` directory - i.e.,
 Then rebuild the cache to extract the thumbnails:
 
 ```
-% sourcery_build_cache E-D56Clusters.yml
+% sourcery_build_cache `E-D56Clusters_editable.yml`
 ```
 
 If you now re-run `sourcery_test`, you will find that contour overlays are now
