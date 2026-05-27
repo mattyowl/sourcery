@@ -141,7 +141,7 @@ fields with `label_` prefixes. You must re-build the database to be able to
 access them:
 
 ```
-% sourcery_build_db E-D56Clusters.yml
+% sourcery_build_db E-D56Clusters_editable.yml
 ```
 
 This should take only a few seconds to run, as we have not changed any other
@@ -168,7 +168,7 @@ the ACTPol signal-to-noise map, and place it in the `ACTMap` directory - i.e.,
 Then rebuild the cache to extract the thumbnails:
 
 ```
-% sourcery_build_cache `E-D56Clusters_editable.yml`
+% sourcery_build_cache E-D56Clusters_editable.yml
 ```
 
 If you now re-run `sourcery_test`, you will find that contour overlays are now
