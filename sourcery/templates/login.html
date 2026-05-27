@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ script_name }}/static/css/act.css">
+    <title>{{ title }}</title>
+</head>
+<body>
+
+<header class="site-header">
+    <div class="hdr-inner">
+        <div class="hdr-left">
+            {% if logo_data_url %}<img src="{{ logo_data_url }}" alt="Logo" class="hdr-logo">{% endif %}
+            <div class="hdr-title">{{ title }}</div>
+        </div>
+    </div>
+</header>
+
+<div class="page-body" style="max-width:480px;">
+    <fieldset class="panel" style="margin-top:2rem;">
+        <legend><b>Log in</b></legend>
+        <div class="panel-body">
+            {% if logo_data_url %}<div style="text-align:center;margin-bottom:.75rem;"><img src="{{ logo_data_url }}" alt="Logo" style="max-width:100%;max-height:120px;"></div>{% endif %}
+            {% if login_message %}<p style="margin-bottom:.75rem;font-size:.875rem;">{{ login_message }}</p>{% endif %}
+            <form method="post" action="{{ script_name }}/login">
+                <input type="hidden" name="from_page" value="{{ from_page }}"/>
+                <div style="display:flex;flex-direction:column;gap:.75rem;">
+                    <div>
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username" value="{{ username }}" style="width:100%;"/>
+                    </div>
+                    <div>
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" style="width:100%;"/>
+                    </div>
+                    <div style="margin-top:.25rem;">
+                        <input type="submit" class="btn-primary" value="Log in" style="width:100%;justify-content:center;">
+                    </div>
+                    {% if msg %}<p style="color:#dc2626;font-size:.85rem;margin-top:.25rem;">{{ msg }}</p>{% endif %}
+                </div>
+            </form>
+        </div>
+    </fieldset>
+</div>
+
+</body>
+</html>

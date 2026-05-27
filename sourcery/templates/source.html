@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ script_name }}/static/css/act.css">
+    <title>{{ source_name }}</title>
+</head>
+<body>
+
+<header class="site-header">
+    <div class="hdr-inner">
+        <div class="hdr-left">
+            {% if logo_data_url %}<img src="{{ logo_data_url }}" alt="Logo" class="hdr-logo">{% endif %}
+            <div class="hdr-title">{{ source_name }}</div>
+        </div>
+    </div>
+</header>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+<script>var sourceryConfig = {{ sourcery_config_json }};</script>
+<script src="{{ script_name }}/static/sourcery.js"></script>
+
+<div class="page-body">
+
+    <div class="source-panels">
+
+        {# ── Image panel ───────────────────────────────────────────────── #}
+        <div class="source-panel source-panel--image">
+            <fieldset>
+                <legend><b>Source Image</b></legend>
+                <div id="imagePlot" style="min-height:4rem;"></div>
+            </fieldset>
+        </div>
+
+        {# ── Controls column (Image Controls + Editing Controls stacked) ── #}
+        <div class="source-panel source-panel--controls">
+
+        {# ── Image Controls ────────────────────────────────────────────── #}
+        <fieldset>
+        <legend><b>Image Controls</b></legend>
+
+        <form id="buildCache" method="get" action="buildCacheForObject"></form>
+        {% if has_download_fits %}
+        <form id="downloadThumbnail" method="get" action="downloadThumbnailFITS">
+            <input form="downloadThumbnail" type="hidden" value="{{ sourcery_id }}" name="sourceryID"/>
+            <input form="downloadThumbnail" type="submit" class="dl-btn"
+                   value="Download {{ download_fits_label }} FITS">
+        </form>
+        {% endif %}
+
+        <form action="#" id="imageForm" method="post">
+        <input name="name" value="{{ object_name }}" type="hidden">
+
+        <p class="section-head">Survey</p>
+        <div class="survey-opts">
+        {% for img in image_types %}
+            <label>
+                <input type="radio" name="imageType"
+                       value="{{ img.label }};{{ '%.1f'|format(img.max_size_arcmin) }}"
+                       {% if img.selected %}checked{% endif %}>
+                {{ img.label }}
+            </label>
+        {% endfor %}
+        </div>
+
+        <p class="section-head">Plot options</p>
+        <div class="plot-opts">
+            <label><input type="checkbox" name="showAxes" value=1{% if checked_show_axes %} checked{% endif %}> Coordinate axes</label>
+            {% if has_contours %}
+            <label><input type="checkbox" name="plotContours" value=1{% if checked_contours %} checked{% endif %}> Contours ({{ contour_image }})</label>
+            {% endif %}
+            <label><input type="checkbox" name="plotRedshift" value=1{% if checked_redshift %} checked{% endif %}> Display redshift</label>
+            <label><input type="checkbox" name="plotSourcePos" value=1{% if checked_source_pos %} checked{% endif %}> Source position</label>
+            <label><input type="checkbox" name="plotNEDObjects" value=1{% if checked_ned %} checked{% endif %}> NED objects</label>
+            <label><input type="checkbox" name="plotSpecObjects" value=1{% if checked_spec %} checked{% endif %}> Spec-zs</label>
+            <label><input type="checkbox" name="plotXMatch" value=1{% if checked_xmatch %} checked{% endif %}> Cross-match objects</label>
+        </div>
+
+        <p class="section-head">Display</p>
+        <div class="slider-group">
+            <div class="slider-row">
+                <label for="sizeSlider">Image size (arcmin)</label>
+                <input id="sizeSlider" name="clipSizeArcmin" type="range"
+                       min="1.0" max="{{ max_size_arcmin }}" step="0.5"
+                       value="{{ current_size_arcmin }}"
+                       onchange="printValue('sizeSlider','sizeSliderValue')">
+                <input id="sizeSliderValue" type="text" size="3"/>
+            </div>
+            <div class="slider-row">
+                <label for="gammaSlider">Brightness (&gamma;)</label>
+                <input id="gammaSlider" name="gamma" type="range"
+                       min="0.2" max="3.0" step="0.2"
+                       value="{{ current_gamma }}"
+                       onchange="printValue('gammaSlider','gammaSliderValue')">
+                <input id="gammaSliderValue" type="text" size="3"/>
+            </div>
+        </div>
+
+        <div style="text-align:right;">
+            <input type="submit" class="btn-primary" value="Apply">
+        </div>
+        </form>
+
+        </fieldset>
+
+        {# ── Editing Controls ──────────────────────────────────────────── #}
+        {% if has_edit_controls %}
+        <form method="post" action="updateMongoDB">
+        <input name="sourceryID" value="{{ sourcery_id }}" type="hidden">
+        <input name="returnURL" value="{{ return_url }}" type="hidden">
+        <fieldset>
+        <legend><b>Editing Controls</b></legend>
+
+        {% if classifications %}
+        <p class="section-head">Classification</p>
+        <div class="class-opts">
+        {% for c in classifications %}
+            <label>
+                <input type="radio"
+                       {% if not c.first %}onChange="this.form.submit();" {% endif %}
+                       name="classification"
+                       value="{{ c.value }}"
+                       {% if c.checked %}checked{% endif %}
+                       {% if not edit_permission %}disabled{% endif %}>
+                {{ c.value }}
+            </label>
+        {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if editable_fields %}
+        <p class="section-head">Fields</p>
+        <div class="edit-field-row">
+        {% for field in editable_fields %}
+            <div class="edit-field">
+                <label>{{ field.name }}</label>
+                <input type="text" value="{{ field.value }}" name="{{ field.name }}"
+                       size="{{ field.display_size }}"{% if not edit_permission %} readonly{% endif %}/>
+            </div>
+        {% endfor %}
+        </div>
+        <div class="edit-meta">
+            <strong>Updated:</strong> {{ last_updated }} &ensp;
+            <strong>By:</strong> {{ editor_user }}
+        </div>
+        {% endif %}
+
+        <div style="text-align:right;">
+            <input type="submit" class="btn-primary" value="Update"
+                   {% if not edit_permission %}disabled{% endif %}>
+        </div>
+        </fieldset>
+        </form>
+        {% endif %}
+
+        </div>{# end .source-panel--controls #}
+
+    </div>{# end .source-panels #}
+
+    {# ── Spectrum ──────────────────────────────────────────────────────── #}
+    {% if spectrum_url %}
+    <table class="section-table">
+        <thead><tr><th>Spectrum</th></tr></thead>
+        <tbody>
+        <tr><td><img src="{{ spectrum_url }}" border="0" width="{{ spec_display_width_pix }}"/></td></tr>
+        </tbody>
+    </table>
+    {% endif %}
+
+    {# ── NED matches ───────────────────────────────────────────────────── #}
+    {% if ned_rows %}
+    <table class="section-table">
+        <thead>
+            <tr><th colspan="6">NED Matches</th></tr>
+            <tr>
+                <th class="col-hdr">ID</th>
+                <th class="col-hdr">Name</th>
+                <th class="col-hdr">RA</th>
+                <th class="col-hdr">Dec.</th>
+                <th class="col-hdr">Object Type</th>
+                <th class="col-hdr">Redshift</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in ned_rows %}
+        <tr>
+            <td>{{ row.label }}</td>
+            <td><a href="{{ row.ned_url }}">{{ row.name }}</a></td>
+            <td>{{ "%.5f"|format(row.RA) }}</td>
+            <td>{{ "%.5f"|format(row.dec) }}</td>
+            <td>{{ row.source_type }}</td>
+            <td>{{ row.redshift }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {# ── Spectroscopic redshifts ────────────────────────────────────────── #}
+    {% if spec_rows %}
+    <table class="section-table">
+        <thead>
+            <tr><th colspan="5">Spectroscopic Redshifts</th></tr>
+            <tr>
+                <th class="col-hdr">ID</th>
+                <th class="col-hdr">RA</th>
+                <th class="col-hdr">Dec.</th>
+                <th class="col-hdr">z</th>
+                <th class="col-hdr">Catalog</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in spec_rows %}
+        <tr>
+            <td>{{ row.id }}</td>
+            <td>{{ "%.5f"|format(row.RA) }}</td>
+            <td>{{ "%.5f"|format(row.dec) }}</td>
+            <td>{{ "%.3f"|format(row.redshift) }}</td>
+            <td>{{ row.catalog }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {# ── Source properties ─────────────────────────────────────────────── #}
+    {% if properties %}
+    <table class="section-table">
+        <thead>
+            <tr><th colspan="2">Source Properties</th></tr>
+        </thead>
+        <tbody>
+        {% for prop in properties %}
+        <tr>
+            <td class="td-label">{{ prop.label }}</td>
+            <td>{{ prop.value_html }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+</div>{# end .page-body #}
+
+<footer class="site-footer">
+    <i>Sourcery</i> &mdash; {{ hosted_by }}
+</footer>
+
+</body>
+</html>

@@ -57,6 +57,7 @@ from PIL import Image
 import io
 Image.MAX_IMAGE_PIXELS=100000001 
 import copy
+import json
 from io import BytesIO
 from tempfile import TemporaryDirectory
 import tempfile
@@ -72,9 +73,12 @@ from sourcery import sourceryAuth
 from sourcery import tileDir
 from passlib.hash import pbkdf2_sha256
 import logging
+from jinja2 import Environment, FileSystemLoader
 
 # Logging
 logger=logging.getLogger('sourcery')
+
+_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), 'templates')
 
 #-------------------------------------------------------------------------------------------------------------
 def makeDegreesDistanceMap(degreesMap, wcs, RADeg, decDeg, maxDistDegrees):
@@ -161,6 +165,17 @@ class SourceBrowser(object):
             self.contactInfo=self.configDict['contactInfo']
         else:
             self.contactInfo=""
+
+        # Logo image encoded as data URL for embedding in all page headers
+        self.logo_data_url = None
+        logo_path = self.configDict.get('logoFileName')
+        if logo_path and os.path.exists(logo_path):
+            ext = os.path.splitext(logo_path)[1].lower()
+            mime_map = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                        '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp'}
+            mime = mime_map.get(ext, 'image/png')
+            with open(logo_path, 'rb') as f:
+                self.logo_data_url = 'data:%s;base64,%s' % (mime, base64.b64encode(f.read()).decode('ascii'))
             
         # Image choices
         if 'defaultImageType' not in self.configDict.keys():
@@ -345,6 +360,11 @@ class SourceBrowser(object):
 
         # This sets size of table view - view is controlled with session variables
         self.tableViewRows=40
+
+        self.jinja_env = Environment(
+            loader=FileSystemLoader(_TEMPLATES_DIR),
+            autoescape=False
+        )
 
 
     def matchTags(self, obj):
@@ -735,7 +755,7 @@ class SourceBrowser(object):
         # Add root path where necessary in place
         if 'sourceryPath' in self.configDict.keys() and self.configDict['sourceryPath'] != "":
             rootDir=self.configDict['sourceryPath'].rstrip(os.path.sep)
-            keysToFix=["userListFile", "cacheDir", "skyviewCacheDir", "newsFileName", "crossMatchCatalogs", "tileDirs"]
+            keysToFix=["userListFile", "cacheDir", "skyviewCacheDir", "newsFileName", "logoFileName", "crossMatchCatalogs", "tileDirs"]
             for k in keysToFix:
                 if k in self.configDict.keys():
                     if type(self.configDict[k]) == list:
@@ -1477,49 +1497,15 @@ class SourceBrowser(object):
     
     
     def getLoginForm(self, username, msg="", from_page=cherrypy.request.script_name):
-        html="""<html><body style="font-family: sans-serif; vertical align: top; justify: full;">
-        <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
-            <tbody>
-                <tr>
-                    <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 150%;">
-                        <b>$TITLE</b>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-        <br>
-        <fieldset>
-        <legend><b>Enter Login Information</b></legend>
-        <p>
-        $LOGIN_MESSAGE
-            <form method="post" action="$SCRIPT_NAME/login">
-            <input type="hidden" name="from_page" value="$FROM_PAGE" />
-            <label for="username"><b>Username:</b></label>
-            <input type="text" name="username" value="$USERNAME" /><br />
-            <br>
-            <label for="username"><b>Password:</b></label>            
-            <input type="password" name="password" /><br />
-            <br>
-            <input type="submit" style="font-size: 1.05em;" value="Log in" />
-        </p>
-        <p>$MSG</p>
-        </fieldset>
-        </body></html>"""
-        html=html.replace("$SCRIPT_NAME", cherrypy.request.script_name)
-        html=html.replace("$FROM_PAGE", from_page)
-        html=html.replace("$MSG", msg)
-        html=html.replace("$USERNAME", username)
-        if 'indexTitle' in self.configDict.keys():
-            html=html.replace("$TITLE", self.configDict['indexTitle'])
-        else:
-            html=html.replace("$TITLE", "Sourcery Database")
-        if 'loginMessage' in self.configDict.keys():
-            html=html.replace("$LOGIN_MESSAGE", "<p>%s</p>" % (self.configDict['loginMessage']))
-        else:
-            html=html.replace("$LOGIN_MESSAGE", "")
-            
-        return html
+        return self.jinja_env.get_template('login.html').render(
+            script_name=cherrypy.request.script_name,
+            title=self.configDict.get('indexTitle', 'Sourcery Database'),
+            from_page=from_page,
+            msg=msg,
+            username=username,
+            login_message=self.configDict.get('loginMessage', ''),
+            logo_data_url=self.logo_data_url,
+        )
     
     
     @cherrypy.expose
@@ -1579,213 +1565,12 @@ class SourceBrowser(object):
         querySearchBoxArcmin=cherrypy.session.get('querySearchBoxArcmin')
         queryOtherConstraints=cherrypy.session.get('queryOtherConstraints')
         
-        templatePage="""<html>
-        <head>
-            <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-            <style>
-            .f {
-                    float: right;
-            }
-            </style>
-            <style>
-            .tablefont, .tablefont TD, .tablefont TH {
-                font-family: monospace;
-            }
-            </style>
-            <title>$TITLE</title>
-        </head>
-        
-        <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
-
-        <script type="text/javascript">
-        
-        $(function(){
-           // Set cursor to pointer and add click function
-           $("legend").css("cursor","pointer").click(function(){
-               var legend = $(this);
-               var value = $(this).children("span").html();
-               if(value == "hide")
-                   value="expand";
-               else
-                   value="hide";
-               $(this).siblings().slideToggle(0, function() { legend.children("span").html(value); } );
-           });    
-        });
-        
-        $(document).ready(function() {
-            var legends = document.getElementsByTagName("legend");
-            for (var i=0; i<legends.length; i++)
-            {
-                var spans = legends[i].getElementsByTagName("span");
-                var value=spans[0].innerHTML;
-                if (value == "expand") {
-                    spans[0].innerHTML="hide";
-                    legends[i].click();
-                }
-            }
-        });
-            
-        </script>
-        
-        <style>
-        #logout a:link, #logout a:visited {
-            background-color: white;
-            color: black;
-            padding: 5px 5px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-        }
-
-        #logout a:hover, #logout a:active {
-            background-color: white;
-        }
-        </style>
-        
-        <body style="font-family: sans-serif; vertical align: top; justify: full;" onload="hideShow()">
-        <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
-            <tbody>
-                <tr>
-                    <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 150%;">
-                        <b>$TITLE</b>
-                    </td>
-                    <div id='logout' style="text-align: right; vertical-align: middle; font-size: 100%;  
-                        position: absolute; right: 20px; top: 20px;">
-                        <a href='$SCRIPT_NAME/logout' color>logout</a>
-                    </div>
-                </tr>
-            </tbody>
-        </table>
-        
-        $META_DATA
-        $COLOR_CODING
-        
-        <br>
-        <form method="get" action="updateQueryParams">
-        <fieldset>
-        $QUICK_QUERY_LINKS
-        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Constraints</b></legend>
-        <p>Enter coordinate ranges (e.g., 120:220) or set the search box length. Use negative RA values to wrap around 0 degrees (e.g., -60:60).</p>
-        <p>
-        <label for="queryRADeg">RA (degrees)</label>
-        <input type="text" value="$QUERY_RADEG" name="queryRADeg"/>
-        <label for="queryDecDeg">Dec. (degrees)</label>
-        <input type="text" value="$QUERY_DECDEG" name="queryDecDeg"/>
-        <label for="querySearchBoxArcmin">Search box length (arcmin)</label>
-        <input type="text" value="$QUERY_SEARCHBOXARCMIN" name="querySearchBoxArcmin"/>
-        </p>
-        </p>
-        <label for="queryOtherConstraints">Other constraints <a href=$CONSTRAINTS_HELP_LINK target=new>(help)</a></label>
-        <textarea style="width:100%" name="queryOtherConstraints">$QUERY_OTHERCONSTRAINTS</textarea>
-        <input type="submit" class="f" style="font-size: 1.05em;" name="queryApply" value="Apply">
-        <input type="submit" class="f" style="font-size: 1.05em;" name="queryReset" value="Reset"><br>
-        <div style="display: table-cell; vertical-align: middle;"><i>$SHARE_QUERY_LINK</i></div>
-        </p>
-        </fieldset>
-        </form>
-            
-        <form method="post" action="changeTablePage" style="border">
-        <div id="buttons">
-            <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
-            <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
-            <div style="clear:both"></div><!-- Need this to have the buttons actually inside div#buttons -->
-        </div>
-                
-        <table frame=border cellspacing=0 cols=$TABLE_COLS rules=all border=2 width=100% align=center class=tablefont>
-        <tbody>
-            <tr style="background-color: rgb(0, 0, 0); font-family: monospace; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 125%;">
-            $TABLE_COL_NAMES
-            </tr>
-            <font size="1">
-            $TABLE_DATA
-            </font>
-        </tbody>
-        </table>
-
-        <div id="buttons">
-            <input type="submit" class="f" style="font-size: 1.05em;" name="nextButton" value=">">
-            <input type="submit" class="f" style="font-size: 1.05em;" name="prevButton" value="<">
-            <div style="clear:both"></div><!-- Need this to have the buttons actually inside div#buttons -->
-        </div>
-        </form>
-        
-        $DOWNLOAD_LINKS
-
-        </tbody>
-        </table>
-        <hr>
-        <a href="https://github.com/mattyowl/sourcery"><i>Sourcery</i></a> - $HOSTED_STR
-        <br>
-        <br>
-        </body>
-        </html>
-        """
-                
-        html=templatePage
-        html=html.replace("$SCRIPT_NAME", cherrypy.request.script_name)
-
-        if 'indexTitle' in self.configDict.keys():
-            html=html.replace("$TITLE", self.configDict['indexTitle'])
-        else:
-            html=html.replace("$TITLE", "Sourcery Database")
-                
-        # First need to apply query parameters here
         queryPosts, numPosts=self.runQuery(queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
         if 'numPosts' not in cherrypy.session:
             cherrypy.session['numPosts']=numPosts
-        
-        # Then cut to number of rows to view as below
         viewPosts=queryPosts[cherrypy.session['viewTopRow']:cherrypy.session['viewTopRow']+self.tableViewRows]
-        
-        # Quick query link(s) - at top of 'constraints' box
-        if 'quickLinks' in self.configDict.keys():            
-            quickLinkStr="<p><i>Quick links:</i> "
-            for linkDict in self.configDict['quickLinks']:
-                url="updateQueryParams?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints="
-                url=url+linkDict['constraints'].replace("+", "%2B") # quick and dirty fix for + in query constraints text
-                url=url+"&queryApply=Apply"
-                quickLinkStr=quickLinkStr+'<a href="%s">%s</a>' % (url, linkDict['label'])
-                quickLinkStr=quickLinkStr+" - "
-            quickLinkStr=quickLinkStr[:-3]+"</p>"
-        else:
-            quickLinkStr=""
-        html=html.replace("$QUICK_QUERY_LINKS", quickLinkStr)
-            
-        # Fill in query params
-        html=html.replace("$QUERY_RADEG", queryRADeg)
-        html=html.replace("$QUERY_DECDEG", queryDecDeg)
-        html=html.replace("$QUERY_SEARCHBOXARCMIN", querySearchBoxArcmin)
-        html=html.replace("$QUERY_OTHERCONSTRAINTS", queryOtherConstraints)
-        html=html.replace("$OBJECT_TYPE_STRING", self.configDict['objectTypeString'])
-        html=html.replace("$NUMBER_SOURCES", str(numPosts))#str(len(queryPosts)))
-        if 'hostedBy' in self.configDict.keys():
-            html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
-        else:
-            html=html.replace("$HOSTER_STR", "")
-        html=html.replace("$CONSTRAINTS_HELP_LINK", "displayConstraintsHelp?")
-        
-        # Shareable query link
-        # NOTE: we should do this properly really...
-        shareQueryURL=cherrypy.request.base+cherrypy.request.script_name+"/"
-        url="updateQueryParams?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=" % (self.sourceNameToURL(str(queryRADeg)), 
-         self.sourceNameToURL(str(queryDecDeg)), 
-         self.sourceNameToURL(str(querySearchBoxArcmin)))
-        url=url+self.sourceNameToURL(queryOtherConstraints)+"&queryApply=Apply"
-        shareQueryURL=shareQueryURL+url
-        html=html.replace("$SHARE_QUERY_LINK", "<a href='%s'>Shareable link for this query</a>" %  (shareQueryURL))
-        
-        # This would hide censored columns, but still permit queries based on them to be shown
-        #columnsHiddenList=[]
-        #for userNameKey in self.usersDict.keys():
-            #userDict=self.usersDict[userNameKey]
-            #if userNameKey == user and 'hiddenXMatchTables' in userDict.keys():
-                #for prefix in userDict['hiddenXMatchTables']:
-                    #for key in viewPosts[0].keys():
-                        #if key.find(prefix) != -1 and key[:len(prefix)] == prefix:
-                            #columnsHiddenList.append(key)
-        # This is a crude way of breaking queries on censored columns by users who don't have permission to see them...
+
+        # Censor queries on columns hidden from this user
         user=cherrypy.session['_sourcery_username']
         for userNameKey in self.usersDict.keys():
             userDict=self.usersDict[userNameKey]
@@ -1794,22 +1579,30 @@ class SourceBrowser(object):
                     if queryOtherConstraints.find(prefix) != -1:
                         numPosts=0
                         viewPosts=[]
-      
-        # Table columns - as well as defaults, add ones we query on
-        columnsShownList=[]
-        for colDict in self.tableDisplayColumns:
-            if colDict['name'] not in columnsShownList:
-                columnsShownList.append(colDict['name'])
-        displayColumns=[]+self.tableDisplayColumns
+
+        # Quick links
+        quick_links=[]
+        for linkDict in self.configDict.get('quickLinks', []):
+            url="updateQueryParams?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints="
+            url=url+linkDict['constraints'].replace("+", "%2B")+"&queryApply=Apply"
+            quick_links.append({'label': linkDict['label'], 'url': url})
+
+        # Shareable query link
+        share_url="updateQueryParams?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=%s&queryApply=Apply" % (
+            self.sourceNameToURL(str(queryRADeg)), self.sourceNameToURL(str(queryDecDeg)),
+            self.sourceNameToURL(str(querySearchBoxArcmin)), self.sourceNameToURL(queryOtherConstraints))
+        share_query_url=cherrypy.request.base+cherrypy.request.script_name+"/"+share_url
+
+        # Table columns — defaults plus any queried-on columns
+        columnsShownList=[c['name'] for c in self.tableDisplayColumns]
+        displayColumns=list(self.tableDisplayColumns)
         operators=["<", ">", "=", "!"]
-        logicalOps=[' and ', ' or ']
-        for logOp in logicalOps:
-            constraints=queryOtherConstraints.split(logOp)
-            for c in constraints:
+        for logOp in [' and ', ' or ']:
+            for c in queryOtherConstraints.split(logOp):
                 for o in operators:
                     colName=c.split(o)[0].lstrip().rstrip()
-                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in columnsShownList:# and colName not in columnsHiddenList:
-                        fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})                            
+                    if numPosts > 0 and colName in viewPosts[0].keys() and colName not in columnsShownList:
+                        fieldTypeDict=self.fieldTypesCollection.find_one({'name': colName})
                         dispDict={'name': colName, 'label': colName}
                         if fieldTypeDict is None:
                             dispDict['fmt']='%s'
@@ -1820,200 +1613,92 @@ class SourceBrowser(object):
                         else:
                             raise Exception("unknown type for field '%s'" % (colName))
                         displayColumns.append(dispDict)
-                        
-        columnHeadings=""
-        for colDict in displayColumns:
-            columnHeadings=columnHeadings+"\n           <td><b>%s</b></td>" % (colDict['label'])
-        html=html.replace("$TABLE_COL_NAMES", columnHeadings)
-        html=html.replace("$TABLE_COLS", str(len(displayColumns)))
-        
-        # Meta data
-        if 'classificationDescription' in self.configDict.keys():
-            classificationDesc=self.configDict['classificationDescription']
-        else:
-            classificationDesc=""
-        if 'catalogComments' not in self.configDict.keys():
-            commentsString=classificationDesc
-        else:
-            commentsString=self.configDict['catalogComments']+" <p>"+classificationDesc+"</p>"
-        
-        if 'newsItems' in self.configDict.keys() and len(self.configDict['newsItems']) > 0:
-            latestNewsStr="    &#8211;    Latest news: %s" % (self.configDict['newsItems'][-1].split(":")[0])
-        else:
-            latestNewsStr=""
-        
-        # We now display a message if cache rebuild is in progress
-        if os.path.exists(self.cacheLockFileName) == True:
-            cacheRebuildStr="    &#8211;    [REBUILDING IMAGE CACHE]"
-        else:
-            cacheRebuildStr=""
-        
-        # For users with hiddenConstraints set
-        hiddenConstraintsMessage=""
-        user=cherrypy.session['_sourcery_username']
-        for userNameKey in self.usersDict.keys():
-            userDict=self.usersDict[userNameKey]
-            if userNameKey == user and 'hiddenConstraintsMessage' in userDict.keys():
-                hiddenConstraintsMessage="; %s" % (userDict['hiddenConstraintsMessage'])
-        
-        metaData="""<br><fieldset>
-        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Source List Information</b></legend>
-        Total number of %s: %d (original source list: %d%s) %s %s
-        <p>%s</p>
-        $NEWS
-        </fieldset>""" % (self.configDict['objectTypeString'], numPosts, self.sourceCollection.estimated_document_count(), hiddenConstraintsMessage, latestNewsStr,
-                          cacheRebuildStr, commentsString)
-        if 'newsItems' in self.configDict.keys():
-            newsStr="<p>News:<ul>\n"
-            for item in self.configDict['newsItems'][-5:]:
-                newsStr=newsStr+"<li>%s</li>\n" % (item)
-            newsStr=newsStr+"</ul></p>\n"
-            metaData=metaData.replace("$NEWS", newsStr)
-        else:
-            metaData=metaData.replace("$NEWS", "")
-            
-        html=html.replace("$META_DATA", metaData)        
-        
-        # Catalog download links
-        #http://localhost:8080/downloadCatalog?queryRADeg=0%3A360&queryDecDeg=-90%3A90&querySearchBoxArcmin=&queryOtherConstraints=softCts+%3E+300
-        shortCatalogName=self.configDict['catalogDownloadFileName']+".cat"
-        shortFITSName=shortCatalogName.replace(".cat", ".fits")
-        minimalFITSName=shortCatalogName.replace(".cat", "-minimal.fits")
-        shortRegName=shortCatalogName.replace(".cat", ".reg")
-        downloadLinkStr="downloadCatalog?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=%s&" % (queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
-        minimalDownloadLinkStr=downloadLinkStr+"minimalColumnSet=true&"
-        downloadLinkStr=quote_plus(downloadLinkStr, safe='&?=')
-        minimalDownloadLinkStr=quote_plus(minimalDownloadLinkStr, safe='&?=')
-        downloadLinks="""<fieldset>
-        <legend><span style='border: black 1px solid; color: gray; padding: 2px'>hide</span><b>Download Catalog</b></legend>
-        <ul>
-        <li><a href=%sfileFormat=cat>%s</a>   (plain text)</li>
-        <li><a href=%sfileFormat=fits>%s</a>   (FITS table format; all columns)</li>
-        $MINIMAL_STR
-        <li><a href=%sfileFormat=reg>%s</a>   (DS9 region file)</li></ul>
-        <p>Note that current constraints are applied to downloaded catalogs.</p>
-        </fieldset><br>
-        """ % (downloadLinkStr, shortCatalogName, downloadLinkStr, shortFITSName, downloadLinkStr, shortRegName)
-        html=html.replace("$DOWNLOAD_LINKS", downloadLinks)
-        
-        if 'catalogDownloadMinimalColumns' in self.configDict.keys():
-            minimalStr="<li><a href=%sfileFormat=fits>%s</a>   (FITS table format; minimal column set)</li>" % (minimalDownloadLinkStr, minimalFITSName)
-            html=html.replace("$MINIMAL_STR", minimalStr)
-        else:
-            html=html.replace("$MINIMAL_STR", "")
+                        columnsShownList.append(colName)
 
-        tableData=""
-        usedBckColors=[]
-        usedBckKeys=[]
-
+        # Build table rows as lists of cell dicts
+        table_rows=[]
         for obj in viewPosts:
-            
-            bckColor="white"
-                
-            # Row for each object in table
-            rowString="<tr>\n"
+            cells=[]
             for colDict in displayColumns:
-                # Python 2/3 thing
-                try:
-                    htmlKey="$"+string.upper(colDict['name'])+"_KEY"
-                except:
-                    htmlKey="$"+colDict['name'].upper()+"_KEY"                    
-                if 'tableAlign' in colDict.keys():
-                    alignStr=colDict['tableAlign']
-                else:
-                    alignStr="center"
-                if 'displaySize' in colDict.keys():
-                    widthStr='width: %dem;' % (colDict['displaySize'])
+                key=colDict['name']
+                alignStr=colDict.get('tableAlign', 'center')
+                if 'displaySize' in colDict:
+                    widthStr='width: %dem;' % colDict['displaySize']
                     useDiv=True
                 else:
                     useDiv=False
                     if colDict['fmt'] == '%s':
-                        if colDict['name'] in obj.keys() and type(obj[colDict['name']]) == str:
-                            widthStr='width: %dem;' % (len(obj[colDict['name']]))
-                        else:
-                            widthStr=""
+                        widthStr='width: %dem;' % len(obj[key]) if key in obj and type(obj[key]) == str else ''
                     else:
-                        widthStr='width: %dem;' % (len(colDict['fmt'] % (1)))
-                rowString=rowString+"   <td style='background-color: "+bckColor+"; "+widthStr+"' align="+alignStr+">"
-                if useDiv == True:
-                    rowString=rowString+'<div style="text-overflow: ellipsis; white-space: nowrap; overflow: hidden; '+widthStr+'">'
-                rowString=rowString+htmlKey
-                if useDiv == True:
-                    rowString=rowString+"</div>\n"
-                rowString=rowString+"</td>\n"
-            rowString=rowString+"</tr>\n"
-            
-            # Insert values - note name is special
-            for colDict in displayColumns:
-                key=colDict['name']
-                if key in obj.keys():
-                    try:
-                        value=obj[key]
-                    except:
-                        raise Exception("missing key %s" % (key))
-                else:
-                    # No entry in MongoDB tags yet
-                    if colDict['fmt'] != "%s":
-                        value=0.0
-                    else:
-                        value=""
-                # Python 2/3 thing
-                try:
-                    htmlKey="$"+string.upper(key)+"_KEY"
-                except:
-                    htmlKey="$"+key.upper()+"_KEY"
-                if key == "name":
-                    #linksDir="dummy"
-                    linkURL="displaySourcePage?sourceryID=%s&clipSizeArcmin=%.2f" % (self.sourceNameToURL(obj['sourceryID']), self.configDict['defaultViewSizeArcmin'])
-                    if 'defaultImageType' in self.configDict.keys():
-                        linkURL=linkURL+"&imageType=%s" % (self.configDict['defaultImageType'])
-                    nameLink="<a href=\"%s\" target=new>%s</a>" % \
-                        (linkURL, obj['name'])
-                    rowString=rowString.replace(htmlKey, "%s" % (nameLink))
-                elif key == "NED_name" and obj['NED_name'] != "None":
+                        widthStr='width: %dem;' % len(colDict['fmt'] % 1)
+
+                value=obj.get(key, 0.0 if colDict['fmt'] != '%s' else '')
+                if key == 'name':
+                    linkURL="displaySourcePage?sourceryID=%s&clipSizeArcmin=%.2f" % (
+                        self.sourceNameToURL(obj['sourceryID']), self.configDict['defaultViewSizeArcmin'])
+                    if 'defaultImageType' in self.configDict:
+                        linkURL+="&imageType=%s" % self.configDict['defaultImageType']
+                    value_html='<a href="%s" target=new>%s</a>' % (linkURL, obj['name'])
+                elif key == 'NED_name' and obj.get('NED_name') != 'None':
                     nedName=obj[key]
-                    nedLinkURL="http://ned.ipac.caltech.edu/cgi-bin/objsearch?objname=%s&extend=no&hconst=73&omegam=0.27&omegav=0.73&corr_z=1&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=pre_text&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (nedName.replace("+", "%2B").replace(" ", "+"))
-                    rowString=rowString.replace(htmlKey, "<a href=%s>%s</a>" % (nedLinkURL, nedName))
-                elif key == "NED_z" and obj['NED_z'] == "nan":
-                    rowString=rowString.replace(htmlKey, "-")
+                    nedLinkURL="http://ned.ipac.caltech.edu/cgi-bin/objsearch?objname=%s&extend=no&hconst=73&omegam=0.27&omegav=0.73&corr_z=1&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=pre_text&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % nedName.replace("+", "%2B").replace(" ", "+")
+                    value_html='<a href=%s>%s</a>' % (nedLinkURL, nedName)
+                elif key == 'NED_z' and obj.get('NED_z') == 'nan':
+                    value_html='-'
                 else:
                     try:
-                        rowString=rowString.replace(htmlKey, colDict['fmt'] % (value))
-                    except:
-                        IPython.embed()
-                        sys.exit()
-                        raise Exception("""IndexError: check .config file tableDisplayColumns are actually in the .fits table, or for mixed '' "" inside [] """ )
-                           
-            tableData=tableData+rowString
-            
-        html=html.replace("$TABLE_DATA", tableData)
-        
-        # Colour coding table key
-        if len(usedBckColors) > 0:
-            colorCoding="""<table frame=border cellspacing=0 cols=2 rules=all border=2 width=60% align=center>
-                        <tbody>
-                            <tr>
-                                <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=$NUM_COLORS>Color coding</td>
-                            </tr>
-                            <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; 
-                                    text-align: center; vertical-align: middle; font-size: 110%;">
-                            $COLOR_KEY
-                            </tr>
-                        </tbody>
-                        </table>
-                        <br><br>
-                        """
-            colorCoding=colorCoding.replace("$NUM_COLORS", str(len(usedBckColors)))
-            keyString=""
-            for bckColor, bckKey in zip(usedBckColors, usedBckKeys):
-                keyString=keyString+'<td style="background-color:'+bckColor+';" width='+str(100.0/len(usedBckColors))+'%>'+bckKey+'</td>\n'
-            colorCoding=colorCoding.replace("$COLOR_KEY", keyString)
-            html=html.replace("$COLOR_CODING", colorCoding)
-        else:
-            html=html.replace("$COLOR_CODING", "")
-        
-        return html    
+                        value_html=colDict['fmt'] % value
+                    except Exception:
+                        raise Exception("IndexError: check .config file tableDisplayColumns are actually in the .fits table, or for mixed '' \"\" inside []")
+                cells.append({'value_html': value_html, 'align': alignStr, 'width_style': widthStr, 'use_div': useDiv})
+            table_rows.append(cells)
+
+        # Download links
+        downloadLinkStr="downloadCatalog?queryRADeg=%s&queryDecDeg=%s&querySearchBoxArcmin=%s&queryOtherConstraints=%s&" % (
+            queryRADeg, queryDecDeg, querySearchBoxArcmin, queryOtherConstraints)
+        minimalDownloadLinkStr=downloadLinkStr+"minimalColumnSet=true&"
+        download_link=quote_plus(downloadLinkStr, safe='&?=')
+        minimal_download_link=quote_plus(minimalDownloadLinkStr, safe='&?=') if 'catalogDownloadMinimalColumns' in self.configDict else None
+
+        # Meta data
+        classificationDesc=self.configDict.get('classificationDescription', '')
+        catalog_comments=self.configDict.get('catalogComments', '')
+        if classificationDesc:
+            catalog_comments=(catalog_comments+" <p>"+classificationDesc+"</p>") if catalog_comments else classificationDesc
+        news_items=self.configDict.get('newsItems', [])[-5:] if 'newsItems' in self.configDict else []
+        latest_news_str=("    –    Latest news: %s" % self.configDict['newsItems'][-1].split(":")[0]) if news_items else ''
+        cache_rebuild_str="    –    [REBUILDING IMAGE CACHE]" if os.path.exists(self.cacheLockFileName) else ''
+        hiddenConstraintsMessage=''
+        for userNameKey in self.usersDict.keys():
+            if userNameKey == user and 'hiddenConstraintsMessage' in self.usersDict[userNameKey]:
+                hiddenConstraintsMessage="; %s" % self.usersDict[userNameKey]['hiddenConstraintsMessage']
+
+        return self.jinja_env.get_template('index.html').render(
+            script_name=cherrypy.request.script_name,
+            title=self.configDict.get('indexTitle', 'Sourcery Database'),
+            query_radeg=queryRADeg,
+            query_decdeg=queryDecDeg,
+            query_searchboxarcmin=querySearchBoxArcmin,
+            query_otherconstraints=queryOtherConstraints,
+            share_query_url=share_query_url,
+            quick_links=quick_links,
+            object_type_string=self.configDict['objectTypeString'],
+            num_posts=numPosts,
+            total_sources=self.sourceCollection.estimated_document_count(),
+            hidden_constraints_message=hiddenConstraintsMessage,
+            latest_news_str=latest_news_str,
+            cache_rebuild_str=cache_rebuild_str,
+            catalog_comments=catalog_comments,
+            news_items=news_items,
+            color_coding_rows=[],
+            display_columns=displayColumns,
+            table_rows=table_rows,
+            download_link=download_link,
+            minimal_download_link=minimal_download_link,
+            catalog_download_name=self.configDict['catalogDownloadFileName'],
+            hosted_by=self.configDict.get('hostedBy', ''),
+            logo_data_url=self.logo_data_url,
+        )
 
 
     @cherrypy.expose
@@ -2374,81 +2059,14 @@ class SourceBrowser(object):
         
         """
                 
-        templatePage="""<html>
-        <head>
-            <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-            <title>Constraints Help</title>
-        </head>
-        <body style="font-family: sans-serif; vertical align: top; justify: full;">
-        <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
-            <tbody>
-                <tr>
-                    <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 125%;">
-                        Constraints Help
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-        
-        <br>
-        <p>
-        Constraints can be placed on the source list columns listed below. Comparison operators which are understood are <, >, >=, <=, =, !=. Logical operators which are understood are 'and', 'or'.</p>
-        <p>Each constraint should be
-        separated by 'and' or 'or', e.g.,</p>
-        <p><tt>redshift >= 0 and redshift < 0.4</tt></p>
-        <p><tt>RM_match = 1 or PSZ2_match = 1</tt></p>
-        <p><b>Note that when querying for multiple values in the same column using '=' or '!=', 'and' acts like a delimiter, rather than in a strictly logical sense</b>. For example, to fetch all objects with classification of 'cluster' and 'not cluster', one can write</p>
-        <tt>classification = 'cluster' and classification = 'not cluster'</tt> 
-        <p>This will leave out all table rows which have classification set to some other value (e.g., 'probable cluster'
-        or 'possible cluster'). This query is also equivalent to</p>
-        <tt>classification = 'cluster' or classification = 'not cluster'</tt>
-        <p>The wildcard '*' is supported in text searches, e.g.,</p> 
-        <tt>classification = '* cluster'</tt> 
-        <p>will return all objects flagged as 'probable cluster', 'possible cluster', or 'not cluster', but not objects with classification = 'cluster'.</p>
-        <tt>notes = '*high-z*'</tt> 
-        <p>will return all objects where the string 'high-z' appears in the notes field somewhere. <b>Note that wildcard text searches are case insensitive</b>.
-        </p>
-        <br>
-        <table frame=border cellspacing=0 cols=3 rules=all border=2 width=85% align=center>
-        <tbody>
-            <tr style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;">
-            <td><b>Column</td>
-            <td><b>Type</b></td>
-            <td><b>Description</b></td>
-            </tr>
-            $TABLE_DATA
-        </tbody>
-        </table>        
-
-        <hr>
-        <i>Sourcery</i> - $HOSTED_STR
-        <br>
-        <br>
-        </body>
-        </html>
-        """
-        html=templatePage
-
-        html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])        
-        
-        # Fill in table of data types
-        bckColor="white"
-        tableData=""
-        excludeKeys=['RADeg', 'decDeg', 'sourceryID', 'cacheBuilt'] # because we handle differently
-        keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys = excludeKeys)
-        for key, typeName, description in zip(keysList, typeNamesList, descriptionsList):
-            # Row for each column in table
-            rowString="<tr>\n"                
-            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=left width=10%><b>"+key+"</b></td>\n"
-            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=left width=10%>"+typeName+"</td>\n"
-            rowString=rowString+"   <td style='background-color: "+bckColor+";' align=left width=80%>"+description+"</td>\n"
-            rowString=rowString+"</tr>\n"                           
-            tableData=tableData+rowString
-        html=html.replace("$TABLE_DATA", tableData)
-        
-        return html   
+        excludeKeys=['RADeg', 'decDeg', 'sourceryID', 'cacheBuilt']
+        keysList, typeNamesList, descriptionsList=self.getFieldNamesAndTypes(excludeKeys=excludeKeys)
+        return self.jinja_env.get_template('constraints_help.html').render(
+            script_name=cherrypy.request.script_name,
+            hosted_by=self.configDict.get('hostedBy', ''),
+            fields=list(zip(keysList, typeNamesList, descriptionsList)),
+            logo_data_url=self.logo_data_url,
+        )
 
 
     def getFieldNamesAndTypes(self, excludeKeys = []):
@@ -2607,83 +2225,11 @@ class SourceBrowser(object):
         user=cherrypy.session['_sourcery_username']
 
         sourceryID=self.URLToSourceName(sourceryID)
-                
-        templatePage="""<html>
-        <head>
-            <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
-            <title>$SOURCE_NAME</title>
-        </head>
-        <body style="font-family: sans-serif; vertical align: top; justify: full;">
-        <table cellpadding="4" cellspacing="0" border="0" style="text-align: left; width: 100%;">
-            <tbody>
-                <tr>
-                    <!-- $PREV_LINK_CODE -->
-                    <td style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                        text-align: center; vertical-align: middle; font-size: 150%;">
-                        <b>$SOURCE_NAME</b>
-                    </td>
-                    <!-- $NEXT_LINK_CODE -->
-                </tr>
-            </tbody>
-        </table>
-        
-        <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
-
-        <br>
-
-        <div style="display: table; width: 85%; margin:0 auto;">
-            <div style="display: table-row; height: auto; margin:0 auto; height: $PLOT_DISPLAY_HEIGHT_PIX;">
-                <div style="display: table-cell; vertical-align: top;">
-                    <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
-                    <legend><b>Source Image</b></legend>
-                    <div id="imagePlot"></div>
-                    </fieldset>
-                </div>
-                <div style="display: table-cell; vertical-align: top;">
-                    $PLOT_CONTROLS
-                </div>
-                <div style="display: table-cell; vertical-align: top;">
-                    $TAG_CONTROLS
-                </div>
-            </div>
-        </div>
-
-        <table frame=border cellspacing=0 cols=1 rules=None border=0 width=100%>
-        <tbody>        
-
-        $SPECTRUM_PLOT
-
-        <tr>
-            <td align=center>$NED_MATCHES_TABLE</td>
-        </tr>
-
-        <tr>
-            <td align=center>$SPEC_MATCHES_TABLE</td>
-        </tr>
-        
-        <tr>
-            <td align=center>$PROPERTIES_TABLE</td>
-        </tr>
-        
-        </tbody>
-        </table>
-        <br>
-        <hr>
-        <i>Sourcery</i> - $HOSTED_STR
-        <br>
-        <br>
-        </body>
-        </html>
-        """
-        templatePage=templatePage.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
-
-        # Taken this out from above the caption line
-        #<tr><td align=center><b>$SIZE_ARC_MIN' x $SIZE_ARC_MIN'</b></td></tr>
 
         obj=self.sourceCollection.find_one({'sourceryID': sourceryID})
         mongoDict=self.matchTags(obj)
         name=obj['name']
-        
+
         # For avoiding display of e.g. catalogs in which we don't have a cross match
         skipColumnPrefixList=[]
         for key in obj.keys():
@@ -2691,7 +2237,7 @@ class SourceBrowser(object):
             matchKey="%s_match" % (prefix)
             if matchKey in obj.keys() and obj[matchKey] == 0 and prefix not in skipColumnPrefixList:
                 skipColumnPrefixList.append(prefix)
-        
+
         # For censoring some cross match tables from particular users
         for userNameKey in self.usersDict.keys():
             userDict=self.usersDict[userNameKey]
@@ -2700,570 +2246,183 @@ class SourceBrowser(object):
                     matchKey="%s_match" % (prefix)
                     if matchKey in obj.keys() and obj[matchKey] == 1 and prefix not in skipColumnPrefixList:
                         skipColumnPrefixList.append(prefix)
-                
+
         # Pick the best available image given the preference given in the config file
         if imageType == 'best':
             for key in self.configDict['imagePrefs']:
                 if 'image_%s' % (key) in obj.keys() and obj['image_%s' % (key)] == 1:
                     imageType=key
                     break
-            # Fall back option
             if imageType == 'best':
                 imageType='DECaLS'
-        
-        # Controls for image zoom, plotting NED, SDSS, etc.       
-        plotFormCode="""
-        <script>
-        function printValue(sliderID, textbox) {
-            var x = document.getElementById(textbox);
-            var y = document.getElementById(sliderID);
-            x.value = y.value;
+
+        # sourceryConfig JSON for JS
+        sourcery_config_dict={
+            'objectName': obj['name'],
+            'RADeg': obj['RADeg'],
+            'decDeg': obj['decDeg'],
+            'redshift': obj.get('redshift', -99),
+            'defaultClipSizeArcmin': self.configDict['defaultViewSizeArcmin'],
+            'plotDisplayWidthPix': self.configDict['plotDisplayWidthPix'],
+            'clickableRAField': self.configDict.get('clickableRAField', ''),
+            'clickableDecField': self.configDict.get('clickableDecField', ''),
         }
-        function updateSlider(value) {
-            slider = document.getElementById('sizeSlider');
-            slider.value = value;
-            printValue('sizeSlider','sizeSliderValue');
-        }
-        function parseImageTypeValue(imageType, index) {
-            var res = imageType.split(";")[index];
-            return res;
-        }
-        window.onload = function() { printValue('sizeSlider', 'sizeSliderValue'); printValue('gammaSlider', 'gammaSliderValue');}
-        </script>
+        sourcery_config_json=json.dumps(sourcery_config_dict)
 
-        <script type="text/javascript">
-        
-            $(document).ready(function() {
-                    $.post('makePlotFromJPEG', 
-                           {name: '$OBJECT_NAME',
-                            RADeg: $OBJECT_RADEG,
-                            decDeg: $OBJECT_DECDEG,
-                            surveyLabel: parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 0),
-                            plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
-                            plotSpecObjects: $('input:checkbox[name=plotSpecObjects]').prop('checked'),
-                            plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
-                            plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
-                            plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
-                            showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
-                            clipSizeArcmin: $DEFAULT_CLIP_SIZE_ARCMIN,
-                            gamma: $("#gamma").val(),
-                            plotRedshift: $('input:checkbox[name=plotRedshift]').prop('checked'),
-                            redshift: $OBJECT_REDSHIFT}, 
-                            function(data) {
-                                // directly insert the image
-                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
-                           });
-                    return false;
-            });
-            
-            $(document).ready(function() {
-                $(':checkbox').change(function(){
-                    $( "#imageForm" ).submit();
-                });
-                $('input:radio[name=imageType]').change(function(){
-                    $( "#imageForm" ).submit();
-                });
-            });
-            
-            $CLICKABLE_RADEC_SCRIPT
-            
-            $(function() {
-                // When the form is submitted...
-                $("#imageForm").submit(function() {   
-                    var maxSizeArcmin = parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 1);
-                    if (maxSizeArcmin > $DEFAULT_CLIP_SIZE_ARCMIN) {
-                        updateSlider(parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 1));
-                    }
-                    if (parseFloat($("#sizeSliderValue").val()) > maxSizeArcmin) {
-                        updateSlider(maxSizeArcmin);
-                    }
-                    $.post('makePlotFromJPEG', 
-                           {name: '$OBJECT_NAME',
-                            RADeg: $OBJECT_RADEG,
-                            decDeg: $OBJECT_DECDEG,
-                            surveyLabel: parseImageTypeValue($('input:radio[name=imageType]:checked').val(), 0),
-                            plotNEDObjects: $('input:checkbox[name=plotNEDObjects]').prop('checked'),
-                            plotSpecObjects: $('input:checkbox[name=plotSpecObjects]').prop('checked'),
-                            plotSourcePos: $('input:checkbox[name=plotSourcePos]').prop('checked'),
-                            plotXMatch: $('input:checkbox[name=plotXMatch]').prop('checked'),
-                            plotContours: $('input:checkbox[name=plotContours]').prop('checked'),
-                            showAxes: $('input:checkbox[name=showAxes]').prop('checked'),
-                            clipSizeArcmin: $("#sizeSliderValue").val(),
-                            gamma: $("#gammaSliderValue").val(),
-                            plotRedshift: $('input:checkbox[name=plotRedshift]').prop('checked'),
-                            redshift: $OBJECT_REDSHIFT}, 
-                            function(data) {
-                                // directly insert the image
-                                $("#imagePlot").html('<img src="data:image/jpg;base64,' + data + '" align="middle" border=0 width="$PLOT_DISPLAY_WIDTH_PIX"/>') ;
-                                //alert($('input:radio[name=imageType]:checked').val());
-                           });
-                    return false;
-                });                
-            });
+        # Image type radio buttons
+        image_types=[{'label': label, 'max_size_arcmin': maxSize, 'selected': label == imageType}
+                     for label, maxSize in zip(self.imDirLabelsList, self.imDirMaxSizeArcminList)]
 
-        </script>
+        # Checkbox states
+        checked_ned=plotNEDObjects == "true"
+        checked_spec=plotSpecObjects == "true"
+        checked_source_pos=plotSourcePos == "true"
+        checked_xmatch=plotXMatch == "true"
+        checked_contours=plotContours == "true"
+        checked_show_axes=showAxes == "true"
+        checked_redshift=plotRedshift == "true"
 
-        <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
-        <legend><b>Image Controls</b></legend>
-        
-        <form id="buildCache" method="get" action="buildCacheForObject"></form>   
-        $THUMB_FORM_DECLARED
-        $BUILD_CACHE_FORM_DECLARED
-        $THUMB_FORM_CONTROLS
-        </div>
-        
-        <form action="#" id="imageForm" method="post">        
-        <input name="name" value="$OBJECT_NAME" type="hidden">
-        <p><b>Survey:</b></p> 
-        <p>
-        $IMAGE_TYPES
-        </p>      
-        <p><b>Plot:</b></p>
-        <p>
-        <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="showAxes" value=1 $CHECKED_SHOWAXES>
-        <label for="showAxes">Show coordinate axes</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-        $CONTOUR_CODE
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="plotRedshift" value=1 $CHECKED_REDSHIFT>
-        <label for="plotRedshift">Display redshift</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="plotSourcePos" value=1 $CHECKED_SOURCEPOS>
-        <label for="plotSourcePos">Source position</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="plotNEDObjects" value=1 $CHECKED_NED>
-        <label for="plotNEDObjects">NED objects</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="plotSpecObjects" value=1 $CHECKED_SDSS>
-        <label for="plotSpecObjects">Spec-zs</label>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-        <input type="checkbox" name="plotXMatch" value=1 $CHECKED_XMATCH>
-        <label for="plotXMatch">Cross match objects</label>
-        </span>
-        </p>
+        has_contours='contourImage' in self.configDict and self.configDict['contourImage'] is not None
+        contour_image=self.configDict.get('contourImage', '')
 
-        <p align="right">
-        <span style="margin-left: 1.2em; display: inline-block">
-        <label for="clipSizeArcmin">Image Size (arcmin)</label>
-        <input id="sizeSlider" name="clipSizeArcmin" type="range" min="1.0" max="$MAX_SIZE_ARCMIN" step="0.5" value=$CURRENT_SIZE_ARCMIN onchange="printValue('sizeSlider','sizeSliderValue')">
-        <input id="sizeSliderValue" type="text" size="2"/>
-        </span>
-        <span style="margin-left: 1.2em; display: inline-block">
-        <label for="gamma">Brightness (&gamma;)</label>
-        <input id="gammaSlider" name="gamma" type="range" min="0.2" max="3.0" step="0.2" value=$CURRENT_GAMMA onchange="printValue('gammaSlider','gammaSliderValue')">
-        <input id="gammaSliderValue" type="text" size="2"/>
-        </span>
-        </p>
-        <p align="right">
-        <input type="submit" style="font-size: 1.05em;" value="Apply">
-        </p>
-        </form>
-                
-        </fieldset>
-     
-        """ 
-        
-        # For cache build and downloadable thumbnail buttons
-        plotFormCode=plotFormCode.replace("$SOURCERY_ID", obj['sourceryID'])
-        plotFormCode=plotFormCode.replace("$DEFAULT_CLIP_SIZE_ARCMIN", str(self.configDict['defaultViewSizeArcmin']))
-        plotFormCode=plotFormCode.replace("$SOURCERY_URL_ID", self.sourceNameToURL(obj['sourceryID']))        
-        if 'downloadableFITS' in self.configDict.keys():
-            plotFormCode=plotFormCode.replace('$THUMB_FORM_DECLARED', '<form id="downloadThumbnail" method="get" action="downloadThumbnailFITS">')
-            thumbForm="""<div style="display: inline-block;">
-            <input form="downloadThumbnail" type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
-            <input form="downloadThumbnail" type="submit" style="display: inline-block;" value="Download $IMGDIRLABEL FITS">
-            </form>"""
-            thumbForm=thumbForm.replace("$SOURCERY_ID", obj['sourceryID'])
-            thumbForm=thumbForm.replace("$IMGDIRLABEL", self.configDict['downloadableFITS'])
-            plotFormCode=plotFormCode.replace("$THUMB_FORM_CONTROLS", thumbForm)
-        else:
-            plotFormCode=plotFormCode.replace("$THUMB_FORM_DECLARED", "")
-            plotFormCode=plotFormCode.replace("$THUMB_FORM_CONTROLS", "")
+        has_download_fits='downloadableFITS' in self.configDict
+        download_fits_label=self.configDict.get('downloadableFITS', '')
 
-        # Disabled this for now, but kept here in case we want as an option
-        plotFormCode=plotFormCode.replace("$BUILD_CACHE_FORM_DECLARED", "")
-        buildCacheForm="""<div style="display: inline-block;">
-        <input form="buildCache" type="hidden" value="$SOURCERY_ID" name="sourceryID"/>
-        <input form="buildCache" type="hidden" value="true" name="refetch"/>
-        <input form="buildCache" type="hidden" value="displaySourcePage?sourceryID=$SOURCERY_URL_ID" name="from_page"/>
-        <input form="buildCache" type="submit" style="display: inline-block;" value="Update Cache [NB: Slow]">
-        """
-
-        # Clickable coordinate script
-        clickCoordScript="""$(document).ready(function() {
-                $("#imagePlot").on("click", function(event) {
-                
-                    var x = event.pageX - this.offsetLeft;
-                    var y = event.pageY - this.offsetTop;
-                    var width = $("#imagePlot").width();
-                    var height = $("#imagePlot").height();
-                    var CDELT1 = ($("#sizeSliderValue").val()/60.0) / width;
-                    var CDELT2 = ($("#sizeSliderValue").val()/60.0) / height;
-                    var CRPIX1 = (width/2.0)+1;
-                    var CRPIX2 = (height/2.0)+1;
-                    var CRVAL1 = $OBJECT_RADEG;
-                    var CRVAL2 = $OBJECT_DECDEG; 
-                    
-                    // debugging
-                    //alert("CDELT1=" + CDELT1 + " CDELT2=" + CDELT2 + " CRPIX1=" + CRPIX1 + " CRPIX2=" + CRPIX2 + " CRVAL1=" + CRVAL1 + " CRVAL2=" + CRVAL2);
-                    
-                    // Adjust for different origin to FITS
-                    x=width-x;
-                    y=height-y;
-                    
-                    // Intermediate coords
-                    var deg2Rad = Math.PI / 180;
-                    var xint = deg2Rad*(CDELT1*(x-CRPIX1));
-                    var yint = deg2Rad*(CDELT2*(y-CRPIX2));
-
-                    var Rtheta = Math.sqrt(Math.pow(xint, 2) + Math.pow(yint, 2));
-                    var phi = Math.atan2(xint, -yint);
-                    var theta = Math.atan(1./Rtheta);
-
-                    var alpha_p = deg2Rad*(CRVAL1);
-                    var delta_p = deg2Rad*(CRVAL2);
-                    var phi_p = deg2Rad*(180.);
-
-                    var ra = alpha_p + Math.atan2(-Math.cos(theta)*Math.sin(phi-phi_p), Math.sin(theta)*Math.cos(delta_p) - Math.cos(theta)*Math.sin(delta_p)*Math.cos(phi-phi_p));
-                    var dec = Math.asin(Math.sin(theta)*Math.sin(delta_p) + Math.cos(theta)*Math.cos(delta_p)*Math.cos(phi-phi_p));
-                    
-                    ra=(180/Math.PI)*ra;
-                    dec=(180/Math.PI)*dec;
-                    
-                    // debugging
-                    //alert("X Coordinate / RA: " + x + " / " + ra + " Y Coordinate / dec: " + y + " / " + dec);
-                    
-                    if ($('input:checkbox[name=showAxes]').prop('checked') == true)  {
-                        alert("Coords not recorded when showing coordinate axes - deselect 'Show coordinate axes'");
-                    } else {
-                        $('[name=$CLICKABLE_RA]').val(ra);
-                        $('[name=$CLICKABLE_DEC]').val(dec);
-                    };
-                    
-                });
-            });
-        """
-        if 'clickableRAField' in self.configDict.keys() and 'clickableDecField' in self.configDict.keys():
-            clickCoordScript=clickCoordScript.replace("$CLICKABLE_RA", self.configDict['clickableRAField'])
-            clickCoordScript=clickCoordScript.replace("$CLICKABLE_DEC", self.configDict['clickableDecField'])
-        else:
-            clickCoordScript=""
-        plotFormCode=plotFormCode.replace("$CLICKABLE_RADEC_SCRIPT", clickCoordScript)
-            
-        # Taken out: onChange="this.form.submit();" from all checkboxes ^^^
-        plotFormCode=plotFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
-        plotFormCode=plotFormCode.replace("$OBJECT_NAME", obj['name'])
-        plotFormCode=plotFormCode.replace("$OBJECT_RADEG", str(obj['RADeg']))
-        plotFormCode=plotFormCode.replace("$OBJECT_DECDEG", str(obj['decDeg']))
-        if 'redshift' in obj.keys():
-            plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", str(obj['redshift']))
-        else:
-            plotFormCode=plotFormCode.replace("$OBJECT_REDSHIFT", '-99')
-        plotFormCode=plotFormCode.replace("$OBJECT_SURVEY", imageType) 
-        if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-            contourCode='<input type="checkbox" name="plotContours" value=1 $CHECKED_CONTOURS>\n'
-            contourCode=contourCode+'<label for="plotContours">Contours ($CONTOUR_IMAGE)</label>'
-            contourCode=contourCode.replace("$CONTOUR_IMAGE", self.configDict['contourImage'])
-            plotFormCode=plotFormCode.replace("$CONTOUR_CODE", contourCode)
-        else:
-            plotFormCode=plotFormCode.replace("$CONTOUR_CODE", "")
-        
-        # NOTE: a bit of hack here: we're incorporated max size arcmin into imageType value
-        # We use javascript ^^^ above to split that around ; delimiter
-        imageTypesCode=""            
-        for label, maxSizeArcmin in zip(self.imDirLabelsList, self.imDirMaxSizeArcminList):
-            if label == imageType:
-                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s;%.1f" checked>%s</span>\n' % (label, maxSizeArcmin, label)
-            else:
-                imageTypesCode=imageTypesCode+'<span style="margin-left: 1.2em; display: inline-block"><input type="radio" name="imageType" value="%s;%.1f">%s</span>\n' % (label, maxSizeArcmin, label)
-        plotFormCode=plotFormCode.replace("$IMAGE_TYPES", imageTypesCode)
-        
-        if plotNEDObjects == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_NED", " checked")
-        else:
-            plotFormCode=plotFormCode.replace("$CHECKED_NED", "")
-        if plotSpecObjects == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_SPEC", " checked")
-        else:
-            plotFormCode=plotFormCode.replace("$CHECKED_SPEC", "")
-        if plotSourcePos == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", " checked")
-        else:
-            plotFormCode=plotFormCode.replace("$CHECKED_SOURCEPOS", "")
-        if plotXMatch == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_XMATCH", " checked")
-        else:
-            plotFormCode=plotFormCode.replace("$CHECKED_XMATCH", "")
-        if plotContours == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_CONTOURS", " checked")
-        else:
-            plotFormCode=plotFormCode.replace("$CHECKED_CONTOURS", "")
-        if showAxes == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", " checked")
-        else:
-            plotFormCode=plotFormCode.replace("$CHECKED_SHOWAXES", "")
-        if plotRedshift == "true":
-            plotFormCode=plotFormCode.replace("$CHECKED_REDSHIFT", " checked")
-        else:
-            plotFormCode=plotFormCode.replace("$CHECKED_REDSHIFT", "")
-        
-        # This block here probably is hardly useful
         imageMaxSizeArcmin=30.
-        #for imType, maxSizeArcmin in zip(self.imDirLabelsList, self.imDirMaxSizeArcminList):
-            #if imType == imageType:
-                #imageMaxSizeArcmin=mdaxSizeArcmin
-                #break
-        
-        plotFormCode=plotFormCode.replace("$MAX_SIZE_ARCMIN", str(imageMaxSizeArcmin))        
-        if clipSizeArcmin == None:
-            plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(self.configDict['defaultViewSizeArcmin']))
-        else:
-            plotFormCode=plotFormCode.replace("$CURRENT_SIZE_ARCMIN", str(clipSizeArcmin))
-        
-        plotFormCode=plotFormCode.replace("$CURRENT_GAMMA", str(gamma))
-                
-        # Tagging controls (including editable properties of catalog, e.g., for assigning classification or redshifts)
-        tagFormCode="""
-        <form method="post" action="updateMongoDB">    
-        <input name="sourceryID" value="$SOURCERY_ID" type="hidden">
-        <input name="returnURL" value=$RETURN_URL" type="hidden">
-        <fieldset style="height: $PLOT_DISPLAY_HEIGHT_PIX;">
-        <legend><b>Editing Controls</b></legend>
-        $CLASSIFICATION_CONTROLS
-        $FIELD_CONTROLS
-        <p align="right">
-        <input type="submit" class="f" style="font-size: 1.05em;" value="Update" $DISABLED_STR>
-        </p>
-        </fieldset>
-        </form>
-        """
-        if 'fields' in self.configDict.keys():
-            if cherrypy.session['editPermission'] == False:
-                readOnlyStr="readonly"
-                tagFormCode=tagFormCode.replace("$DISABLED_STR", "disabled")
-            else:
-                readOnlyStr=""
-                tagFormCode=tagFormCode.replace("$DISABLED_STR", "")
-            tagFormCode=tagFormCode.replace("$PLOT_DISPLAY_WIDTH_PIX", str(self.configDict['plotDisplayWidthPix']))
-            tagFormCode=tagFormCode.replace("$SOURCERY_ID", sourceryID)
-            tagFormCode=tagFormCode.replace("$RETURN_URL", cherrypy.url())
-            if 'fields' in self.configDict.keys():
-                #fieldsCode="<p><b>Fields:</b>"
-                fieldsCode='<p align="left">'
-                for fieldDict in self.configDict['fields']:
-                    fieldsCode=fieldsCode+'<span style="display: inline-block; margin-bottom: 6pt; margin-right: 8pt">'
-                    fieldsCode=fieldsCode+'<label for="%s"><b>%s: </b></label>\n' % (fieldDict['name'], fieldDict['name'])
-                    fieldsCode=fieldsCode+'<input type="text" value="%s" name="%s" size=%d %s/>\n' % (str(mongoDict[fieldDict['name']]), 
-                                                                                                   fieldDict['name'], 
-                                                                                                   fieldDict['displaySize'],
-                                                                                                   readOnlyStr)
-                    fieldsCode=fieldsCode+"</span>"
-                fieldsCode=fieldsCode+"</p>"
-                if 'lastUpdated' in mongoDict.keys():
-                    lastUpdated=mongoDict['lastUpdated']
-                else:
-                    lastUpdated='-'
-                if 'user' in mongoDict.keys():
-                    userName=mongoDict['user']
-                else:
-                    userName='-'
-                fieldsCode=fieldsCode+'<p><label for = "lastUpdated"><b>Last Updated:</b></label>\n'
-                fieldsCode=fieldsCode+'<input type="text" value="%s" name="lastUpdated" size=10 readonly/>\n' % (lastUpdated)
-                fieldsCode=fieldsCode+'<label for = "user"><b>By User:</b></label>\n'
-                fieldsCode=fieldsCode+'<input type="text" value="%s" name="userName" size=10 readonly/></p>\n' % (userName)
-                fieldsCode=fieldsCode+"</p>"
-            tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', fieldsCode)
-        else:
-            tagFormCode=tagFormCode.replace('$FIELD_CONTROLS', "")
-        
-        if 'classifications' in self.configDict.keys():
-            classificationsCode="<p><b>Classification:</b></p>\n<p>"
-            if cherrypy.session['editPermission'] == False:
-                readOnlyStr="disabled"
-            else:
-                readOnlyStr=""
-            for c in self.configDict['classifications']:
-                if c == mongoDict['classification']:
-                    classificationsCode=classificationsCode+'<span style="margin-left: 1.2em; display: inline-block;"><input type="radio" name="classification" value="%s" checked %s>%s</span>\n' % (c, readOnlyStr, c)
-                else:
-                    classificationsCode=classificationsCode+'<span style="margin-left: 1.2em; display: inline-block;"><input type="radio" onChange="this.form.submit();" name="classification" value="%s" %s>%s</span>\n' % (c, readOnlyStr, c)
-            classificationsCode=classificationsCode+"</p>"
-            tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", classificationsCode)
-        else:
-            tagFormCode=tagFormCode.replace("$CLASSIFICATION_CONTROLS", "")
-        
-        # Optional spectrum plot
-        if 'displaySpectra' in self.configDict.keys() and self.configDict['displaySpectra'] == True:
-            spectrumCode="""<br><table frame=border cellspacing=0 cols=1 rules=all border=2 width=85% align=center>
-            <tbody>
-            <tr>
-                <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
-                    <b>Spectrum</b>
-                </th>
-            </tr>
-            <tr>
-            <td align=center><img src="makeSpectrumPlot?name=$NAME&RADeg=$RA&decDeg=$DEC" align="middle" border=2 width=$SPEC_DISPLAY_WIDTH_PIX/></td>
-            </tr>
-            </tbody>
-            </table>
-            """
-            spectrumCode=spectrumCode.replace("$NAME", self.sourceNameToURL(name))
-            spectrumCode=spectrumCode.replace("$RA", str(obj['RADeg']))
-            spectrumCode=spectrumCode.replace("$DEC", str(obj['decDeg']))
-            spectrumCode=spectrumCode.replace("$SPEC_DISPLAY_WIDTH_PIX", str(self.configDict['specPlotDisplayWidthPix']))
-        else:
-            spectrumCode=""
-            
-        # Put it all together...
-        html=templatePage
-        html=html.replace("$SPECTRUM_PLOT", spectrumCode)
-        html=html.replace("$PLOT_CONTROLS", plotFormCode)
-        if 'fields' in self.configDict.keys() or 'classifications' in self.configDict.keys():
-            html=html.replace("$TAG_CONTROLS", tagFormCode)
-        else:
-            html=html.replace("$TAG_CONTROLS", "")
-        html=html.replace("$PLOT_DISPLAY_HEIGHT_PIX", str(self.configDict['plotDisplayWidthPix']*1.02))
-        html=html.replace("$SOURCE_NAME", name)
-        html=html.replace("$SIZE_ARC_MIN", "%.1f" % (self.configDict['plotSizeArcmin']))
-        html=html.replace("$HOSTED_STR", self.configDict['hostedBy'])
+        current_size_arcmin=clipSizeArcmin if clipSizeArcmin is not None else self.configDict['defaultViewSizeArcmin']
+        plot_display_height_pix=self.configDict['plotDisplayWidthPix'] * 1.02
 
+        # Editing controls
+        has_edit_controls='fields' in self.configDict or 'classifications' in self.configDict
+        edit_permission=cherrypy.session.get('editPermission', False)
 
+        classifications=[]
+        if 'classifications' in self.configDict:
+            for i, c in enumerate(self.configDict['classifications']):
+                classifications.append({
+                    'value': c,
+                    'checked': c == mongoDict.get('classification', ''),
+                    'first': i == 0,
+                })
 
-        #for label, caption in zip(self.imDirLabelsList, self.imageCaptions):
-            #if label == imageType:
-                #html=html.replace("$CAPTION", "%s" % (caption))
-                            
-        # NED matches table
+        editable_fields=[]
+        last_updated='-'
+        editor_user='-'
+        if 'fields' in self.configDict:
+            for fieldDict in self.configDict['fields']:
+                editable_fields.append({
+                    'name': fieldDict['name'],
+                    'value': str(mongoDict.get(fieldDict['name'], '')),
+                    'display_size': fieldDict['displaySize'],
+                })
+            last_updated=mongoDict.get('lastUpdated', '-')
+            editor_user=mongoDict.get('user', '-')
+
+        # Optional spectrum
+        if 'displaySpectra' in self.configDict and self.configDict['displaySpectra'] == True:
+            spectrum_url="makeSpectrumPlot?name=%s&RADeg=%s&decDeg=%s" % (
+                self.sourceNameToURL(name), obj['RADeg'], obj['decDeg'])
+            spec_display_width_pix=self.configDict['specPlotDisplayWidthPix']
+        else:
+            spectrum_url=''
+            spec_display_width_pix=0
+
+        # NED matches
         self.fetchNEDInfo(obj['name'], obj['RADeg'], obj['decDeg'])
-        self.findNEDMatch(obj, NEDObjTypes = self.configDict['NEDObjTypes'])
+        self.findNEDMatch(obj, NEDObjTypes=self.configDict['NEDObjTypes'])
         nedFileName=self.nedDir+os.path.sep+obj['name'].replace(" ", "_")+".txt"
-        nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjTypes'])
-        if len(nedObjs['RAs']) > 0:
-            nedTable="""<br><table frame=border cellspacing=0 cols=6 rules=all border=2 width=85% align=center>
-            <tbody>
-            <tr>
-                <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
-                    <b>NED Matches</b>
-                </th>
-            </tr>
-            <tr>
-                <td><b>ID</b></td>
-                <td><b>Name</b></td>
-                <td><b>RA</b></td>
-                <td><b>Dec.</b></td>
-                <td><b>Object Type</b></td>
-                <td><b>Redshift</b></td>
-            </tr>
-            """                
-            for i in range(len(nedObjs['RAs'])):
-                rowString="""<tr>
-                    <td align=center width=10%>$ID</td>
-                    <td align=center width=10%>$NAME</td>
-                    <td align=center width=10%>$RA</td>
-                    <td align=center width=10%>$DEC</td>
-                    <td align=center width=10%>$TYPE</td>
-                    <td align=center width=10%>$REDSHIFT</td>
-                </tr>
-                """
-                nedLinkURL="http://ned.ipac.caltech.edu/cgi-bin/objsearch?objname=%s&extend=no&hconst=73&omegam=0.27&omegav=0.73&corr_z=1&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=pre_text&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (nedObjs['names'][i].replace("+", "%2B").replace(" ", "+"))
-                rowString=rowString.replace("$ID", "%s" % (nedObjs['labels'][i]))
-                rowString=rowString.replace("$NAME", "<a href =%s>%s</a>" % (nedLinkURL, nedObjs['names'][i]))
-                rowString=rowString.replace("$RA", "%.5f" % (nedObjs['RAs'][i]))
-                rowString=rowString.replace("$DEC", "%.5f" % (nedObjs['decs'][i]))
-                rowString=rowString.replace("$TYPE", "%s" % (nedObjs['sourceTypes'][i]))
-                rowString=rowString.replace("$REDSHIFT", "%s" % (nedObjs['redshifts'][i]))
-                nedTable=nedTable+rowString
-            nedTable=nedTable+"</tbody></table>"
-        else:
-            nedTable=""
-        html=html.replace("$NED_MATCHES_TABLE", nedTable)
-        
-        # SDSS matches table
-        if 'addSpecRedshifts' in self.configDict.keys() and self.configDict['addSpecRedshifts'] == True:
-            specRedshifts=catalogTools.fetchSpecRedshifts(obj['name'], obj['RADeg'], obj['decDeg'], 
-                                                          redshiftsTable = self.specRedshiftsTab)
-            specTable="""<br><table frame=border cellspacing=0 cols=7 rules=all border=2 width=85% align=center>
-            <tbody>
-            <tr>
-                <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                    text-align: center; vertical-align: middle; font-size: 110%;" colspan=6>
-                    <b>Spectroscopic Redshifts</b>
-                </th>
-            </tr>
-            <tr>
-                <td><b>ID</b></td>
-                <td><b>RA</b></td>
-                <td><b>Dec.</b></td>
-                <td><b>z</b></td>
-                <td><b>catalog</b></td> 
-            </tr>
-            """              
-            specCount=0
-            for specObj in specRedshifts:
-                specCount=specCount+1
-                rowString="""<tr>
-                    <td align=center width=10%>$ID</td>
-                    <td align=center width=10%>$RA</td>
-                    <td align=center width=10%>$DEC</td>
-                    <td align=center width=10%>$REDSHIFT</td>
-                    <td align=center width=10%>$Z_CATALOG</td>
-                </tr>
-                """
-                rowString=rowString.replace("$ID", "%d" % (specCount))
-                rowString=rowString.replace("$RA", "%.5f" % (specObj['RADeg']))
-                rowString=rowString.replace("$DEC", "%.5f" % (specObj['decDeg']))
-                rowString=rowString.replace("$REDSHIFT", "%.3f" % (specObj['z']))
-                rowString=rowString.replace("$Z_CATALOG", "%s" % (specObj['catalog']))
-                specTable=specTable+rowString
-            specTable=specTable+"</tbody></table>"
-        else:
-            specTable=""
-        html=html.replace("$SPEC_MATCHES_TABLE", specTable)
+        nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes=self.configDict['NEDObjTypes'])
+        ned_rows=[]
+        for i in range(len(nedObjs['RAs'])):
+            nedLinkURL=("http://ned.ipac.caltech.edu/cgi-bin/objsearch?objname=%s"
+                        "&extend=no&hconst=73&omegam=0.27&omegav=0.73&corr_z=1"
+                        "&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude"
+                        "&of=pre_text&zv_breaker=30000.0&list_limit=5&img_stamp=YES"
+                        % (nedObjs['names'][i].replace("+", "%2B").replace(" ", "+")))
+            ned_rows.append({
+                'label': nedObjs['labels'][i],
+                'name': nedObjs['names'][i],
+                'ned_url': nedLinkURL,
+                'RA': nedObjs['RAs'][i],
+                'dec': nedObjs['decs'][i],
+                'source_type': nedObjs['sourceTypes'][i],
+                'redshift': nedObjs['redshifts'][i],
+            })
 
-        # Source properties table
-        propTable="""<br><table frame=border cellspacing=0 cols=2 rules=all border=2 width=85% align=center>
-        <tbody>
-        <tr>
-            <th style="background-color: rgb(0, 0, 0); font-family: sans-serif; color: rgb(255, 255, 255); 
-                text-align: center; vertical-align: middle; font-size: 110%;" colspan=2>
-                <b>Source Properties</b>
-            </th>
-        </tr>
-        """
+        # Spectroscopic redshifts
+        spec_rows=[]
+        if 'addSpecRedshifts' in self.configDict and self.configDict['addSpecRedshifts'] == True:
+            specRedshifts=catalogTools.fetchSpecRedshifts(obj['name'], obj['RADeg'], obj['decDeg'],
+                                                          redshiftsTable=self.specRedshiftsTab)
+            for i, specObj in enumerate(specRedshifts, 1):
+                spec_rows.append({
+                    'id': i,
+                    'RA': specObj['RADeg'],
+                    'dec': specObj['decDeg'],
+                    'redshift': specObj['z'],
+                    'catalog': specObj['catalog'],
+                })
+
+        # Source properties
+        properties=[]
         fieldTypes=self.fieldTypesCollection.find().sort('index')
         for f in fieldTypes:
             if f['name'] in obj.keys() and f['name'] not in ['sourceryID', 'cacheBuilt']:
                 pkey=f['name']
-                rowString="""<tr><td align=left width=50%><b>$KEY_LABEL</b></td>
-                <td align=center width=50%>$KEY_VALUE</td></tr>
-                """
-                rowString=rowString.replace("$KEY_LABEL", pkey)
-                if obj[pkey] == "None" or obj[pkey] == None:
-                    rowString=rowString.replace("$KEY_VALUE", "-")
-                else:
-                    if pkey == "NED_name":
-                        nedName=obj[pkey]
-                        nedLinkURL="http://ned.ipac.caltech.edu/cgi-bin/objsearch?objname=%s&extend=no&hconst=73&omegam=0.27&omegav=0.73&corr_z=1&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude&of=pre_text&zv_breaker=30000.0&list_limit=5&img_stamp=YES" % (nedName.replace("+", "%2B").replace(" ", "+"))
-                        rowString=rowString.replace("$KEY_VALUE", "<a href=%s>%s</a>" % (nedLinkURL, nedName))
-                    else:
-                        rowString=rowString.replace("$KEY_VALUE", str(obj[pkey]))
-                # Skip over cross-matched tables with no matches
                 prefix=pkey.split("_")[0]
-                if prefix not in skipColumnPrefixList:
-                    propTable=propTable+rowString
-        propTable=propTable+"</td></tr></tbody></table>"
-        html=html.replace("$PROPERTIES_TABLE", propTable)
-                
-        return html   
+                if prefix in skipColumnPrefixList:
+                    continue
+                if obj[pkey] is None or obj[pkey] == "None":
+                    value_html="-"
+                elif pkey == "NED_name":
+                    nedName=obj[pkey]
+                    nedLinkURL=("http://ned.ipac.caltech.edu/cgi-bin/objsearch?objname=%s"
+                                "&extend=no&hconst=73&omegam=0.27&omegav=0.73&corr_z=1"
+                                "&out_csys=Equatorial&out_equinox=J2000.0&obj_sort=RA+or+Longitude"
+                                "&of=pre_text&zv_breaker=30000.0&list_limit=5&img_stamp=YES"
+                                % (nedName.replace("+", "%2B").replace(" ", "+")))
+                    value_html="<a href=%s>%s</a>" % (nedLinkURL, nedName)
+                else:
+                    value_html=str(obj[pkey])
+                properties.append({'label': pkey, 'value_html': value_html})
+
+        return self.jinja_env.get_template('source.html').render(
+            script_name=cherrypy.request.script_name,
+            source_name=name,
+            hosted_by=self.configDict.get('hostedBy', ''),
+            sourcery_config_json=sourcery_config_json,
+            plot_display_height_pix=plot_display_height_pix,
+            image_types=image_types,
+            has_download_fits=has_download_fits,
+            download_fits_label=download_fits_label,
+            sourcery_id=sourceryID,
+            object_name=obj['name'],
+            return_url=cherrypy.url(),
+            checked_show_axes=checked_show_axes,
+            checked_ned=checked_ned,
+            checked_spec=checked_spec,
+            checked_source_pos=checked_source_pos,
+            checked_xmatch=checked_xmatch,
+            checked_contours=checked_contours,
+            checked_redshift=checked_redshift,
+            has_contours=has_contours,
+            contour_image=contour_image,
+            max_size_arcmin=imageMaxSizeArcmin,
+            current_size_arcmin=current_size_arcmin,
+            current_gamma=gamma,
+            has_edit_controls=has_edit_controls,
+            edit_permission=edit_permission,
+            classifications=classifications,
+            editable_fields=editable_fields,
+            last_updated=last_updated,
+            editor_user=editor_user,
+            spectrum_url=spectrum_url,
+            spec_display_width_pix=spec_display_width_pix,
+            ned_rows=ned_rows,
+            spec_rows=spec_rows,
+            properties=properties,
+            logo_data_url=self.logo_data_url,
+        )
     
     
     def addImageDirTags(self):

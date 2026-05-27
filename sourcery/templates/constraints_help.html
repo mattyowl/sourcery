@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ script_name }}/static/css/act.css">
+    <title>Constraints Help</title>
+</head>
+<body>
+
+<header class="site-header">
+    <div class="hdr-inner">
+        <div class="hdr-left">
+            {% if logo_data_url %}<img src="{{ logo_data_url }}" alt="Logo" class="hdr-logo">{% endif %}
+            <div class="hdr-title">Constraints Help</div>
+        </div>
+    </div>
+</header>
+
+<div class="page-body" style="max-width:960px;">
+
+    <fieldset class="panel">
+        <legend><b>How to write constraints</b></legend>
+        <div class="panel-body" style="font-size:.875rem;line-height:1.7;">
+            <p>Constraints can be placed on any column listed below. Supported comparison operators:
+            <code>&lt;</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;=</code>
+            <code>=</code> <code>!=</code>.
+            Logical operators: <code>and</code>, <code>or</code>.</p>
+
+            <p>Separate each constraint with <code>and</code> or <code>or</code>, e.g.:</p>
+            <p><code>redshift &gt;= 0 and redshift &lt; 0.4</code></p>
+            <p><code>RM_match = 1 or PSZ2_match = 1</code></p>
+
+            <p><strong>Note:</strong> when querying for multiple values in the same column using
+            <code>=</code> or <code>!=</code>, <code>and</code> acts as a delimiter rather than
+            in a strictly logical sense. For example:</p>
+            <p><code>classification = 'cluster' and classification = 'not cluster'</code></p>
+            <p>returns rows where classification is either &lsquo;cluster&rsquo; or &lsquo;not cluster&rsquo; —
+            equivalent to using <code>or</code> here.</p>
+
+            <p>The wildcard <code>*</code> is supported in text searches, e.g.:</p>
+            <p><code>classification = '* cluster'</code></p>
+            <p>matches &lsquo;probable cluster&rsquo;, &lsquo;possible cluster&rsquo;, and
+            &lsquo;not cluster&rsquo; but not &lsquo;cluster&rsquo;.</p>
+            <p><code>notes = '*high-z*'</code></p>
+            <p>matches any row where &lsquo;high-z&rsquo; appears in the notes field.
+            <strong>Wildcard text searches are case-insensitive.</strong></p>
+        </div>
+    </fieldset>
+
+    <div class="data-table-wrap">
+    <table class="data-table" style="font-family:inherit;">
+        <thead>
+            <tr>
+                <th style="text-align:left;">Column</th>
+                <th style="text-align:left;">Type</th>
+                <th style="text-align:left;">Description</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for key, type_name, description in fields %}
+        <tr>
+            <td><code>{{ key }}</code></td>
+            <td style="white-space:nowrap;">{{ type_name }}</td>
+            <td>{{ description }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+</div>{# end .page-body #}
+
+<footer class="site-footer">
+    <i>Sourcery</i> &mdash; {{ hosted_by }}
+</footer>
+
+</body>
+</html>
