@@ -39,7 +39,7 @@ objectTypeString: "clusters"
 # Optional: Quick links to common queries
 quickLinks:
     - {label: "Clusters with SDSS imaging", constraints: "image_SDSS = 1"}
-    - {label: "Clusters with DES imaging", constraints: "image_DES = 1"}
+    - {label: "Clusters with DECaLS imaging", constraints: "image_DECaLS = 1"}
     - {label: "High-redshift clusters with spectroscopic redshifts", constraints: "z > 1 and zType = 'spec'"}
 
 # This is just the base file name for catalogs we serve for download (E-D56.fits, E-D56.cat etc.)

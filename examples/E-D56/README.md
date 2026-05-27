@@ -66,8 +66,7 @@ including the images we specified, as in Fig. 2 below:
 
 ![alt text](figs/sourcepage.jpg "Fig. 2: A source information page for the E-D56 example.")
 
-Note that the images pulled from the SDSS DR13 webserver are pretty dark
-by default, and you will probably need to crank up the brightness using the 
+Note that you can adjust the brightness of the image by using the
 slider, as shown.
 
 When you are finished, you can terminate `sourcery_test` using `Ctrl-c`.
