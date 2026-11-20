@@ -7,10 +7,10 @@ Custom error pages etc. - need to be set in config - see e.g. sourcery_test
 import os
 import cherrypy
 import sourcery
-from pkg_resources import resource_filename
+from importlib.resources import files
 
-templatesDir=resource_filename('sourcery','templates')
-staticDir=resource_filename('sourcery','templates')
+templatesDir=str(files('sourcery') / 'templates')
+staticDir=str(files('sourcery') / 'static')
 
 def error_page(status, message, traceback, version):
     # We clear all query stuff if something goes wrong - user can then just refresh page

@@ -74,11 +74,12 @@ from sourcery import tileDir
 from passlib.hash import pbkdf2_sha256
 import logging
 from jinja2 import Environment, FileSystemLoader
+from importlib.resources import files
 
 # Logging
 logger=logging.getLogger('sourcery')
 
-_TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), 'templates')
+_TEMPLATES_DIR=str(files('sourcery') / 'templates')
 
 #-------------------------------------------------------------------------------------------------------------
 def makeDegreesDistanceMap(degreesMap, wcs, RADeg, decDeg, maxDistDegrees):

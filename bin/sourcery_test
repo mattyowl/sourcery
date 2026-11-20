@@ -34,7 +34,7 @@ import cherrypy
 from sourcery.sourceBrowser import SourceBrowser
 from sourcery.sourceryAuth import check_auth
 from sourcery import errorpages
-from pkg_resources import resource_filename
+from importlib.resources import files
 import atexit
 import base64
 import re
@@ -52,8 +52,8 @@ cherrypy.config.update({'environment': 'embedded', 'request.show_tracebacks': Tr
 conf = {
         '/': {
             'tools.sessions.on': True,
-            'tools.staticdir.root': resource_filename('sourcery','static'),
-             # 'error_page.500': resource_filename('sourcery','templates')+os.path.sep+"error.html"
+            'tools.staticdir.root': str(files('sourcery') / 'static'),
+             # 'error_page.500': str(files('sourcery') / 'templates/error.html')
              'error_page.500': errorpages.error_page
         },
         '/static': {
