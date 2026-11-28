@@ -35,7 +35,6 @@ import sourcery
 from sourcery import catalogTools
 import urllib3
 import time
-import IPython
 
 class TileDir:
     """The TileDir class handles directories that contain entire surveys (e.g., DES, KiDS, 

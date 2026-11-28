@@ -8,7 +8,6 @@ import re
 import cherrypy 
 import urllib
 from passlib.hash import pbkdf2_sha256
-import IPython
 
 #-------------------------------------------------------------------------------------------------------------
 SESSION_KEY = '_sourcery_username'

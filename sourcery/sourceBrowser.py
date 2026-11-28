@@ -63,12 +63,9 @@ from tempfile import TemporaryDirectory
 import tempfile
 import pymongo
 from bson.son import SON
-import pyximport; pyximport.install()
-#import sourceryCython
 import cherrypy
 import pickle
 #import pyvips
-import IPython
 from sourcery import sourceryAuth
 from sourcery import tileDir
 from passlib.hash import pbkdf2_sha256

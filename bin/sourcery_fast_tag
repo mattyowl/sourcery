@@ -23,7 +23,7 @@
 
 import os
 import sys
-import atpy
+import astropy.table as atpy
 from sourcery.sourceBrowser import SourceBrowser
 
 if len(sys.argv) < 3:
@@ -32,7 +32,7 @@ else:
     
     configFileName=sys.argv[1]
     sb=SourceBrowser(configFileName, buildDatabase = True)
-    tab=atpy.Table(sys.argv[2].replace("\n", ""))
+    tab=atpy.Table.read(sys.argv[2].replace("\n", ""))
     
     keys=['classification']+sb.configDict['fields']
     for row in tab:

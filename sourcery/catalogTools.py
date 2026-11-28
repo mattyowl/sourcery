@@ -29,7 +29,6 @@ import sys
 import time
 import astropy.table as atpy
 import datetime
-import IPython
 
 #-------------------------------------------------------------------------------------------------------------
 XMATCH_RADIUS_DEG=1.4/60.0  # catalog matching radius, for sim comparisons
