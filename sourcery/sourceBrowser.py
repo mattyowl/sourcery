@@ -1144,124 +1144,126 @@ class SourceBrowser(object):
             axesLabels="sexagesimal"    # Avoid dealing with axis flips
             figSize=(max(self.configDict['figSize']), max(self.configDict['figSize']))
         fig=plt.figure(figsize = figSize)
+        try:
         
-        p=astPlots.ImagePlot([R, G, B], wcs, cutLevels = cutLevels, title = name.replace("_", " "), axes = axes, 
-                            axesLabels = axesLabels)
+            p=astPlots.ImagePlot([R, G, B], wcs, cutLevels = cutLevels, title = name.replace("_", " "), axes = axes, 
+                                axesLabels = axesLabels)
         
-        if showAxes != "true":
-            scaleBarSizeArcmin=1.0
-            p.addScaleBar('NW', scaleBarSizeArcmin*60.0, color='yellow', fontSize=20, width=2.0, label = "1'")
-            plt.figtext(0.025, 0.95, name.replace("_", " "), ha = 'left', size = 24, color = 'yellow')
-            #if plotTitle != None:
-            #plt.figtext(0.965, 0.88, plotTitle, ha = 'right', size = 24)
+            if showAxes != "true":
+                scaleBarSizeArcmin=1.0
+                p.addScaleBar('NW', scaleBarSizeArcmin*60.0, color='yellow', fontSize=20, width=2.0, label = "1'")
+                plt.figtext(0.025, 0.95, name.replace("_", " "), ha = 'left', size = 24, color = 'yellow')
+                #if plotTitle != None:
+                #plt.figtext(0.965, 0.88, plotTitle, ha = 'right', size = 24)
         
-        if plotSourcePos == "true":
-            p.addPlotObjects([RADeg], [decDeg], 'clusterPos', symbol='cross', size=sizeDeg/20.0*3600.0, color='white')
+            if plotSourcePos == "true":
+                p.addPlotObjects([RADeg], [decDeg], 'clusterPos', symbol='cross', size=sizeDeg/20.0*3600.0, color='white')
                 
-        if plotNEDObjects == "true":
-            # We should already have the files for this from doing addNEDInfo earlier
-            nedFileName=self.nedDir+os.path.sep+name.replace(" ", "_")+".txt"
-            nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjTypes'])
-            if len(nedObjs['RAs']) > 0:
-                p.addPlotObjects(nedObjs['RAs'], nedObjs['decs'], 'nedObjects', objLabels = nedObjs['labels'],
-                                    size = sizeDeg/40.0*3600.0, color = "#7cfc00")
+            if plotNEDObjects == "true":
+                # We should already have the files for this from doing addNEDInfo earlier
+                nedFileName=self.nedDir+os.path.sep+name.replace(" ", "_")+".txt"
+                nedObjs=catalogTools.parseNEDResult(nedFileName, onlyObjTypes = self.configDict['NEDObjTypes'])
+                if len(nedObjs['RAs']) > 0:
+                    p.addPlotObjects(nedObjs['RAs'], nedObjs['decs'], 'nedObjects', objLabels = nedObjs['labels'],
+                                        size = sizeDeg/40.0*3600.0, color = "#7cfc00")
         
-        if plotRedshift == "true" and redshift != "none":
-            plt.figtext(0.025, 0.03, "z = %.2f" % (float(redshift)), ha = 'left', size = 24, color = 'white')
+            if plotRedshift == "true" and redshift != "none":
+                plt.figtext(0.025, 0.03, "z = %.2f" % (float(redshift)), ha = 'left', size = 24, color = 'white')
     
-        if plotSpecObjects == "true":
-            specRedshifts=catalogTools.fetchSpecRedshifts(name, RADeg, decDeg, 
-                                                          redshiftsTable = self.specRedshiftsTab)
-            if specRedshifts is not None:
-                specRAs=[]
-                specDecs=[]
-                specLabels=[]
-                specCount=0
-                for specObj in specRedshifts:
-                    specCount=specCount+1
-                    specRAs.append(specObj['RADeg'])
-                    specDecs.append(specObj['decDeg'])
-                    specLabels.append(str(specCount))
-                if len(specRAs) > 0:
-                    p.addPlotObjects(specRAs, specDecs, 'specObjects', objLabels = specLabels,
-                                    size = sizeDeg/40.0*3600.0, symbol = 'box', color = "red")
+            if plotSpecObjects == "true":
+                specRedshifts=catalogTools.fetchSpecRedshifts(name, RADeg, decDeg, 
+                                                              redshiftsTable = self.specRedshiftsTab)
+                if specRedshifts is not None:
+                    specRAs=[]
+                    specDecs=[]
+                    specLabels=[]
+                    specCount=0
+                    for specObj in specRedshifts:
+                        specCount=specCount+1
+                        specRAs.append(specObj['RADeg'])
+                        specDecs.append(specObj['decDeg'])
+                        specLabels.append(str(specCount))
+                    if len(specRAs) > 0:
+                        p.addPlotObjects(specRAs, specDecs, 'specObjects', objLabels = specLabels,
+                                        size = sizeDeg/40.0*3600.0, symbol = 'box', color = "red")
                               
-        if plotXMatch == "true":
-            obj=self.sourceCollection.find_one({'name': name})
-            xMatchRAs=[]
-            xMatchDecs=[]
-            xMatchLabels=[]
-            if 'crossMatchCatalogs' in self.configDict.keys():
-                for xMatchDict in self.configDict['crossMatchCatalogs']:
-                    if "plotXMatch" in xMatchDict.keys() and xMatchDict['plotXMatch'] == False:
-                        continue
-                    label=xMatchDict['label']
-                    RAKey='%s_RADeg' % (label)
-                    decKey='%s_decDeg' % (label)
-                    if RAKey in obj.keys() and decKey in obj.keys():
-                        # We only want to show coords that are different, and not exactly cross-matched
-                        # (e.g., cross matched zCluster results would have exact same RADeg, decDeg - useless to show)
-                        if obj[RAKey] != obj['RADeg'] and obj[decKey] != obj['decDeg']:
-                            xMatchRAs.append(obj[RAKey])
-                            xMatchDecs.append(obj[decKey])
-                            xMatchLabels.append(label)            
-            # Other coords in obj dictionary that weren't yet picked up (useful for e.g. editable BCG coords)
-            # Editable fields
-            fieldsList=[]
-            for fieldDict in self.configDict['fields']:
-                fieldsList.append(str(fieldDict['name']))
-            for key in fieldsList:
-                if key.split("_")[-1] == 'RADeg':
-                    if key.split("_")[0] not in xMatchLabels and key != "RADeg":
-                        xMatchRAs.append(obj[key])
-                        xMatchDecs.append(obj[key.replace("RADeg", "decDeg")])
-                        xMatchLabels.append(str(key.split("_")[0])) 
+            if plotXMatch == "true":
+                obj=self.sourceCollection.find_one({'name': name})
+                xMatchRAs=[]
+                xMatchDecs=[]
+                xMatchLabels=[]
+                if 'crossMatchCatalogs' in self.configDict.keys():
+                    for xMatchDict in self.configDict['crossMatchCatalogs']:
+                        if "plotXMatch" in xMatchDict.keys() and xMatchDict['plotXMatch'] == False:
+                            continue
+                        label=xMatchDict['label']
+                        RAKey='%s_RADeg' % (label)
+                        decKey='%s_decDeg' % (label)
+                        if RAKey in obj.keys() and decKey in obj.keys():
+                            # We only want to show coords that are different, and not exactly cross-matched
+                            # (e.g., cross matched zCluster results would have exact same RADeg, decDeg - useless to show)
+                            if obj[RAKey] != obj['RADeg'] and obj[decKey] != obj['decDeg']:
+                                xMatchRAs.append(obj[RAKey])
+                                xMatchDecs.append(obj[decKey])
+                                xMatchLabels.append(label)            
+                # Other coords in obj dictionary that weren't yet picked up (useful for e.g. editable BCG coords)
+                # Editable fields
+                fieldsList=[]
+                for fieldDict in self.configDict['fields']:
+                    fieldsList.append(str(fieldDict['name']))
+                for key in fieldsList:
+                    if key.split("_")[-1] == 'RADeg':
+                        if key.split("_")[0] not in xMatchLabels and key != "RADeg":
+                            xMatchRAs.append(obj[key])
+                            xMatchDecs.append(obj[key.replace("RADeg", "decDeg")])
+                            xMatchLabels.append(str(key.split("_")[0])) 
 
-            if len(xMatchRAs) > 0:
-                p.addPlotObjects(xMatchRAs, xMatchDecs, 'xMatchObjects', objLabels = xMatchLabels,
-                                 size = sizeDeg/40.0*3600.0, symbol = "diamond", color = 'cyan')
+                if len(xMatchRAs) > 0:
+                    p.addPlotObjects(xMatchRAs, xMatchDecs, 'xMatchObjects', objLabels = xMatchLabels,
+                                     size = sizeDeg/40.0*3600.0, symbol = "diamond", color = 'cyan')
         
-        if plotContours == "true":
-            if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
-                clipFileName=self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".fits"
-                if os.path.exists(clipFileName):
-                    contourImg=pyfits.open(clipFileName)
-                    contourWCS=astWCS.WCS(contourImg[0].header, mode = 'pyfits')
-                    if self.configDict['contour1Sigma'] == "measureFromImage":
-                        contourData=contourImg[0].data
-                        # Choose level from clipped stdev
-                        sigmaCut=2.0
-                        mean=0
-                        sigma=1e6
-                        for i in range(20):
-                            #nonZeroMask=np.not_equal(contourData, 0)
-                            mask=np.less(abs(contourData-mean), sigmaCut*sigma)
-                            #mask=np.logical_and(nonZeroMask, mask)
-                            mean=np.mean(contourData[mask])
-                            sigma=np.std(contourData[mask])
+            if plotContours == "true":
+                if 'contourImage' in self.configDict.keys() and self.configDict['contourImage'] != None:
+                    clipFileName=self.cacheDir+os.path.sep+self.configDict['contourImage']+os.path.sep+subDir+os.path.sep+catalogTools.makeRADecString(RADeg, decDeg)+".fits"
+                    if os.path.exists(clipFileName):
+                        contourImg=pyfits.open(clipFileName)
+                        contourWCS=astWCS.WCS(contourImg[0].header, mode = 'pyfits')
+                        if self.configDict['contour1Sigma'] == "measureFromImage":
+                            contourData=contourImg[0].data
+                            # Choose level from clipped stdev
+                            sigmaCut=2.0
+                            mean=0
+                            sigma=1e6
+                            for i in range(20):
+                                #nonZeroMask=np.not_equal(contourData, 0)
+                                mask=np.less(abs(contourData-mean), sigmaCut*sigma)
+                                #mask=np.logical_and(nonZeroMask, mask)
+                                mean=np.mean(contourData[mask])
+                                sigma=np.std(contourData[mask])
+                        else:
+                            sigma=self.configDict['contour1Sigma']
+                        contourSigmaLevels=np.array(self.configDict['contourSigmaLevels'])
+                        contourLevels=contourSigmaLevels*sigma
+                        #contourLevels=[self.configDict['contour1Sigma'], 2*self.configDict['contour1Sigma'],
+                                        #4*self.configDict['contour1Sigma'], 8*self.configDict['contour1Sigma'],
+                                        #16*self.configDict['contour1Sigma']]
+                        #contourLevels=np.linspace(self.configDict['contour1Sigma'], 
+                                                    #20*self.configDict['contour1Sigma'], 20)
+                        p.addContourOverlay(contourImg[0].data, contourWCS, 'contour', levels = contourLevels, 
+                                            width = self.configDict['contourWidth'],     
+                                            color = self.configDict['contourColour'], 
+                                            smooth = self.configDict['contourSmoothingArcsec'],
+                                            highAccuracy = False)
                     else:
-                        sigma=self.configDict['contour1Sigma']
-                    contourSigmaLevels=np.array(self.configDict['contourSigmaLevels'])
-                    contourLevels=contourSigmaLevels*sigma
-                    #contourLevels=[self.configDict['contour1Sigma'], 2*self.configDict['contour1Sigma'],
-                                    #4*self.configDict['contour1Sigma'], 8*self.configDict['contour1Sigma'],
-                                    #16*self.configDict['contour1Sigma']]
-                    #contourLevels=np.linspace(self.configDict['contour1Sigma'], 
-                                                #20*self.configDict['contour1Sigma'], 20)
-                    p.addContourOverlay(contourImg[0].data, contourWCS, 'contour', levels = contourLevels, 
-                                        width = self.configDict['contourWidth'],     
-                                        color = self.configDict['contourColour'], 
-                                        smooth = self.configDict['contourSmoothingArcsec'],
-                                        highAccuracy = False)
-                else:
-                    plt.figtext(0.05, 0.05, "Adding contours failed - missing file: %s" % (clipFileName), color = 'red', backgroundcolor = 'black')
+                        plt.figtext(0.05, 0.05, "Adding contours failed - missing file: %s" % (clipFileName), color = 'red', backgroundcolor = 'black')
         
-        # NOTE: Currently, this is not displaying images under python3 - something encoding related?
-        #cherrypy.response.headers['Content-Type']="image/jpg"
-        cherrypy.response.headers['Content-Type']="data:image/jpg;base64"
-        buf=BytesIO()
-        plt.savefig(buf, dpi = 96, format = 'jpg')
-        plt.close()
+            # NOTE: Currently, this is not displaying images under python3 - something encoding related?
+            #cherrypy.response.headers['Content-Type']="image/jpg"
+            cherrypy.response.headers['Content-Type']="data:image/jpg;base64"
+            buf=BytesIO()
+            plt.savefig(buf, dpi = 96, format = 'jpg')
+        finally:
+            plt.close(fig)
         buf.seek(0)
 
         return base64.b64encode(buf.getvalue())
@@ -1305,63 +1307,67 @@ class SourceBrowser(object):
                 matchFileName=f
 
         # Make plot
-        if rDegMin > self.configDict['plotSizeArcmin']/60.:
-            plt.figure(figsize=(10, 1))
-            plt.figtext(0.5, 0.5, "No spectrum found", ha = 'center', va = 'center', size = 20)
-        else:
+        fig=None
+        try:
+            if rDegMin > self.configDict['plotSizeArcmin']/60.:
+                fig=plt.figure(figsize=(10, 1))
+                plt.figtext(0.5, 0.5, "No spectrum found", ha = 'center', va = 'center', size = 20)
+            else:
             
-            img=pyfits.open(matchFileName)
-            wavelength=img[self.configDict['specExtName']].data[self.configDict['specLambdaKey']]
-            flux=img[self.configDict['specExtName']].data[self.configDict['specFluxKey']]
-            sky=img[self.configDict['specExtName']].data[self.configDict['specSkyKey']]
-            flux=ndimage.uniform_filter1d(flux, int(self.configDict['specSmoothPix']))
-            flux=flux/flux.max()
+                img=pyfits.open(matchFileName)
+                wavelength=img[self.configDict['specExtName']].data[self.configDict['specLambdaKey']]
+                flux=img[self.configDict['specExtName']].data[self.configDict['specFluxKey']]
+                sky=img[self.configDict['specExtName']].data[self.configDict['specSkyKey']]
+                flux=ndimage.uniform_filter1d(flux, int(self.configDict['specSmoothPix']))
+                flux=flux/flux.max()
             
-            plt.figure(figsize=(10,6))
-            plt.title(matchFileName)
-            plt.plot(wavelength, flux, 'k-')
+                fig=plt.figure(figsize=(10,6))
+                plt.title(matchFileName)
+                plt.plot(wavelength, flux, 'k-')
 
-            plt.xlabel("Wavelength (Angstroms)")
-            plt.ylabel("Relative Flux")
+                plt.xlabel("Wavelength (Angstroms)")
+                plt.ylabel("Relative Flux")
 
-            # Plots the spectral features in turn
-            z=mongoDict[self.configDict['specRedshiftField']]
-            yRange=np.linspace(0, flux.max()*1.2)
-            for f in specFeatures.lineList:
-                featureLabel=f[0]
-                featureLambda=f[1]*(1+z)
-                if featureLambda > wavelength.min() and featureLambda < wavelength.max():
-                    # Greek letters? eta will cause a problem here!
-                    featureLabel=featureLabel.replace("alpha", "$\\alpha$")
-                    featureLabel=featureLabel.replace("beta", "$\\beta$")
-                    featureLabel=featureLabel.replace("gamma", "$\gamma$")
-                    featureLabel=featureLabel.replace("delta", "$\delta$")
-                    featureLabel=featureLabel.replace("epsilon", "$\\epsilon$")
-                    featureLabel=featureLabel.replace("zeta", "$\zeta$")
-                    featureLabel=featureLabel.replace("theta", "$\\theta$")
-                    plt.text(featureLambda, flux.max()*1.1, featureLabel, 
-                            ha='center', va='top', size=12, rotation='vertical', color = 'red')
-                    plt.plot([featureLambda]*len(yRange), yRange, 'k--')                
+                # Plots the spectral features in turn
+                z=mongoDict[self.configDict['specRedshiftField']]
+                yRange=np.linspace(0, flux.max()*1.2)
+                for f in specFeatures.lineList:
+                    featureLabel=f[0]
+                    featureLambda=f[1]*(1+z)
+                    if featureLambda > wavelength.min() and featureLambda < wavelength.max():
+                        # Greek letters? eta will cause a problem here!
+                        featureLabel=featureLabel.replace("alpha", "$\\alpha$")
+                        featureLabel=featureLabel.replace("beta", "$\\beta$")
+                        featureLabel=featureLabel.replace("gamma", "$\\gamma$")
+                        featureLabel=featureLabel.replace("delta", "$\\delta$")
+                        featureLabel=featureLabel.replace("epsilon", "$\\epsilon$")
+                        featureLabel=featureLabel.replace("zeta", "$\\zeta$")
+                        featureLabel=featureLabel.replace("theta", "$\\theta$")
+                        plt.text(featureLambda, flux.max()*1.1, featureLabel, 
+                                ha='center', va='top', size=12, rotation='vertical', color = 'red')
+                        plt.plot([featureLambda]*len(yRange), yRange, 'k--')                
             
-            # Sky, inc. main telluric absorption features
-            plt.plot(wavelength, sky/sky.max()*0.3, 'b-', label='Sky')
-            c=patches.Rectangle((6860, 0), (6930-6860), 1.2, fill=True, edgecolor=(0.8, 0.8, 0.8), 
-                            facecolor=(0.8, 0.8, 0.8), linewidth=1)
-            plt.gca().add_patch(c)
-            c=patches.Rectangle((7590, 0), (7710-7590), 1.2, fill=True, edgecolor=(0.8, 0.8, 0.8), 
-                            facecolor=(0.8, 0.8, 0.8), linewidth=1)
-            plt.gca().add_patch(c)
+                # Sky, inc. main telluric absorption features
+                plt.plot(wavelength, sky/sky.max()*0.3, 'b-', label='Sky')
+                c=patches.Rectangle((6860, 0), (6930-6860), 1.2, fill=True, edgecolor=(0.8, 0.8, 0.8), 
+                                facecolor=(0.8, 0.8, 0.8), linewidth=1)
+                plt.gca().add_patch(c)
+                c=patches.Rectangle((7590, 0), (7710-7590), 1.2, fill=True, edgecolor=(0.8, 0.8, 0.8), 
+                                facecolor=(0.8, 0.8, 0.8), linewidth=1)
+                plt.gca().add_patch(c)
 
-            #pylab.legend(loc="upper right")
-            #plt.savefig("test.jpg")
+                #pylab.legend(loc="upper right")
+                #plt.savefig("test.jpg")
 
-            plt.xlim(wavelength.min(), wavelength.max())
-            plt.ylim(0, flux.max()*1.2)
+                plt.xlim(wavelength.min(), wavelength.max())
+                plt.ylim(0, flux.max()*1.2)
             
-        cherrypy.response.headers['Content-Type']="image/jpg"
-        buf=StringIO.StringIO()
-        plt.savefig(buf, dpi = 96, format = 'jpg')
-        plt.close()
+            cherrypy.response.headers['Content-Type']="image/jpg"
+            buf=BytesIO()
+            plt.savefig(buf, dpi = 96, format = 'jpg')
+        finally:
+            if fig is not None:
+                plt.close(fig)
         buf.seek(0)
         
         return cherrypy.lib.file_generator(buf)
